@@ -1,0 +1,35 @@
+# PulseRecover deterministic policy configuration (ADR 0003).
+# The policy engine is the ONLY component that may authorize a financial action.
+# Probabilistic components (ML diagnosis, LLM reasoner) only propose.
+
+version: "1.0"
+
+auto_execute:
+  # An action may execute without human approval only if ALL of these hold:
+  min_confidence: 0.85
+  max_amount_inr: 5000        # converted to paise internally (x100)
+  max_attempts: 2             # per payment/opportunity
+
+require_human_approval:
+  amount_above_inr: 5000
+  confidence_below: 0.85
+
+# Hard blocks — never auto-execute, regardless of confidence or amount.
+never_auto_execute:
+  - refund
+  - irreversible_action
+  - customer_opted_out
+
+rate_limits:
+  max_actions_per_incident: 10
+  max_actions_per_customer_per_day: 3
+  max_actions_global_per_hour: 100
+
+stopping_rule:
+  # Stop automated recovery for an incident after N consecutive failed attempts;
+  # further actions require ESCALATED human review.
+  max_consecutive_failed_recoveries_per_incident: 3
+
+approval:
+  # Actions awaiting approval longer than this lapse back to PROPOSED review.
+  pending_approval_ttl_hours: 24

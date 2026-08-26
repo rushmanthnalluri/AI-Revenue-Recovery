@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Node / frontend
+node_modules/
+.next/
+out/
+dist/
+
+# Env / secrets — never commit real credentials
+.env
+.env.*
+!.env.example
+
+# Local data / artifacts
+*.db
+*.db-journal
+*.sqlite3
+artifacts/
+ml/artifacts/
+models_store/
+
+# Generated contracts are committed, but local overrides are not
+contracts/openapi.local.json
+
+# Logs
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

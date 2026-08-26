@@ -1,0 +1,10 @@
+# PLACEHOLDER frontend image — the frontend agent replaces this file with a
+# real build (e.g. Next.js standalone). For now it just serves a static note so
+# `docker compose up` brings up a healthy container on port 3000.
+FROM node:20-alpine
+
+WORKDIR /srv
+RUN printf '<!doctype html><title>PulseRecover</title><h1>PulseRecover frontend placeholder</h1><p>The frontend agent replaces deploy/Dockerfile.frontend with the real app.</p>' > index.html
+
+EXPOSE 3000
+CMD ["npx", "--yes", "serve", "-l", "3000", "."]

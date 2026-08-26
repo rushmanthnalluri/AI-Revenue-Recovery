@@ -1,0 +1,50 @@
+# PulseRecover compose stack: Postgres + backend + frontend (placeholder).
+# Local dev defaults to SQLite and needs no compose; this stack proves the
+# Postgres path (ADR 0002) and gives judges a one-command demo.
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: pulserecover
+      POSTGRES_PASSWORD: pulserecover
+      POSTGRES_DB: pulserecover
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pulserecover -d pulserecover"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://pulserecover:pulserecover@db:5432/pulserecover
+      APP_ENV: demo
+      SIMULATION_MODE: "true"
+      API_KEY: dev-key
+      POLICY_FILE: policies/default.yaml
+      CORS_ORIGINS: http://localhost:3000
+      LOG_LEVEL: INFO
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.frontend
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+
+volumes:
+  pgdata:

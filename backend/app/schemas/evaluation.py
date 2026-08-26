@@ -1,0 +1,58 @@
+"""Evaluation schemas — runs, metrics, and trigger contracts."""
+
+from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+from app.schemas.common import Paginated
+
+
+class EvaluationRunSummary(BaseModel):
+    id: str
+    name: str
+    evaluation_type: str  # detection | diagnosis | recovery | end_to_end
+    dataset: str
+    simulator_run_id: str | None = None
+    status: str  # running | completed | failed
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
+class EvaluationRunListResponse(Paginated[EvaluationRunSummary]):
+    pass
+
+
+class EvaluationRunDetail(EvaluationRunSummary):
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    notes: str | None = None
+
+
+class EvaluationMetrics(BaseModel):
+    """Aggregate metrics over completed runs (scientific evaluation vs ground
+    truth — ADR 0005). All rates are 0..1; latencies in minutes."""
+
+    runs_count: int = 0
+    detection_precision: float | None = None
+    detection_recall: float | None = None
+    detection_f1: float | None = None
+    diagnosis_top1_accuracy: float | None = None
+    mean_time_to_detect_minutes: float | None = None
+    mean_time_to_recover_minutes: float | None = None
+    recovery_rate: float | None = None
+    recovered_revenue_paise: int = 0
+    false_action_rate: float | None = None  # policy-approved actions that were wrong
+    currency: str = "INR"
+
+
+class RunEvaluationRequest(BaseModel):
+    name: str = "adhoc"
+    evaluation_type: str = "end_to_end"
+    dataset: str = "simulator"  # simulator scenario name or "production"
+    simulator_run_id: str | None = None
+
+
+class RunEvaluationResponse(BaseModel):
+    run_id: str
+    status: str
+    started_at: datetime
