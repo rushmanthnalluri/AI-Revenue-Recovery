@@ -43,6 +43,11 @@ class EvaluationMetrics(BaseModel):
     recovered_revenue_paise: int = 0
     false_action_rate: float | None = None  # policy-approved actions that were wrong
     currency: str = "INR"
+    # --- additive ---
+    diagnosis_top3_accuracy: float | None = None
+    unsafe_action_count: int = 0  # executed actions without gate evidence; must be 0
+    baseline_recovery_rate: float | None = None  # naive-retry arm comparison
+    baseline_recovered_revenue_paise: int = 0
 
 
 class RunEvaluationRequest(BaseModel):
@@ -50,9 +55,22 @@ class RunEvaluationRequest(BaseModel):
     evaluation_type: str = "end_to_end"
     dataset: str = "simulator"  # simulator scenario name or "production"
     simulator_run_id: str | None = None
+    # --- additive scale knobs ---
+    # Scenario name from `app.simulator.SCENARIOS`; overrides `dataset`.
+    scenario: str | None = None
+    # None -> use the scenario preset's own scale (detection needs roughly
+    # preset-scale traffic density; smaller scales are for plumbing tests).
+    seed: int | None = None
+    days: int | None = None
+    events: int | None = None
+    customers: int | None = None
 
 
 class RunEvaluationResponse(BaseModel):
     run_id: str
     status: str
     started_at: datetime
+    # --- additive ---
+    finished_at: datetime | None = None
+    experiment_id: str | None = None
+    metrics: dict[str, Any] = Field(default_factory=dict)

@@ -58,17 +58,29 @@ def test_mutating_route_requires_api_key(client):
     r = client.post("/api/v1/recovery/opp_x/approve", json={"actor": "human:t"})
     assert r.status_code == 401
     assert r.json()["error"]["code"] == "unauthorized"
+    r = client.post(
+        "/api/v1/recovery/opp_x/approve",
+        json={"actor": "human:t"},
+        headers={"X-API-Key": "wrong-key"},
+    )
+    assert r.status_code == 401
     r2 = client.post(
         "/api/v1/recovery/opp_x/approve",
         json={"actor": "human:t"},
         headers={"X-API-Key": "dev-key"},
     )
-    assert r2.status_code == 501  # stub, but authorized
+    assert r2.status_code == 404  # real endpoint, authorized; unknown opportunity
 
 
 def test_demo_and_detection_exempt_from_api_key(client):
-    assert client.post("/api/v1/demo/reset").status_code == 501
-    assert client.post("/api/v1/detection/run", json={}).status_code == 501
+    # Both are real endpoints now (no X-API-Key needed outside prod): reset on
+    # an empty DB is a clean no-op; a detection pass finds nothing to detect.
+    r = client.post("/api/v1/demo/reset")
+    assert r.status_code == 200
+    assert r.json()["status"] == "ok"
+    r = client.post("/api/v1/detection/run", json={})
+    assert r.status_code == 200
+    assert r.json()["status"] == "completed"
 
 
 def test_list_endpoints_return_empty_valid_pages(client):

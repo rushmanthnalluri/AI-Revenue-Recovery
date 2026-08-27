@@ -11,6 +11,7 @@ so the demo UI works without a key. Never edit this ordering casually.
 """
 
 import importlib
+import hmac
 import pkgutil
 import time
 import uuid
@@ -112,7 +113,9 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         if request.method in MUTATING_METHODS and path.startswith("/api/v1"):
             exempt = settings.APP_ENV != "prod" and path.startswith(API_KEY_EXEMPT_PREFIXES)
-            if not exempt and request.headers.get("x-api-key") != settings.API_KEY:
+            provided = request.headers.get("x-api-key", "").encode("utf-8")
+            expected = settings.API_KEY.encode("utf-8")
+            if not exempt and not hmac.compare_digest(provided, expected):
                 return _error(
                     401,
                     "unauthorized",

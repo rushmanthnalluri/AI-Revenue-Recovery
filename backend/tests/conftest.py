@@ -24,6 +24,9 @@ def db_session() -> Generator[Session, None, None]:
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+    from app.db import enable_sqlite_fk
+
+    enable_sqlite_fk(engine)
     Base.metadata.create_all(engine)
     TestingSession = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     session = TestingSession()

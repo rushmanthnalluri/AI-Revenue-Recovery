@@ -35,6 +35,7 @@ class OpportunityListResponse(Paginated[OpportunitySummary]):
 class OpportunityDetail(OpportunitySummary):
     constraints: dict[str, Any] = Field(default_factory=dict)
     actions: list["RecoveryActionView"] = Field(default_factory=list)
+    audit: list["AuditRef"] = Field(default_factory=list)
 
 
 class StrategyOption(BaseModel):
@@ -72,6 +73,19 @@ class PolicyDecisionView(BaseModel):
     decided_at: datetime
 
 
+class AuditRef(BaseModel):
+    """One append-only audit trail row referenced by a recovery resource."""
+
+    id: str
+    actor: str
+    action: str
+    entity_type: str
+    entity_id: str
+    request_id: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
 class RecoveryActionView(BaseModel):
     id: str
     opportunity_id: str
@@ -88,6 +102,9 @@ class RecoveryActionView(BaseModel):
     proposed_at: datetime
     executed_at: datetime | None = None
     verified_at: datetime | None = None
+    completed_at: datetime | None = None
+    approved_by: str | None = None
+    note: str | None = None
     last_error: str | None = None
 
 
@@ -124,3 +141,36 @@ class ActionResponse(BaseModel):
     status: RecoveryStatus
     message: str = ""
     policy_decision: PolicyDecisionView | None = None
+
+
+# --- opportunity builder (incident -> opportunities) -------------------------
+
+class BuildRequest(BaseModel):
+    incident_id: str
+    actor: str = "system:builder"
+
+
+class BuildResponse(BaseModel):
+    incident_id: str
+    created_count: int = 0
+    existing_count: int = 0
+    opportunities: list[OpportunitySummary] = Field(default_factory=list)
+
+
+# --- reconciliation sweep (ADR 0011) -----------------------------------------
+
+
+class ReconcileRequest(BaseModel):
+    actor: str = "human:operator"
+
+
+class ReconcileResponse(BaseModel):
+    """One sweep's report. `webhooks_reprocessed` counts events now
+    processed=true; `webhooks_still_failing` remain unprocessed."""
+
+    sweep_id: str
+    unknown_scanned: int = 0
+    resolved: int = 0
+    still_unknown: int = 0
+    webhooks_reprocessed: int = 0
+    webhooks_still_failing: int = 0

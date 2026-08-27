@@ -9,6 +9,7 @@ from app import __version__
 from app.config import settings
 from app.db import get_db
 from app.schemas.common import ComponentHealth, HealthResponse, SystemHealth
+from app.services.razorpay.factory import gateway_mode
 
 router = APIRouter(tags=["health"])
 
@@ -31,7 +32,8 @@ def readyz(db: Session = Depends(get_db)) -> SystemHealth:
 
 @router.get("/api/v1/system/health", response_model=SystemHealth)
 def system_health(db: Session = Depends(get_db)) -> SystemHealth:
-    gateway_mode = "simulator" if settings.SIMULATION_MODE else "razorpay_test"
+    # gateway_mode() mirrors get_gateway(): simulator when SIMULATION_MODE is
+    # on OR when no Razorpay keys are configured, else razorpay_test.
     return SystemHealth(
         status="ok",
         version=__version__,
@@ -44,7 +46,7 @@ def system_health(db: Session = Depends(get_db)) -> SystemHealth:
                 status="disabled" if settings.LLM_PROVIDER == "none" else "ok",
                 detail=settings.LLM_PROVIDER,
             ),
-            "gateway": ComponentHealth(status="ok", detail=gateway_mode),
+            "gateway": ComponentHealth(status="ok", detail=gateway_mode(settings)),
         },
     )
 

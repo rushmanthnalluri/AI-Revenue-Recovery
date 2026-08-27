@@ -56,6 +56,46 @@ class DiagnosisView(BaseModel):
     created_at: datetime
 
 
+class EstimateView(BaseModel):
+    """Flattened app.services.revenue.types.Estimate (integer paise + band)."""
+
+    point_paise: int | None = None
+    lower_paise: int = 0
+    upper_paise: int = 0
+    confidence: float = 0.0
+    low_confidence: bool = True
+    basis: str = ""
+
+
+class FailureClassView(BaseModel):
+    failure_class: str
+    failed_count: int
+    failed_amount_paise: int
+    allocated_loss: EstimateView
+    recoverability_factor: float
+    recoverable: EstimateView
+
+
+class RevenueBreakdown(BaseModel):
+    """RevenueService.revenue_at_risk flattened for the incident detail page.
+
+    observed_loss / recoverable are counterfactual ESTIMATES with bands;
+    actual_recovered_paise is measured from webhook-verified actions only.
+    """
+
+    currency: str = "INR"
+    window_start: datetime
+    window_end: datetime
+    baseline_start: datetime
+    baseline_end: datetime
+    observed_loss: EstimateView
+    recoverable: EstimateView
+    expected_recovery_by_strategy: dict[str, EstimateView] = Field(default_factory=dict)
+    actual_recovered_paise: int = 0
+    recovered_actions_count: int = 0
+    failure_classes: list[FailureClassView] = Field(default_factory=list)
+
+
 class IncidentDetail(IncidentSummary):
     description: str | None = None
     window_start: datetime | None = None
@@ -65,3 +105,9 @@ class IncidentDetail(IncidentSummary):
     timeline: list[IncidentTimelineEvent] = Field(default_factory=list)
     evidence: list[EvidenceItem] = Field(default_factory=list)
     diagnosis: DiagnosisView | None = None
+    # --- additive (backwards compatible) ---
+    segment: dict[str, str] = Field(default_factory=dict)
+    simulator_run_id: str | None = None
+    opportunities_count: int = 0
+    recovery_actions_count: int = 0
+    revenue: RevenueBreakdown | None = None

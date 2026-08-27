@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "none"
     OPENAI_API_KEY: str = ""
     OPENAI_BASE_URL: str = ""
+    OPENAI_MODEL: str = "gpt-4o-mini"
 
     # Shared-secret for mutating /api/v1 routes (X-API-Key header).
     API_KEY: str = "dev-key"

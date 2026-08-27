@@ -8,9 +8,11 @@ from pydantic import BaseModel, Field
 
 
 class WebhookAck(BaseModel):
-    status: str  # received | duplicate | rejected
+    # received | already_processed | rejected
+    status: str
     event_id: str | None = None
     duplicate: bool = False
+    processed: bool = False
     received_at: datetime | None = None
     detail: str | None = None
 

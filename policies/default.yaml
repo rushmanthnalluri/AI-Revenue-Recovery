@@ -1,35 +1,81 @@
 # PulseRecover deterministic policy configuration (ADR 0003).
 # The policy engine is the ONLY component that may authorize a financial action.
 # Probabilistic components (ML diagnosis, LLM reasoner) only propose.
+#
+# Loading is strict and fail-closed: a syntax error, a missing section, an
+# unknown key, or an invalid value aborts startup — the engine never guesses
+# safety limits. Money thresholds are written in INR for readability and
+# converted to integer paise (x100) at load time.
 
 version: "1.0"
 
+# Global kill switch. When enabled, every action is BLOCKED except the exempt
+# (non-financial) ones. This is the emergency brake for the whole recovery
+# automation; it does not require a deploy, only a config change + restart.
+kill_switch:
+  enabled: false
+  reason: ""
+  exempt_actions:
+    - escalate_human
+    - no_action
+
+actions:
+  # Closed allowlist of action types the gate may ever authorize. Anything not
+  # listed here is BLOCKED. `refund` is deliberately absent: the gate has no
+  # execution path for it at all (see never_auto_execute).
+  # Names are app.ports.ActionType values.
+  allowlist:
+    - retry_payment
+    - create_payment_link
+    - notify_customer
+    - extend_grace_period
+    - pause_subscription
+    - resume_subscription
+    - escalate_human
+    - no_action
+
 auto_execute:
-  # An action may execute without human approval only if ALL of these hold:
+  # An action may execute without human approval only if ALL of these hold
+  # (and none of the hard blocks / stopping rules / rate limits / duplicate
+  # guards matched):
   min_confidence: 0.85
   max_amount_inr: 5000        # converted to paise internally (x100)
   max_attempts: 2             # per payment/opportunity
 
 require_human_approval:
+  # Thresholds that force REQUIRES_APPROVAL. The engine applies the STRICTER
+  # of these and the auto_execute bounds, so a misconfiguration here can only
+  # make the gate more conservative, never more permissive.
   amount_above_inr: 5000
   confidence_below: 0.85
 
-# Hard blocks — never auto-execute, regardless of confidence or amount.
+# Hard blocks — the gate NEVER authorizes these, regardless of confidence,
+# amount, or approval flow. Entries are ActionType values ("refund") or
+# context flags: "irreversible_action" (ActionContext.metadata flag) and
+# "customer_opted_out" (ActionContext.customer_opted_out).
 never_auto_execute:
   - refund
   - irreversible_action
   - customer_opted_out
 
+duplicate_protection:
+  # A second action of the same type for the same customer within this window
+  # is BLOCKED as a duplicate unless the previous one conclusively ended
+  # (REJECTED / CANCELLED / FAILED). RECOVERED and UNKNOWN still block:
+  # never double-collect, never re-execute an action whose outcome is unclear.
+  cooldown_minutes: 60
+
 rate_limits:
+  # Counted over recovery actions that consumed budget (all statuses except
+  # REJECTED / CANCELLED).
   max_actions_per_incident: 10
-  max_actions_per_customer_per_day: 3
-  max_actions_global_per_hour: 100
+  max_actions_per_customer_per_day: 3   # UTC day
+  max_actions_global_per_hour: 100      # rolling hour
 
 stopping_rule:
-  # Stop automated recovery for an incident after N consecutive failed attempts;
-  # further actions require ESCALATED human review.
+  # Stop automated recovery after N consecutive FAILED actions; further
+  # automation is BLOCKED until a human reviews. Evaluated per incident (from
+  # ActionContext.consecutive_failures and the action history — whichever is
+  # higher) and per strategy (ActionContext.metadata["strategy_id"]).
   max_consecutive_failed_recoveries_per_incident: 3
-
-approval:
-  # Actions awaiting approval longer than this lapse back to PROPOSED review.
-  pending_approval_ttl_hours: 24
+  max_consecutive_failed_recoveries_per_strategy: 3

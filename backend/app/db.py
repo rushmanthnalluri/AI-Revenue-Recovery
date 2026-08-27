@@ -47,11 +47,30 @@ def _connect_args(url: str) -> dict:
     return {"check_same_thread": False} if url.startswith("sqlite") else {}
 
 
+def enable_sqlite_fk(engine: sa.engine.Engine) -> None:
+    """Enforce SQLite foreign-key constraints on every new connection.
+
+    SQLite ships with per-connection FK enforcement OFF; Postgres always
+    enforces. Turn it on so FK-ordering bugs (child row inserted before its
+    parent) fail fast in tests/dev instead of only on production Postgres.
+    No-op for non-SQLite backends.
+    """
+    if engine.url.get_backend_name() != "sqlite":
+        return
+
+    @sa.event.listens_for(engine, "connect")
+    def _fk_pragma(dbapi_conn, _):  # noqa: ANN001
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA foreign_keys=ON")
+        cur.close()
+
+
 engine = sa.create_engine(
     settings.DATABASE_URL,
     connect_args=_connect_args(settings.DATABASE_URL),
     pool_pre_ping=True,
 )
+enable_sqlite_fk(engine)
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
