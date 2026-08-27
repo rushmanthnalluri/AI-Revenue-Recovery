@@ -151,9 +151,17 @@ class PolicyConfig(_Strict):
 
 def _resolve_path(path: str | Path | None) -> Path:
     p = Path(path) if path is not None else Path(settings.POLICY_FILE)
-    if not p.is_absolute():
-        p = _REPO_ROOT / p
-    return p
+    if p.is_absolute():
+        return p
+    # Locally the policy file lives at the repo root (parents[4]); in the
+    # deploy image the backend tree is flattened to /srv with policies/
+    # copied alongside app/ (parents[3]). Pick the nearest ancestor that
+    # actually contains the file, so both layouts resolve.
+    for base in (Path(__file__).resolve().parents[3], _REPO_ROOT):
+        candidate = base / p
+        if candidate.exists():
+            return candidate
+    return _REPO_ROOT / p
 
 
 def load_policy_config(path: str | Path | None = None) -> PolicyConfig:

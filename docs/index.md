@@ -13,6 +13,7 @@ headline results.
 | [security-architecture.md](security-architecture.md) | Trust boundaries (LLM / gateway / webhook), authN-Z posture, secrets handling, financial-action safety controls, AI-specific threat mitigations, accepted residual risks |
 | [security-testing.md](security-testing.md) | Adversarial break-it engagement: 13-vector attack matrix (method → result → proof test), vulnerabilities found and fixed, accepted risks, residual recommendations (`backend/tests/security/`) |
 | [demo.md](demo.md) | The 5 deterministic demo scenarios: exact commands, verbatim expected outputs, and the proof suite that re-runs them |
+| [demo-script.md](demo-script.md) | The 5-minute live hiring-panel runbook for the compose stack: minute-by-minute clicks/API calls, rehearsed numbers, failure beats, fallbacks, pre-flight checklist |
 | [evaluation.md](evaluation.md) | Evaluation methodology and reproduced results: baseline-vs-PulseRecover harness, metric definitions, detection/diagnosis/recovery numbers, honest limitations, reproduction commands |
 
 ## Core services
@@ -65,7 +66,7 @@ headline results.
 ## Suggested reading paths
 
 - **Judge / reviewer (10 min):** README → demo.md → evaluation.md §2 →
-  policy.md §1.
+  policy.md §1. **Live panel:** demo-script.md.
 - **Backend engineer:** architecture.md → ports + the service doc for your
   area → policy.md → razorpay-integration.md.
 - **ML engineer:** ml.md → simulator.md → evaluation.md.

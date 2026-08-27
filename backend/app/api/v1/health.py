@@ -9,6 +9,7 @@ from app import __version__
 from app.config import settings
 from app.db import get_db
 from app.schemas.common import ComponentHealth, HealthResponse, SystemHealth
+from app.services.policy.config import load_policy_config
 from app.services.razorpay.factory import gateway_mode
 
 router = APIRouter(tags=["health"])
@@ -41,7 +42,7 @@ def system_health(db: Session = Depends(get_db)) -> SystemHealth:
         simulation_mode=settings.SIMULATION_MODE,
         checks={
             "database": _db_check(db),
-            "policy_engine": ComponentHealth(status="ok", detail=settings.POLICY_FILE),
+            "policy_engine": _policy_check(),
             "llm_provider": ComponentHealth(
                 status="disabled" if settings.LLM_PROVIDER == "none" else "ok",
                 detail=settings.LLM_PROVIDER,
@@ -49,6 +50,17 @@ def system_health(db: Session = Depends(get_db)) -> SystemHealth:
             "gateway": ComponentHealth(status="ok", detail=gateway_mode(settings)),
         },
     )
+
+
+def _policy_check() -> ComponentHealth:
+    # Actually load and validate the policy file — echoing the setting would
+    # report "ok" even when the gate cannot start (fail-closed design means
+    # an unreadable file is a real outage, so report it honestly).
+    try:
+        config = load_policy_config()
+    except Exception as exc:
+        return ComponentHealth(status="down", detail=f"{type(exc).__name__}: {exc}")
+    return ComponentHealth(status="ok", detail=config.policy_version)
 
 
 def _db_check(db: Session) -> ComponentHealth:

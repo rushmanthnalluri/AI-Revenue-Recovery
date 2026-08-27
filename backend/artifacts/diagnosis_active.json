@@ -1,0 +1,11 @@
+{
+  "artifact": "diagnosis_logistic_regression_v20260826T234303Z-c5434878.joblib",
+  "algo": "logistic_regression",
+  "model_version": "v20260826T234303Z-c5434878",
+  "trained_at": "2026-08-26T23:43:03.730726+00:00",
+  "dataset": "input:artifacts\\sim_features.csv rows=2050",
+  "val_macro_f1": 0.8444,
+  "test_macro_f1": 0.8231,
+  "test_top1_accuracy": 0.878,
+  "test_top3_accuracy": 0.9927
+}

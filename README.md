@@ -178,7 +178,8 @@ Real output (verbatim, scenario A — ids projected out):
 ```
 
 Full narratives and expected outputs for all five:
-[docs/demo.md](docs/demo.md).
+[docs/demo.md](docs/demo.md). Running the same story live on the compose
+stack (hiring panel, 5 minutes): [docs/demo-script.md](docs/demo-script.md).
 
 ## AI architecture
 
@@ -453,16 +454,20 @@ docker compose -f deploy/docker-compose.yml up --build
 # or: make compose-up
 ```
 
-**Container diagnosis is heuristic-only.** The compose backend image builds
-**without** the trained ML diagnosis model: `backend/artifacts/` is excluded
-from the Docker build context (`.dockerignore`, like `.gitignore`). In a
-container demo, diagnosis therefore falls back to the heuristic reasoner —
-confidences capped ≤ 0.7, below the 0.85 auto-execute floor, so **every
-recovery execution takes the human-approval lane**. To bake the model in,
-generate the artifacts locally first (see "Regenerating the ML artifacts"),
-then remove the `backend/artifacts` line from `.dockerignore` before
-`docker compose build` (or `COPY` a prebuilt artifact in
-`deploy/Dockerfile.backend`).
+**Container diagnosis ships the real ML model.** The ACTIVE diagnosis
+artifact (`backend/artifacts/diagnosis_active.json` + the active joblib,
+~10 KB total) is committed to the repo and copied into the backend image
+(`.gitignore` / `.dockerignore` allowlist exactly those two files; every
+other artifact stays excluded). Container and local demos therefore run
+identical, deterministic diagnosis — same model version, same confidences.
+Regenerating the model (see "Regenerating the ML artifacts") rewrites the
+pointer; commit the new pair to keep the image in sync.
+
+**Live demo runbook.** The 5-minute, minute-by-minute hiring-panel script
+for this compose stack — exact clicks and API calls, rehearsed numbers,
+failure beats, fallbacks, and the pre-flight checklist — lives in
+[docs/demo-script.md](docs/demo-script.md) (verified end-to-end twice on the
+deployed stack with identical key numbers).
 
 **Auth model (demo-grade, intentional).** Mutating `/api/v1` routes require
 the shared `X-API-Key` secret (constant-time compare); `/api/v1/demo` and

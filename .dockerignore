@@ -10,7 +10,12 @@
 # Python virtualenvs and local artifacts
 backend/.venv
 .venv
-backend/artifacts
+# Local ML experiment artifacts stay out of images — except the committed
+# ACTIVE diagnosis model (two tiny files) so container diagnosis matches
+# local demo diagnosis deterministically.
+backend/artifacts/*
+!backend/artifacts/diagnosis_active.json
+!backend/artifacts/diagnosis_logistic_regression_v20260826T234303Z-c5434878.joblib
 
 # Node / Next.js
 **/node_modules
