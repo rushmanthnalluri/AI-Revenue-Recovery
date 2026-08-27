@@ -112,9 +112,20 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable):
         path = request.url.path
         if request.method in MUTATING_METHODS and path.startswith("/api/v1"):
+            expected = settings.API_KEY.encode("utf-8")
+            if not expected:
+                # Fail CLOSED on misconfiguration: an empty API_KEY would
+                # otherwise compare equal to a missing/empty header and leave
+                # every mutating route unauthenticated.
+                logger.error("api key middleware: API_KEY is not configured; refusing mutating request")
+                return _error(
+                    503,
+                    "auth_not_configured",
+                    "API key is not configured on the server; mutating routes are disabled.",
+                    request_id_ctx.get(),
+                )
             exempt = settings.APP_ENV != "prod" and path.startswith(API_KEY_EXEMPT_PREFIXES)
             provided = request.headers.get("x-api-key", "").encode("utf-8")
-            expected = settings.API_KEY.encode("utf-8")
             if not exempt and not hmac.compare_digest(provided, expected):
                 return _error(
                     401,

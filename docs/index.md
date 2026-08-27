@@ -11,6 +11,7 @@ headline results.
 | [architecture.md](architecture.md) | System architecture: modular monolith, ports, component + sequence diagrams, the enforced dependency matrix (ADR 0010), request traceability, money convention, safety and observability models |
 | [data-flow.md](data-flow.md) | Every loop end to end: detection, AI investigation, opportunity build, execute lanes, webhook verification, UNKNOWN resolution, the reconciliation sweep (ADR 0011), demo/evaluation runs, transaction boundaries |
 | [security-architecture.md](security-architecture.md) | Trust boundaries (LLM / gateway / webhook), authN-Z posture, secrets handling, financial-action safety controls, AI-specific threat mitigations, accepted residual risks |
+| [security-testing.md](security-testing.md) | Adversarial break-it engagement: 13-vector attack matrix (method → result → proof test), vulnerabilities found and fixed, accepted risks, residual recommendations (`backend/tests/security/`) |
 | [demo.md](demo.md) | The 5 deterministic demo scenarios: exact commands, verbatim expected outputs, and the proof suite that re-runs them |
 | [evaluation.md](evaluation.md) | Evaluation methodology and reproduced results: baseline-vs-PulseRecover harness, metric definitions, detection/diagnosis/recovery numbers, honest limitations, reproduction commands |
 

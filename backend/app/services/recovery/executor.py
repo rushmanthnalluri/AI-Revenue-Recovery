@@ -400,7 +400,11 @@ class RecoveryExecutor:
                 order = self._gw.fetch_order(created_id)
                 evidence["order_status"] = order.get("status")
                 evidence["order_amount_paid"] = order.get("amount_paid")
-                if order.get("status") == "paid" or (order.get("amount_paid") or 0) >= action.amount_paise:
+                if order.get("id") != created_id:
+                    # Identity confusion: a status answered for an entity we
+                    # did not ask about proves NOTHING — stay UNKNOWN.
+                    evidence["order_id_mismatch"] = order.get("id")
+                elif order.get("status") == "paid" or (order.get("amount_paid") or 0) >= action.amount_paise:
                     return self._resolve_recovered(
                         action, actor=actor, request_id=rid, source="fetch_order", evidence=evidence
                     )
@@ -414,7 +418,10 @@ class RecoveryExecutor:
                     evidence["linked_payment"] = "not_found_at_gateway"
                 else:
                     evidence["linked_payment_status"] = remote.get("status")
-                    if remote.get("captured") or remote.get("status") == "captured":
+                    if remote.get("id") != payment.gateway_payment_id:
+                        # Identity confusion — see above; never recover on it.
+                        evidence["linked_payment_id_mismatch"] = remote.get("id")
+                    elif remote.get("captured") or remote.get("status") == "captured":
                         return self._resolve_recovered(
                             action, actor=actor, request_id=rid, source="fetch_payment", evidence=evidence
                         )

@@ -1,6 +1,6 @@
 # PulseRecover — Security Architecture
 
-**Companion:** `docs/architecture.md`, `docs/data-flow.md`, `docs/policy.md` (rule reference).
+**Companion:** `docs/architecture.md`, `docs/data-flow.md`, `docs/policy.md` (rule reference), `docs/security-testing.md` (adversarial attack matrix + proof suite).
 **Prime directive (ADR 0003/0004):** probabilistic AI proposes; deterministic policy decides; the LLM never has authority over financial actions.
 
 ## 1. Trust boundaries

@@ -34,6 +34,26 @@ logger = get_logger("app.api.v1.webhooks")
 
 router = APIRouter(tags=["webhooks"])
 
+# Razorpay event payloads are a few KB; 1 MiB is generous headroom. The cap is
+# enforced BEFORE signature verification so a junk flood cannot make the
+# process buffer unbounded request bodies in memory.
+MAX_WEBHOOK_BODY_BYTES = 1_048_576
+
+
+async def _read_capped_body(request: Request) -> bytes:
+    """Read the raw body with a hard size cap (413 beyond it)."""
+    length = request.headers.get("content-length")
+    if length is not None and length.isdigit() and int(length) > MAX_WEBHOOK_BODY_BYTES:
+        raise HTTPException(413, "Payload too large")
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > MAX_WEBHOOK_BODY_BYTES:
+            raise HTTPException(413, "Payload too large")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
 
 @router.post("/webhooks/razorpay", response_model=WebhookAck)
 async def razorpay_webhook(
@@ -41,7 +61,7 @@ async def razorpay_webhook(
     db: Session = Depends(get_db),
     gateway: PaymentGateway = Depends(get_gateway_dependency),
 ) -> WebhookAck:
-    raw = await request.body()
+    raw = await _read_capped_body(request)
 
     signature = request.headers.get("x-razorpay-signature", "")
     if not signature:
@@ -56,7 +76,9 @@ async def razorpay_webhook(
 
     try:
         payload = json.loads(raw)
-    except ValueError:
+    except (ValueError, RecursionError):
+        # ValueError: invalid JSON; RecursionError: pathological nesting depth
+        # (~100k levels) — a 400, never a 500 that invites a retry storm.
         raise HTTPException(400, "Webhook body is not valid JSON") from None
     if not isinstance(payload, dict):
         raise HTTPException(400, "Webhook body must be a JSON object")

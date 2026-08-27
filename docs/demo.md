@@ -169,7 +169,7 @@ fresh scratch DBs with the exact CLI configs:
 
 Verified 2026-08-26 against the retrained diagnosis artifact
 (`v20260826T234303Z-c5434878`): **10 passed in 150s / 145s on two consecutive
-runs**. The full backend suite was re-verified 2026-08-27: **415 passed**
+runs**. The full backend suite was re-verified 2026-08-28: **616 passed**
 (`cd backend && .venv/Scripts/python -m pytest tests -q`).
 
 ## Where the pieces live

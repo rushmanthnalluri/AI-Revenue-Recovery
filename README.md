@@ -411,7 +411,7 @@ cp .env.example .env        # defaults: SIMULATION_MODE=true, SQLite, no keys ne
 cd backend
 python -m venv .venv
 .venv/Scripts/python -m pip install -r requirements.txt
-.venv/Scripts/python -m pytest tests -q            # 471 tests
+.venv/Scripts/python -m pytest tests -q            # 616 tests
 .venv/Scripts/python -m uvicorn app.main:app --reload --port 8000
 
 # 2) Seed the simulator (separate shell; ~30 days of synthetic traffic + incidents)
@@ -532,7 +532,7 @@ Stated plainly — each is documented in the linked doc:
 ## Repository layout & docs
 
 ```
-backend/    FastAPI app, services, simulator, evaluation harness, tests (471)
+backend/    FastAPI app, services, simulator, evaluation harness, tests (616)
 frontend/   Next.js 15 operations console (see frontend/README.md)
 contracts/  Generated openapi.json (committed; regenerate with backend/scripts/export_openapi.py)
 policies/   default.yaml — the deterministic policy gate config

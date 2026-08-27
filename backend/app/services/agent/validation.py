@@ -261,7 +261,16 @@ def validate_llm_payload(
 
     draft.what_happened = sanitize_text(draft.what_happened, "what_happened")
     draft.uncertainties = [
-        sanitize_text(u, f"uncertainties[{i}]") for i, u in enumerate(draft.uncertainties)
+        sanitize_text(
+            sanitize_advocacy(u, f"uncertainties[{i}]"), f"uncertainties[{i}]"
+        )
+        for i, u in enumerate(draft.uncertainties)
+    ]
+    draft.alternative_hypotheses = [
+        h.model_copy(
+            update={"cause": sanitize_advocacy(h.cause, f"alternative_hypotheses[{i}].cause")}
+        )
+        for i, h in enumerate(draft.alternative_hypotheses)
     ]
 
     # -- observed facts: tool must be whitelisted AND actually called this run;
@@ -270,6 +279,7 @@ def validate_llm_payload(
     kept_facts: list[LlmFact] = []
     for i, fact in enumerate(draft.observed_facts):
         loc = f"observed_facts[{i}]"
+        fact.statement = sanitize_advocacy(fact.statement, f"{loc}.statement")
         if fact.tool not in whitelisted_tools:
             stripped.append({"location": loc, "excerpt": fact.tool, "reason": "tool is not on the whitelist"})
             continue
@@ -303,6 +313,7 @@ def validate_llm_payload(
     kept_inferences: list[LlmInference] = []
     for i, inf in enumerate(draft.ai_inferences):
         loc = f"ai_inferences[{i}]"
+        inf.statement = sanitize_advocacy(inf.statement, f"{loc}.statement")
         text_hits = [(s, p) for s, p in _text_amounts_paise(inf.statement) if p not in tool_numbers]
         if text_hits:
             for span, _ in text_hits:

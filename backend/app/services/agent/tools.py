@@ -22,6 +22,7 @@ Money convention: integer paise + "INR" everywhere.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any, Callable
@@ -95,6 +96,24 @@ def _decision_dict(decision: PolicyDecision) -> dict[str, Any]:
         "rules_matched": list(decision.rules_matched),
         "policy_version": decision.policy_version,
     }
+
+
+def _valid_confidence(confidence: float | None) -> float:
+    """Normalize a caller-supplied confidence for a MUTATION tool.
+
+    NaN/Infinity would crash the INSERT (SQLite binds NaN as NULL into the
+    NOT NULL confidence column) before the policy gate ever saw it; values
+    outside [0, 1] are malformed input. Mutation tools fail closed with a
+    ToolError BEFORE any row is created — the dry-run
+    ``propose_recovery_strategy`` instead passes such values through to the
+    gate, which BLOCKs them as ``malformed.confidence``.
+    """
+    conf = 0.5 if confidence is None else float(confidence)
+    if not math.isfinite(conf) or not 0.0 <= conf <= 1.0:
+        raise ToolError(
+            f"invalid confidence {confidence!r}: must be a finite number in [0, 1]"
+        )
+    return conf
 
 
 class AgentTools:
@@ -731,6 +750,7 @@ class AgentTools:
         caller can never set it. The policy decision is returned verbatim and
         mirrored onto the action row. The gateway is never called from here.
         """
+        conf = _valid_confidence(confidence)
         payment, opp = self._resolve_target(
             payment_id=payment_id, opportunity_id=opportunity_id
         )
@@ -743,7 +763,6 @@ class AgentTools:
             amount = opp.amount_paise  # type: ignore[union-attr]
             currency = opp.currency or "INR"  # type: ignore[union-attr]
 
-        conf = 0.5 if confidence is None else float(confidence)
         action = RecoveryAction(
             opportunity_id=opp.id,  # type: ignore[union-attr]
             incident_id=self._incident_id,
