@@ -1,0 +1,30 @@
+# VCS / editors
+.git
+.gitignore
+**/.DS_Store
+**/__pycache__
+**/*.pyc
+.pytest_cache
+**/.pytest_cache
+
+# Python virtualenvs and local artifacts
+backend/.venv
+.venv
+backend/artifacts
+
+# Node / Next.js
+**/node_modules
+**/.next
+
+# Local databases and env files (never bake data or secrets into images)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.env
+.env.*
+!.env.example
+
+# Docs and contracts are not needed at runtime image build time
+docs
+contracts

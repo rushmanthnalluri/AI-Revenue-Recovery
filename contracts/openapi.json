@@ -12,6 +12,7 @@
           "agent"
         ],
         "summary": "Investigate",
+        "description": "Run (or return) an AI investigation for an incident.\n\nRuns the diagnosis first when none exists, then the reasoner, persists the\nrun in ``agent_reports`` and audits it. With ``force_refresh`` a fresh\nreport is produced even if one already exists.",
         "operationId": "investigate_api_v1_incidents__incident_id__investigate_post",
         "parameters": [
           {
@@ -46,7 +47,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigateResponse"
+                }
               }
             }
           },
@@ -69,6 +72,7 @@
           "agent"
         ],
         "summary": "Get Investigation",
+        "description": "Latest completed investigation report for an incident.",
         "operationId": "get_investigation_api_v1_incidents__incident_id__investigation_get",
         "parameters": [
           {
@@ -86,7 +90,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigationReportView"
+                }
               }
             }
           },
@@ -282,19 +288,21 @@
         }
       }
     },
-    "/api/v1/demo/reset": {
-      "post": {
+    "/api/v1/demo/scenarios": {
+      "get": {
         "tags": [
           "demo"
         ],
-        "summary": "Reset Demo",
-        "operationId": "reset_demo_api_v1_demo_reset_post",
+        "summary": "Get Scenarios",
+        "operationId": "get_scenarios_api_v1_demo_scenarios_get",
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ScenarioListResponse"
+                }
               }
             }
           }
@@ -324,7 +332,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ScenarioTriggerResponse"
+                }
               }
             }
           },
@@ -341,20 +351,20 @@
         }
       }
     },
-    "/api/v1/demo/scenarios": {
-      "get": {
+    "/api/v1/demo/reset": {
+      "post": {
         "tags": [
           "demo"
         ],
-        "summary": "List Scenarios",
-        "operationId": "list_scenarios_api_v1_demo_scenarios_get",
+        "summary": "Reset Demo",
+        "operationId": "reset_demo_api_v1_demo_reset_post",
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ScenarioListResponse"
+                  "$ref": "#/components/schemas/DemoResetResponse"
                 }
               }
             }
@@ -367,8 +377,9 @@
         "tags": [
           "detection"
         ],
-        "summary": "Run Detection",
-        "operationId": "run_detection_api_v1_detection_run_post",
+        "summary": "Run Detection Endpoint",
+        "description": "Execute one detection pass over payment_events and persist incidents.\n\nRe-running with the same window/segment/detector updates the existing\nincident instead of duplicating it. ``dry_run`` computes everything but\npersists nothing.",
+        "operationId": "run_detection_endpoint_api_v1_detection_run_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -391,7 +402,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/DetectionRunResponse"
+                }
               }
             }
           },
@@ -487,7 +500,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluationRunDetail"
+                }
               }
             }
           },
@@ -510,6 +525,7 @@
           "evaluation"
         ],
         "summary": "Get Metrics",
+        "description": "Aggregate over COMPLETED stored runs (means of available values).",
         "operationId": "get_metrics_api_v1_evaluation_metrics_get",
         "responses": {
           "200": {
@@ -547,7 +563,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RunEvaluationResponse"
+                }
               }
             }
           },
@@ -784,11 +802,13 @@
           }
         ],
         "responses": {
-          "501": {
+          "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentDetail"
+                }
               }
             }
           },
@@ -846,6 +866,38 @@
             }
           },
           {
+            "name": "opportunity_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Opportunity Type"
+            }
+          },
+          {
+            "name": "customer_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Customer Id"
+            }
+          },
+          {
             "name": "page",
             "in": "query",
             "required": false,
@@ -893,6 +945,90 @@
         }
       }
     },
+    "/api/v1/recovery/opportunities/build": {
+      "post": {
+        "tags": [
+          "recovery"
+        ],
+        "summary": "Build Opportunities",
+        "description": "Idempotently turn an incident's failed payments + abandoned checkouts\ninto opportunities, and generate each opportunity's strategy set.",
+        "operationId": "build_opportunities_api_v1_recovery_opportunities_build_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BuildRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BuildResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/recovery/reconcile": {
+      "post": {
+        "tags": [
+          "recovery"
+        ],
+        "summary": "Reconcile",
+        "description": "Operator-triggered reconciliation sweep (ADR 0011): UNKNOWN actions are\nre-queried against gateway truth (GETs only) and failed webhook events are\nre-run through the same handler registry as live intake. Idempotent.",
+        "operationId": "reconcile_api_v1_recovery_reconcile_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReconcileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconcileResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/recovery/{opportunity_id}": {
       "get": {
         "tags": [
@@ -916,7 +1052,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/OpportunityDetail"
+                }
               }
             }
           },
@@ -956,157 +1094,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/RecoveryPlan"
                 }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/recovery/{opportunity_id}/approve": {
-      "post": {
-        "tags": [
-          "recovery"
-        ],
-        "summary": "Approve",
-        "operationId": "approve_api_v1_recovery__opportunity_id__approve_post",
-        "parameters": [
-          {
-            "name": "opportunity_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Opportunity Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ApproveRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/recovery/{opportunity_id}/reject": {
-      "post": {
-        "tags": [
-          "recovery"
-        ],
-        "summary": "Reject",
-        "operationId": "reject_api_v1_recovery__opportunity_id__reject_post",
-        "parameters": [
-          {
-            "name": "opportunity_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Opportunity Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RejectRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/recovery/{opportunity_id}/escalate": {
-      "post": {
-        "tags": [
-          "recovery"
-        ],
-        "summary": "Escalate",
-        "operationId": "escalate_api_v1_recovery__opportunity_id__escalate_post",
-        "parameters": [
-          {
-            "name": "opportunity_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Opportunity Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/EscalateRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
               }
             }
           },
@@ -1156,7 +1146,165 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/recovery/{opportunity_id}/approve": {
+      "post": {
+        "tags": [
+          "recovery"
+        ],
+        "summary": "Approve",
+        "operationId": "approve_api_v1_recovery__opportunity_id__approve_post",
+        "parameters": [
+          {
+            "name": "opportunity_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Opportunity Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/recovery/{opportunity_id}/reject": {
+      "post": {
+        "tags": [
+          "recovery"
+        ],
+        "summary": "Reject",
+        "operationId": "reject_api_v1_recovery__opportunity_id__reject_post",
+        "parameters": [
+          {
+            "name": "opportunity_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Opportunity Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/recovery/{opportunity_id}/escalate": {
+      "post": {
+        "tags": [
+          "recovery"
+        ],
+        "summary": "Escalate",
+        "operationId": "escalate_api_v1_recovery__opportunity_id__escalate_post",
+        "parameters": [
+          {
+            "name": "opportunity_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Opportunity Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EscalateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResponse"
+                }
               }
             }
           },
@@ -1206,7 +1354,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResponse"
+                }
               }
             }
           },
@@ -1235,7 +1385,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookAck"
+                }
               }
             }
           }
@@ -1245,6 +1397,127 @@
   },
   "components": {
     "schemas": {
+      "ActionResponse": {
+        "properties": {
+          "action_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action Id"
+          },
+          "opportunity_id": {
+            "type": "string",
+            "title": "Opportunity Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RecoveryStatus"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": ""
+          },
+          "policy_decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PolicyDecisionView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "opportunity_id",
+          "status"
+        ],
+        "title": "ActionResponse"
+      },
+      "ActionType": {
+        "type": "string",
+        "enum": [
+          "retry_payment",
+          "create_payment_link",
+          "notify_customer",
+          "extend_grace_period",
+          "pause_subscription",
+          "resume_subscription",
+          "refund",
+          "escalate_human",
+          "no_action"
+        ],
+        "title": "ActionType"
+      },
+      "AiInferenceView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "statement": {
+            "type": "string",
+            "title": "Statement"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "default": "inference"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "supporting_fact_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Supporting Fact Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "statement",
+          "confidence"
+        ],
+        "title": "AiInferenceView"
+      },
+      "AlternativeHypothesisView": {
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "title": "Rank"
+          },
+          "cause": {
+            "type": "string",
+            "title": "Cause"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "default": "diagnosis"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rank",
+          "cause",
+          "confidence"
+        ],
+        "title": "AlternativeHypothesisView"
+      },
       "ApproveRequest": {
         "properties": {
           "actor": {
@@ -1352,6 +1625,110 @@
           "created_at"
         ],
         "title": "AuditLogEntry"
+      },
+      "AuditRef": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "actor": {
+            "type": "string",
+            "title": "Actor"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "entity_type": {
+            "type": "string",
+            "title": "Entity Type"
+          },
+          "entity_id": {
+            "type": "string",
+            "title": "Entity Id"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          },
+          "details": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Details"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "actor",
+          "action",
+          "entity_type",
+          "entity_id",
+          "created_at"
+        ],
+        "title": "AuditRef",
+        "description": "One append-only audit trail row referenced by a recovery resource."
+      },
+      "BuildRequest": {
+        "properties": {
+          "incident_id": {
+            "type": "string",
+            "title": "Incident Id"
+          },
+          "actor": {
+            "type": "string",
+            "title": "Actor",
+            "default": "system:builder"
+          }
+        },
+        "type": "object",
+        "required": [
+          "incident_id"
+        ],
+        "title": "BuildRequest"
+      },
+      "BuildResponse": {
+        "properties": {
+          "incident_id": {
+            "type": "string",
+            "title": "Incident Id"
+          },
+          "created_count": {
+            "type": "integer",
+            "title": "Created Count",
+            "default": 0
+          },
+          "existing_count": {
+            "type": "integer",
+            "title": "Existing Count",
+            "default": 0
+          },
+          "opportunities": {
+            "items": {
+              "$ref": "#/components/schemas/OpportunitySummary"
+            },
+            "type": "array",
+            "title": "Opportunities"
+          }
+        },
+        "type": "object",
+        "required": [
+          "incident_id"
+        ],
+        "title": "BuildResponse"
       },
       "CancelRequest": {
         "properties": {
@@ -1462,6 +1839,34 @@
             "type": "integer",
             "title": "Pending Approvals",
             "default": 0
+          },
+          "payments_baseline_success_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payments Baseline Success Rate"
+          },
+          "recoverable_revenue_paise": {
+            "type": "integer",
+            "title": "Recoverable Revenue Paise",
+            "default": 0
+          },
+          "revenue_at_risk_low_confidence": {
+            "type": "boolean",
+            "title": "Revenue At Risk Low Confidence",
+            "default": false
+          },
+          "recent_incidents": {
+            "items": {
+              "$ref": "#/components/schemas/IncidentSummary"
+            },
+            "type": "array",
+            "title": "Recent Incidents"
           }
         },
         "type": "object",
@@ -1502,6 +1907,196 @@
         ],
         "title": "DashboardTimeseries"
       },
+      "DemoResetResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": "ok"
+          },
+          "cleared": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Cleared"
+          },
+          "reset_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reset At"
+          },
+          "kept": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Kept"
+          },
+          "audit_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audit Id"
+          }
+        },
+        "type": "object",
+        "title": "DemoResetResponse"
+      },
+      "DetectionIncidentView": {
+        "properties": {
+          "incident_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Incident Id"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "metric": {
+            "type": "string",
+            "title": "Metric"
+          },
+          "detector": {
+            "type": "string",
+            "title": "Detector"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity"
+          },
+          "baseline_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Value"
+          },
+          "observed_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed Value"
+          },
+          "deviation_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deviation Pct"
+          },
+          "segment": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Segment"
+          },
+          "window_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Start"
+          },
+          "window_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window End"
+          },
+          "detected_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detected At"
+          },
+          "anomaly_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anomaly Start"
+          },
+          "affected_payments_count": {
+            "type": "integer",
+            "title": "Affected Payments Count",
+            "default": 0
+          },
+          "revenue_at_risk_paise": {
+            "type": "integer",
+            "title": "Revenue At Risk Paise",
+            "default": 0
+          },
+          "currency": {
+            "type": "string",
+            "title": "Currency",
+            "default": "INR"
+          }
+        },
+        "type": "object",
+        "required": [
+          "action",
+          "metric",
+          "detector",
+          "severity"
+        ],
+        "title": "DetectionIncidentView",
+        "description": "One incident a detection run created or updated (or would, on dry_run)."
+      },
       "DetectionRunRequest": {
         "properties": {
           "window_minutes": {
@@ -1529,10 +2124,203 @@
             "type": "boolean",
             "title": "Dry Run",
             "default": false
+          },
+          "detector": {
+            "type": "string",
+            "title": "Detector",
+            "default": "zscore"
+          },
+          "segment": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Segment"
+          },
+          "bucket_minutes": {
+            "type": "integer",
+            "maximum": 120.0,
+            "minimum": 1.0,
+            "title": "Bucket Minutes",
+            "default": 5
+          },
+          "baseline_buckets": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 4.0,
+            "title": "Baseline Buckets",
+            "default": 8
+          },
+          "min_bucket_count": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Min Bucket Count",
+            "default": 5
+          },
+          "sensitivity": {
+            "type": "number",
+            "maximum": 5.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Sensitivity",
+            "default": 1.0
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold"
+          },
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
           }
         },
         "type": "object",
         "title": "DetectionRunRequest"
+      },
+      "DetectionRunResponse": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "anomalies_detected": {
+            "type": "integer",
+            "title": "Anomalies Detected",
+            "default": 0
+          },
+          "incidents_created": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Incidents Created"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "incidents_updated": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Incidents Updated"
+          },
+          "incidents": {
+            "items": {
+              "$ref": "#/components/schemas/DetectionIncidentView"
+            },
+            "type": "array",
+            "title": "Incidents"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "status",
+          "started_at"
+        ],
+        "title": "DetectionRunResponse"
+      },
+      "DiagnosisView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "model_name": {
+            "type": "string",
+            "title": "Model Name"
+          },
+          "model_version": {
+            "type": "string",
+            "title": "Model Version"
+          },
+          "predicted_cause": {
+            "type": "string",
+            "title": "Predicted Cause"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "explanation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Explanation"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "model_name",
+          "model_version",
+          "predicted_cause",
+          "confidence",
+          "created_at"
+        ],
+        "title": "DiagnosisView"
       },
       "EscalateRequest": {
         "properties": {
@@ -1551,6 +2339,49 @@
           "reason"
         ],
         "title": "EscalateRequest"
+      },
+      "EstimateView": {
+        "properties": {
+          "point_paise": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Point Paise"
+          },
+          "lower_paise": {
+            "type": "integer",
+            "title": "Lower Paise",
+            "default": 0
+          },
+          "upper_paise": {
+            "type": "integer",
+            "title": "Upper Paise",
+            "default": 0
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence",
+            "default": 0.0
+          },
+          "low_confidence": {
+            "type": "boolean",
+            "title": "Low Confidence",
+            "default": true
+          },
+          "basis": {
+            "type": "string",
+            "title": "Basis",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "EstimateView",
+        "description": "Flattened app.services.revenue.types.Estimate (integer paise + band)."
       },
       "EvaluationMetrics": {
         "properties": {
@@ -1656,11 +2487,127 @@
             "type": "string",
             "title": "Currency",
             "default": "INR"
+          },
+          "diagnosis_top3_accuracy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diagnosis Top3 Accuracy"
+          },
+          "unsafe_action_count": {
+            "type": "integer",
+            "title": "Unsafe Action Count",
+            "default": 0
+          },
+          "baseline_recovery_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Recovery Rate"
+          },
+          "baseline_recovered_revenue_paise": {
+            "type": "integer",
+            "title": "Baseline Recovered Revenue Paise",
+            "default": 0
           }
         },
         "type": "object",
         "title": "EvaluationMetrics",
         "description": "Aggregate metrics over completed runs (scientific evaluation vs ground\ntruth \u2014 ADR 0005). All rates are 0..1; latencies in minutes."
+      },
+      "EvaluationRunDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "evaluation_type": {
+            "type": "string",
+            "title": "Evaluation Type"
+          },
+          "dataset": {
+            "type": "string",
+            "title": "Dataset"
+          },
+          "simulator_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Simulator Run Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metrics"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "evaluation_type",
+          "dataset",
+          "status"
+        ],
+        "title": "EvaluationRunDetail"
       },
       "EvaluationRunListResponse": {
         "properties": {
@@ -1761,6 +2708,45 @@
         ],
         "title": "EvaluationRunSummary"
       },
+      "EvidenceItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "evidence_type": {
+            "type": "string",
+            "title": "Evidence Type"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          },
+          "collector": {
+            "type": "string",
+            "title": "Collector",
+            "default": "agent:investigator"
+          },
+          "collected_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Collected At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "evidence_type",
+          "title",
+          "collected_at"
+        ],
+        "title": "EvidenceItem"
+      },
       "ExecuteRequest": {
         "properties": {
           "strategy_id": {
@@ -1782,6 +2768,42 @@
         },
         "type": "object",
         "title": "ExecuteRequest"
+      },
+      "FailureClassView": {
+        "properties": {
+          "failure_class": {
+            "type": "string",
+            "title": "Failure Class"
+          },
+          "failed_count": {
+            "type": "integer",
+            "title": "Failed Count"
+          },
+          "failed_amount_paise": {
+            "type": "integer",
+            "title": "Failed Amount Paise"
+          },
+          "allocated_loss": {
+            "$ref": "#/components/schemas/EstimateView"
+          },
+          "recoverability_factor": {
+            "type": "number",
+            "title": "Recoverability Factor"
+          },
+          "recoverable": {
+            "$ref": "#/components/schemas/EstimateView"
+          }
+        },
+        "type": "object",
+        "required": [
+          "failure_class",
+          "failed_count",
+          "failed_amount_paise",
+          "allocated_loss",
+          "recoverability_factor",
+          "recoverable"
+        ],
+        "title": "FailureClassView"
       },
       "HTTPValidationError": {
         "properties": {
@@ -1806,6 +2828,242 @@
         },
         "type": "object",
         "title": "HealthResponse"
+      },
+      "HypothesisView": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "supporting_evidence": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Supporting Evidence"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "confidence"
+        ],
+        "title": "HypothesisView",
+        "description": "Legacy flat hypothesis (kept for consumers of the scaffold contract);\nderived from ai_inferences."
+      },
+      "IncidentDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "status": {
+            "$ref": "#/components/schemas/IncidentStatus"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity"
+          },
+          "metric": {
+            "type": "string",
+            "title": "Metric"
+          },
+          "detection_method": {
+            "type": "string",
+            "title": "Detection Method"
+          },
+          "detected_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Detected At"
+          },
+          "baseline_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Value"
+          },
+          "observed_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed Value"
+          },
+          "deviation_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deviation Pct"
+          },
+          "affected_payments_count": {
+            "type": "integer",
+            "title": "Affected Payments Count",
+            "default": 0
+          },
+          "revenue_at_risk_paise": {
+            "type": "integer",
+            "title": "Revenue At Risk Paise",
+            "default": 0
+          },
+          "currency": {
+            "type": "string",
+            "title": "Currency",
+            "default": "INR"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "window_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Start"
+          },
+          "window_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window End"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "root_cause": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Root Cause"
+          },
+          "timeline": {
+            "items": {
+              "$ref": "#/components/schemas/IncidentTimelineEvent"
+            },
+            "type": "array",
+            "title": "Timeline"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceItem"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "diagnosis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiagnosisView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "segment": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Segment"
+          },
+          "simulator_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Simulator Run Id"
+          },
+          "opportunities_count": {
+            "type": "integer",
+            "title": "Opportunities Count",
+            "default": 0
+          },
+          "recovery_actions_count": {
+            "type": "integer",
+            "title": "Recovery Actions Count",
+            "default": 0
+          },
+          "revenue": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RevenueBreakdown"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "status",
+          "severity",
+          "metric",
+          "detection_method",
+          "detected_at"
+        ],
+        "title": "IncidentDetail"
       },
       "IncidentListResponse": {
         "properties": {
@@ -1941,6 +3199,40 @@
         ],
         "title": "IncidentSummary"
       },
+      "IncidentTimelineEvent": {
+        "properties": {
+          "ts": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Ts"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "actor": {
+            "type": "string",
+            "title": "Actor",
+            "default": "system"
+          },
+          "details": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Details"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ts",
+          "kind",
+          "summary"
+        ],
+        "title": "IncidentTimelineEvent"
+      },
       "InvestigateRequest": {
         "properties": {
           "force_refresh": {
@@ -1951,6 +3243,397 @@
         },
         "type": "object",
         "title": "InvestigateRequest"
+      },
+      "InvestigateResponse": {
+        "properties": {
+          "report_id": {
+            "type": "string",
+            "title": "Report Id"
+          },
+          "incident_id": {
+            "type": "string",
+            "title": "Incident Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "report": {
+            "$ref": "#/components/schemas/InvestigationReportView"
+          }
+        },
+        "type": "object",
+        "required": [
+          "report_id",
+          "incident_id",
+          "status",
+          "started_at",
+          "report"
+        ],
+        "title": "InvestigateResponse"
+      },
+      "InvestigationReportView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "incident_id": {
+            "type": "string",
+            "title": "Incident Id"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "observed_facts": {
+            "items": {
+              "$ref": "#/components/schemas/ObservedFactView"
+            },
+            "type": "array",
+            "title": "Observed Facts"
+          },
+          "ai_inferences": {
+            "items": {
+              "$ref": "#/components/schemas/AiInferenceView"
+            },
+            "type": "array",
+            "title": "Ai Inferences"
+          },
+          "recommended_actions": {
+            "items": {
+              "$ref": "#/components/schemas/RecommendedActionView"
+            },
+            "type": "array",
+            "title": "Recommended Actions"
+          },
+          "recommended_next_step": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecommendedActionView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "alternative_hypotheses": {
+            "items": {
+              "$ref": "#/components/schemas/AlternativeHypothesisView"
+            },
+            "type": "array",
+            "title": "Alternative Hypotheses"
+          },
+          "revenue_implications": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RevenueImplicationsView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "uncertainties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Uncertainties"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence",
+            "default": 0.0
+          },
+          "escalated": {
+            "type": "boolean",
+            "title": "Escalated",
+            "default": false
+          },
+          "escalation_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Escalation Reasons"
+          },
+          "degraded": {
+            "type": "boolean",
+            "title": "Degraded",
+            "default": false
+          },
+          "degraded_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Degraded Reasons"
+          },
+          "stripped_claims": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Stripped Claims"
+          },
+          "tools_called": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tools Called"
+          },
+          "reasoner": {
+            "type": "string",
+            "title": "Reasoner",
+            "default": "heuristic"
+          },
+          "diagnosis": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diagnosis"
+          },
+          "hypotheses": {
+            "items": {
+              "$ref": "#/components/schemas/HypothesisView"
+            },
+            "type": "array",
+            "title": "Hypotheses"
+          },
+          "generated_by": {
+            "type": "string",
+            "title": "Generated By",
+            "default": "heuristic"
+          },
+          "tokens_used": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tokens Used"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "raw": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Raw"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "incident_id",
+          "summary",
+          "created_at"
+        ],
+        "title": "InvestigationReportView"
+      },
+      "ObservedFactView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "statement": {
+            "type": "string",
+            "title": "Statement"
+          },
+          "tool": {
+            "type": "string",
+            "title": "Tool"
+          },
+          "evidence_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Evidence Ids"
+          },
+          "data": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "statement",
+          "tool"
+        ],
+        "title": "ObservedFactView"
+      },
+      "OpportunityDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "incident_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Incident Id"
+          },
+          "payment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Id"
+          },
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Id"
+          },
+          "subscription_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subscription Id"
+          },
+          "opportunity_type": {
+            "type": "string",
+            "title": "Opportunity Type"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RecoveryStatus"
+          },
+          "amount_paise": {
+            "type": "integer",
+            "title": "Amount Paise"
+          },
+          "currency": {
+            "type": "string",
+            "title": "Currency",
+            "default": "INR"
+          },
+          "expected_recovery_paise": {
+            "type": "integer",
+            "title": "Expected Recovery Paise",
+            "default": 0
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence",
+            "default": 0.0
+          },
+          "risk": {
+            "type": "string",
+            "title": "Risk",
+            "default": "low"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "constraints": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Constraints"
+          },
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/RecoveryActionView"
+            },
+            "type": "array",
+            "title": "Actions"
+          },
+          "audit": {
+            "items": {
+              "$ref": "#/components/schemas/AuditRef"
+            },
+            "type": "array",
+            "title": "Audit"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "opportunity_type",
+          "status",
+          "amount_paise",
+          "created_at"
+        ],
+        "title": "OpportunityDetail"
       },
       "OpportunityListResponse": {
         "properties": {
@@ -2103,6 +3786,434 @@
         ],
         "title": "OpportunitySummary"
       },
+      "PolicyDecisionView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/PolicyOutcome"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasons"
+          },
+          "rules_matched": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Rules Matched"
+          },
+          "policy_version": {
+            "type": "string",
+            "title": "Policy Version",
+            "default": "unknown"
+          },
+          "decided_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Decided At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "outcome",
+          "decided_at"
+        ],
+        "title": "PolicyDecisionView"
+      },
+      "PolicyOutcome": {
+        "type": "string",
+        "enum": [
+          "ALLOWED",
+          "BLOCKED",
+          "REQUIRES_APPROVAL"
+        ],
+        "title": "PolicyOutcome"
+      },
+      "PolicyOutcomePreview": {
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "title": "Outcome"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasons"
+          },
+          "rules_matched": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Rules Matched"
+          },
+          "policy_version": {
+            "type": "string",
+            "title": "Policy Version",
+            "default": "unknown"
+          }
+        },
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "title": "PolicyOutcomePreview"
+      },
+      "PolicyPreview": {
+        "properties": {
+          "outcome": {
+            "$ref": "#/components/schemas/PolicyOutcome"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasons"
+          }
+        },
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "title": "PolicyPreview"
+      },
+      "RecommendedActionView": {
+        "properties": {
+          "action_type": {
+            "type": "string",
+            "title": "Action Type"
+          },
+          "rationale": {
+            "type": "string",
+            "title": "Rationale"
+          },
+          "amount_paise": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount Paise"
+          },
+          "currency": {
+            "type": "string",
+            "title": "Currency",
+            "default": "INR"
+          },
+          "payment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Id"
+          },
+          "opportunity_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opportunity Id"
+          },
+          "expected_recovery_paise": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Recovery Paise"
+          },
+          "policy_preview": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PolicyOutcomePreview"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "action_type",
+          "rationale"
+        ],
+        "title": "RecommendedActionView"
+      },
+      "ReconcileRequest": {
+        "properties": {
+          "actor": {
+            "type": "string",
+            "title": "Actor",
+            "default": "human:operator"
+          }
+        },
+        "type": "object",
+        "title": "ReconcileRequest"
+      },
+      "ReconcileResponse": {
+        "properties": {
+          "sweep_id": {
+            "type": "string",
+            "title": "Sweep Id"
+          },
+          "unknown_scanned": {
+            "type": "integer",
+            "title": "Unknown Scanned",
+            "default": 0
+          },
+          "resolved": {
+            "type": "integer",
+            "title": "Resolved",
+            "default": 0
+          },
+          "still_unknown": {
+            "type": "integer",
+            "title": "Still Unknown",
+            "default": 0
+          },
+          "webhooks_reprocessed": {
+            "type": "integer",
+            "title": "Webhooks Reprocessed",
+            "default": 0
+          },
+          "webhooks_still_failing": {
+            "type": "integer",
+            "title": "Webhooks Still Failing",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "sweep_id"
+        ],
+        "title": "ReconcileResponse",
+        "description": "One sweep's report. `webhooks_reprocessed` counts events now\nprocessed=true; `webhooks_still_failing` remain unprocessed."
+      },
+      "RecoveryActionView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "opportunity_id": {
+            "type": "string",
+            "title": "Opportunity Id"
+          },
+          "strategy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy Id"
+          },
+          "action_type": {
+            "$ref": "#/components/schemas/ActionType"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RecoveryStatus"
+          },
+          "amount_paise": {
+            "type": "integer",
+            "title": "Amount Paise"
+          },
+          "currency": {
+            "type": "string",
+            "title": "Currency",
+            "default": "INR"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence",
+            "default": 0.0
+          },
+          "actor": {
+            "type": "string",
+            "title": "Actor"
+          },
+          "attempts": {
+            "type": "integer",
+            "title": "Attempts",
+            "default": 0
+          },
+          "gateway_request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gateway Request Id"
+          },
+          "policy_decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PolicyDecisionView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "proposed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Proposed At"
+          },
+          "executed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executed At"
+          },
+          "verified_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "opportunity_id",
+          "action_type",
+          "status",
+          "amount_paise",
+          "actor",
+          "proposed_at"
+        ],
+        "title": "RecoveryActionView"
+      },
+      "RecoveryPlan": {
+        "properties": {
+          "opportunity_id": {
+            "type": "string",
+            "title": "Opportunity Id"
+          },
+          "strategies": {
+            "items": {
+              "$ref": "#/components/schemas/StrategyOption"
+            },
+            "type": "array",
+            "title": "Strategies"
+          },
+          "recommended_strategy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommended Strategy Id"
+          },
+          "policy_preview": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PolicyPreview"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "opportunity_id"
+        ],
+        "title": "RecoveryPlan"
+      },
       "RecoveryStatus": {
         "type": "string",
         "enum": [
@@ -2140,6 +4251,168 @@
         ],
         "title": "RejectRequest"
       },
+      "RevenueBreakdown": {
+        "properties": {
+          "currency": {
+            "type": "string",
+            "title": "Currency",
+            "default": "INR"
+          },
+          "window_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window Start"
+          },
+          "window_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window End"
+          },
+          "baseline_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Baseline Start"
+          },
+          "baseline_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Baseline End"
+          },
+          "observed_loss": {
+            "$ref": "#/components/schemas/EstimateView"
+          },
+          "recoverable": {
+            "$ref": "#/components/schemas/EstimateView"
+          },
+          "expected_recovery_by_strategy": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/EstimateView"
+            },
+            "type": "object",
+            "title": "Expected Recovery By Strategy"
+          },
+          "actual_recovered_paise": {
+            "type": "integer",
+            "title": "Actual Recovered Paise",
+            "default": 0
+          },
+          "recovered_actions_count": {
+            "type": "integer",
+            "title": "Recovered Actions Count",
+            "default": 0
+          },
+          "failure_classes": {
+            "items": {
+              "$ref": "#/components/schemas/FailureClassView"
+            },
+            "type": "array",
+            "title": "Failure Classes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "window_start",
+          "window_end",
+          "baseline_start",
+          "baseline_end",
+          "observed_loss",
+          "recoverable"
+        ],
+        "title": "RevenueBreakdown",
+        "description": "RevenueService.revenue_at_risk flattened for the incident detail page.\n\nobserved_loss / recoverable are counterfactual ESTIMATES with bands;\nactual_recovered_paise is measured from webhook-verified actions only."
+      },
+      "RevenueImplicationsView": {
+        "properties": {
+          "currency": {
+            "type": "string",
+            "title": "Currency",
+            "default": "INR"
+          },
+          "observed_loss_point_paise": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed Loss Point Paise"
+          },
+          "observed_loss_lower_paise": {
+            "type": "integer",
+            "title": "Observed Loss Lower Paise",
+            "default": 0
+          },
+          "observed_loss_upper_paise": {
+            "type": "integer",
+            "title": "Observed Loss Upper Paise",
+            "default": 0
+          },
+          "recoverable_point_paise": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recoverable Point Paise"
+          },
+          "recoverable_lower_paise": {
+            "type": "integer",
+            "title": "Recoverable Lower Paise",
+            "default": 0
+          },
+          "recoverable_upper_paise": {
+            "type": "integer",
+            "title": "Recoverable Upper Paise",
+            "default": 0
+          },
+          "expected_recovery_point_by_strategy": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Expected Recovery Point By Strategy"
+          },
+          "actual_recovered_paise": {
+            "type": "integer",
+            "title": "Actual Recovered Paise",
+            "default": 0
+          },
+          "recovered_actions_count": {
+            "type": "integer",
+            "title": "Recovered Actions Count",
+            "default": 0
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence",
+            "default": 0.0
+          },
+          "low_confidence": {
+            "type": "boolean",
+            "title": "Low Confidence",
+            "default": true
+          },
+          "basis": {
+            "type": "string",
+            "title": "Basis",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "RevenueImplicationsView"
+      },
       "RunEvaluationRequest": {
         "properties": {
           "name": {
@@ -2167,10 +4440,117 @@
               }
             ],
             "title": "Simulator Run Id"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario"
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed"
+          },
+          "days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days"
+          },
+          "events": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Events"
+          },
+          "customers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customers"
           }
         },
         "type": "object",
         "title": "RunEvaluationRequest"
+      },
+      "RunEvaluationResponse": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "experiment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Experiment Id"
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metrics"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "status",
+          "started_at"
+        ],
+        "title": "RunEvaluationResponse"
       },
       "ScenarioInfo": {
         "properties": {
@@ -2214,6 +4594,79 @@
         "type": "object",
         "title": "ScenarioListResponse"
       },
+      "ScenarioTriggerResponse": {
+        "properties": {
+          "scenario": {
+            "type": "string",
+            "title": "Scenario"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "simulator_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Simulator Run Id"
+          },
+          "incident_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Incident Id"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "skipped": {
+            "type": "boolean",
+            "title": "Skipped",
+            "default": false
+          },
+          "stats": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Stats"
+          },
+          "detection": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detection"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scenario",
+          "status"
+        ],
+        "title": "ScenarioTriggerResponse"
+      },
       "Severity": {
         "type": "string",
         "enum": [
@@ -2223,6 +4676,74 @@
           "CRITICAL"
         ],
         "title": "Severity"
+      },
+      "StrategyOption": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "action_type": {
+            "$ref": "#/components/schemas/ActionType"
+          },
+          "rank": {
+            "type": "integer",
+            "title": "Rank",
+            "default": 0
+          },
+          "expected_recovery_paise": {
+            "type": "integer",
+            "title": "Expected Recovery Paise",
+            "default": 0
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence",
+            "default": 0.0
+          },
+          "risk": {
+            "type": "string",
+            "title": "Risk",
+            "default": "low"
+          },
+          "eligibility": {
+            "type": "boolean",
+            "title": "Eligibility",
+            "default": true
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "constraints": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Constraints"
+          },
+          "generated_by": {
+            "type": "string",
+            "title": "Generated By",
+            "default": "heuristic"
+          },
+          "selected": {
+            "type": "boolean",
+            "title": "Selected",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "action_type"
+        ],
+        "title": "StrategyOption"
       },
       "SystemHealth": {
         "properties": {
@@ -2322,6 +4843,63 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WebhookAck": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Id"
+          },
+          "duplicate": {
+            "type": "boolean",
+            "title": "Duplicate",
+            "default": false
+          },
+          "processed": {
+            "type": "boolean",
+            "title": "Processed",
+            "default": false
+          },
+          "received_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Received At"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "WebhookAck"
       }
     }
   }

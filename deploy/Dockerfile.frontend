@@ -1,10 +1,57 @@
-# PLACEHOLDER frontend image — the frontend agent replaces this file with a
-# real build (e.g. Next.js standalone). For now it just serves a static note so
-# `docker compose up` brings up a healthy container on port 3000.
-FROM node:20-alpine
+# PulseRecover frontend — Next.js 15 standalone build.
+# Build context is the REPO ROOT (see deploy/docker-compose.yml):
+#   docker build -f deploy/Dockerfile.frontend .
+#
+# Three stages: deps (npm ci) -> build (next build, standalone output) ->
+# runner (node .next/standalone/server.js on :3000).
 
-WORKDIR /srv
-RUN printf '<!doctype html><title>PulseRecover</title><h1>PulseRecover frontend placeholder</h1><p>The frontend agent replaces deploy/Dockerfile.frontend with the real app.</p>' > index.html
+# ---------------------------------------------------------------------------
+FROM node:20-alpine AS deps
+WORKDIR /app
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
 
+# ---------------------------------------------------------------------------
+FROM node:20-alpine AS builder
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=deps /app/node_modules ./node_modules
+# Selective copies (the root .dockerignore also guards the context) so a
+# local frontend/node_modules or .next never leaks into the image.
+COPY frontend/package.json ./
+COPY frontend/next.config.ts frontend/tsconfig.json ./
+COPY frontend/postcss.config.mjs frontend/tailwind.config.ts frontend/eslint.config.mjs ./
+COPY frontend/public ./public
+COPY frontend/src ./src
+
+# NEXT_PUBLIC_* vars are inlined into the client bundle at build time.
+# The browser talks to the backend on the host, so localhost:8000 is right
+# for `docker compose up` too.
+ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+ARG NEXT_PUBLIC_API_KEY=
+ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL \
+    NEXT_PUBLIC_API_KEY=$NEXT_PUBLIC_API_KEY
+
+RUN npm run build
+
+# ---------------------------------------------------------------------------
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
+
+RUN addgroup -S nodejs && adduser -S nextjs -G nodejs
+
+COPY --from=builder /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER nextjs
 EXPOSE 3000
-CMD ["npx", "--yes", "serve", "-l", "3000", "."]
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:3000/ >/dev/null 2>&1 || exit 1
+
+CMD ["node", "server.js"]

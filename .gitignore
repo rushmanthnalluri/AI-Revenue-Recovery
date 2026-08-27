@@ -23,6 +23,8 @@ dist/
 # Local data / artifacts
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
 *.sqlite3
 artifacts/
 ml/artifacts/

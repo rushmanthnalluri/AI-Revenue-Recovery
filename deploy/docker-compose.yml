@@ -1,6 +1,9 @@
-# PulseRecover compose stack: Postgres + backend + frontend (placeholder).
+# PulseRecover compose stack: Postgres + backend + frontend.
 # Local dev defaults to SQLite and needs no compose; this stack proves the
 # Postgres path (ADR 0002) and gives judges a one-command demo.
+#
+# Host ports and the demo API key are overridable from the shell or .env:
+#   BACKEND_PORT=8100 FRONTEND_PORT=3200 docker compose -f deploy/docker-compose.yml up
 
 services:
   db:
@@ -17,7 +20,9 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      # Host exposure is optional (backend reaches db over the compose
+      # network). Override DB_PORT when the host already runs Postgres.
+      - "${DB_PORT:-5432}:5432"
 
   backend:
     build:
@@ -27,24 +32,30 @@ services:
       DATABASE_URL: postgresql+psycopg://pulserecover:pulserecover@db:5432/pulserecover
       APP_ENV: demo
       SIMULATION_MODE: "true"
-      API_KEY: dev-key
+      API_KEY: ${API_KEY:-dev-key}
       POLICY_FILE: policies/default.yaml
-      CORS_ORIGINS: http://localhost:3000
+      # CORS_ORIGINS is a list[str] setting: pydantic-settings JSON-decodes
+      # complex env values, so this must be a JSON array, not a bare string.
+      CORS_ORIGINS: '["http://localhost:${FRONTEND_PORT:-3000}"]'
       LOG_LEVEL: INFO
     depends_on:
       db:
         condition: service_healthy
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
 
   frontend:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.frontend
+      args:
+        # The browser talks to the backend on the HOST, so localhost is right.
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:${BACKEND_PORT:-8000}
+        NEXT_PUBLIC_API_KEY: ${API_KEY:-dev-key}
     depends_on:
       - backend
     ports:
-      - "3000:3000"
+      - "${FRONTEND_PORT:-3000}:3000"
 
 volumes:
   pgdata:
