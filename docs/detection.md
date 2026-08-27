@@ -158,7 +158,14 @@ cost of false positives.
   "baseline_buckets": 12, "min_bucket_count": 5,
   "sensitivity": 1.0, "threshold": null,
   "as_of": null,              // window anchor; default = latest terminal event
-  "dry_run": false
+  "dry_run": false,
+  // --- incident-level noise floors (see below) ---
+  "min_absolute_deviation": null,  // metric units; null = per-metric default
+  "min_flagged_volume": 15,        // events across flagged buckets; 0 disables
+  "min_flagged_run": 2,            // consecutive flagged buckets; 1 disables
+  // --- episode dedup + suppression ---
+  "dedup_cooldown_minutes": 360,        // null disables merging
+  "suppress_after_resolve_minutes": 720 // null disables suppression
 }
 ```
 
@@ -166,7 +173,69 @@ The window is anchored at the **latest terminal event** (or `as_of`), not
 wall-clock now — identical data yields an identical window, which is what
 makes re-runs deterministic and idempotent.
 
-For every (metric × detector) anomaly the engine persists:
+## Incident-level noise floors (Watchdog-style)
+
+A detector fire is a *statistical* event; an incident is a *product* event.
+Between the two sits an engine-level admission gate (detectors stay pure —
+the synthetic-fixture comparison above is unaffected). A fire becomes an
+incident only when it clears **all three** floors:
+
+| floor | default | meaning |
+|---|---|---|
+| `min_absolute_deviation` | per metric: **5pp** success rate, **75 ms** latency (`null` in the request selects the default; `0` disables) | `|observed − baseline|` in metric units. Guards quiet-merchant hair-triggers: with the baseline std floored at 1% of mean, a 2–3pp wobble can exceed 3σ on a near-perfect baseline. |
+| `min_flagged_volume` | **15** events | total events across the flagged buckets. A "50% drop" built on 6 payments is not an incident. |
+| `min_flagged_run` | **2** consecutive buckets | persistence: the degradation must hold for at least 2 adjacent flagged buckets (≥ 10 min at the default grid). One bad bucket is a blip. Note: `isolation_forest` flags boundary buckets by design — pair it with `min_flagged_run: 1`. |
+
+Fires that fail a floor are counted in the run response as
+`anomalies_filtered` (and logged with the failed floor), not persisted.
+Every floor is request-configurable, so threshold tuning via `dry_run` can
+see exactly what would be admitted.
+
+Measured on the standard-scenario harness (scheduled 12h/6h passes,
+production defaults, seed 42 — see "Measured effect" below): the binding
+floors on that dataset are **persistence** and **flagged volume**; the
+absolute-deviation floor does not bind there (organic noise deviates far
+more than 5pp) and exists for the small-sample regime.
+
+## Cross-pass episode dedup + post-resolution suppression
+
+**Idempotent re-runs (unchanged):** the upsert key is `(metric,
+detection_method, window_start, window_end, segment_fingerprint)`.
+Re-running the same (window, segment, detector) **updates** the existing
+incident — latest observed/deviation/severity/impact, fresh evidence
+(replaced, not stacked) — and deliberately preserves the original
+`detected_at` and leaves `status` untouched (a human's triage is never
+clobbered by a re-run).
+
+**Episode merge (new):** scheduled passes overlap (the evaluation harness
+runs one pass every 6h with a 12h lookback), so the same underlying episode
+used to be re-persisted as a new row per pass window — the incident list
+filled with duplicates of one anomaly. Now, when there is no exact-window
+match, the engine looks for a **non-terminal** incident with the same
+`(metric, detection_method, segment_fingerprint)` whose anomaly span
+(`meta.anomaly_start..anomaly_end`, falling back to the analysis window)
+overlaps the new anomaly or lies within `dedup_cooldown_minutes` (default
+360) of it. The match is **merged into the earliest such incident**:
+`detected_at`, window bounds and `status` stay with the first detection
+(honest MTTD), observed/severity/impact refresh, the episode span widens
+(`min` start / `max` end), and `meta.merge_count` increments. The run
+report marks the action `updated` with a `detail` note. `dedup_cooldown_minutes: null`
+restores the legacy per-window behavior.
+
+**Suppression (new):** re-detection of a signature that a human already
+closed must not reopen it. When no live match exists, if a **terminal**
+incident (`RESOLVED` / `CLOSED` / `FALSE_POSITIVE`) with the same signature
+was resolved (falling back to `updated_at`) less than
+`suppress_after_resolve_minutes` (default 720 = 12h) before the new
+anomaly's start, the fire is **suppressed**: nothing is persisted, the run
+report carries an entry with `action: "suppressed"` pointing at the
+suppressing incident, and `anomalies_filtered` increments. After the window
+expires, a genuinely new episode creates a fresh incident. Exact same-window
+re-runs still *update* a resolved row in place (status untouched) — that is
+idempotent replay, not re-detection. `suppress_after_resolve_minutes: null`
+disables the rule.
+
+For every (metric × detector) admitted anomaly the engine persists:
 
 - **`incidents` row** — status `OPEN` (the enum's initial state), `metric`,
   `detection_method`, `baseline_value`, `observed_value`, signed
@@ -182,13 +251,6 @@ For every (metric × detector) anomaly the engine persists:
     (`flagged` = deviates in the degradation direction by ≥ half the global
     deviation).
 
-**Idempotent re-runs:** the dedup key is `(metric, detection_method,
-window_start, window_end, segment_fingerprint)`. Re-running the same
-(window, segment, detector) **updates** the existing incident — latest
-observed/deviation/severity/impact, fresh evidence (replaced, not stacked) —
-and deliberately preserves the original `detected_at` and leaves `status`
-untouched (a human's triage is never clobbered by a re-run).
-
 **Detection latency** is computable from the persisted record:
 `detected_at` (when the engine saw it) vs the simulator ground-truth start
 (evaluation agent), and `meta.anomaly_start` (estimated start) for the
@@ -196,6 +258,72 @@ engine's own estimate. `meta.bucket_minutes` converts either to buckets.
 
 `dry_run: true` computes everything and persists nothing
 (`action: "would_create"`), for threshold tuning against live data.
+
+## Measured effect of the floors + dedup (evaluation harness)
+
+Before/after on the **same dataset and seed**: scenario `standard` (30 days,
+~69k payment_events, 6 injected incidents), seed 42, scheduled 12h/6h passes
+at production defaults, reproduced by
+`scripts/run_evaluation.py --scenario standard --seed 42`.
+⚠️ The simulator anchors its data window at *today* 00:00 UTC, so absolute
+numbers shift with the calendar day of the run; the published 0.185/0.833 in
+`docs/evaluation.md` was measured on a dataset anchored 2026-08-26, this
+pair on 2026-08-27. The before/after *delta* below is what is reproducible —
+same day, same seed, same code except the detection change.
+
+| metric | before | after |
+|---|---:|---:|
+| incident rows persisted | 90 | **6** |
+| matched rows / ground truth | 14 / 3 of 6 | 4 / 3 of 6 |
+| **precision** | 0.156 | **0.667** |
+| recall | 0.500 | 0.500 (unchanged) |
+| F1 | 0.237 | 0.571 |
+| MTTD (min, sim time) | 415 | 895 |
+| downstream: opportunities / interventions / false interventions | 8,460 / 100 / 12 | 719 / 60 / 6 |
+
+Root causes the change attacks, measured:
+
+1. **Organic noise on quiet traffic.** 76 of the 90 before-rows matched no
+   injected incident. Two mechanisms: sparse night buckets (5–10 events)
+   where one failure swings the rate 20–50pp, and daily-cycle mix shift —
+   windows whose baseline buckets sit in the night trough flag the day ramp
+   (and vice versa) with deviations up to −55% / +2000%. The persistence
+   floor (`min_flagged_run=2`) is the binding gate (alone: precision 0.62 in
+   offline replay), flagged-volume (`min=15`) reinforces it; absolute
+   deviation does not bind on this dataset.
+2. **Pass-window re-detection.** Consecutive overlapping passes re-persisted
+   the same episode as new rows (14 matched rows were really 4 episodes;
+   76 noise rows were ~45 episodes). The episode merge collapses them.
+   Measured honestly: merge *alone* slightly lowers the row-counted
+   precision (0.113) — true-positive re-detection had been inflating the
+   numerator — the floors are what raise it; the combination is what ships.
+3. **Re-detection after resolution.** Covered by the suppression window
+   (no harness effect: the harness never resolves incidents).
+
+Honest costs, also measured:
+
+- **MTTD 415 → 895 min.** The floors delay the first *persisted* detection
+  until an episode proves persistence/volume — for the 48h subscription
+  spike, four early weak detections (5–14 events, single-bucket runs) are
+  correctly filtered and the first admitted row lands a pass later. The
+  merge preserves the original `detected_at` for every admitted episode.
+- **Recovered revenue in the harness drops ~18%** (₹16.06L → ₹13.19L) with
+  interventions 100 → 60. The 84 noise incidents had been generating
+  recovery work on organic failures — gross-attribution inflation of exactly
+  the kind the evaluation methodology criticizes. Post-fix recovery is
+  incident-driven only; false interventions halve (12 → 6); unsafe stays 0.
+- The two residual false positives (08-15 and 08-22, multi-hour organic
+  −47…−54% success-rate swings overlapping no injected window) are real
+  traffic dips no floor kills without also killing real incidents —
+  precision 0.667, not 1.0.
+
+Recall note: the three missed injected incidents are coverage gaps, not
+floor casualties — `route_latency` (a single route barely moves merchant-wide
+latency), `checkout_abandonment_spike` (abandoned checkouts never become
+terminal outcomes, so the success-rate series is blind by construction), and
+`customer_insufficient_funds_wave` (runs 00:00–20:00 IST; its night buckets
+carry 1–5 events and fall under `min_bucket_count`, so the signal never
+enters the scored series — verified on the persisted series snapshot).
 
 ## Detector comparison — synthetic fixtures (preliminary)
 
@@ -235,11 +363,24 @@ Per-scenario detail (recorded at the same run):
 ## Known limitations (honest list)
 
 - Baseline poisoning: a window that starts inside an ongoing outage detects
-  nothing (accepted trade-off of baselines-first).
+  nothing (accepted trade-off of baselines-first). This is what keeps the
+  20h insufficient-funds wave invisible from windows anchored inside it.
 - Sparse traffic: buckets under `min_bucket_count` are skipped; very quiet
-  merchants get no detection rather than noisy detection.
+  merchants get no detection rather than noisy detection. Measured: the
+  wave's night buckets carry 1–5 events, so its signal never enters the
+  scored series at the default floor.
+- Seasonality: the leading-window baseline cannot tell a daily-cycle trough
+  from a degradation. The noise floors + episode dedup suppress the
+  resulting incidents (measured above), but multi-hour organic swings still
+  occasionally admit (2 residual FPs in the measured run). A same-time-
+  yesterday baseline is the real fix and is deliberately out of scope.
+- The noise floors trade detection latency for precision: first persisted
+  detection waits for persistence + volume evidence (MTTD 415 → 895 min on
+  the standard harness). `min_flagged_run=1` / `min_flagged_volume=0`
+  restore the old hair-trigger.
 - IsolationForest needs ≥ 8 baseline buckets and adds no value below ~20
-  total buckets.
+  total buckets; its boundary-only flagging also pairs poorly with
+  `min_flagged_run=2` (use `min_flagged_run=1` when running it).
 - Severity is a function of deviation magnitude only; business weighting
   (revenue mix per segment) is the downstream risk agent's job.
 - `incident_evidence.evidence_type` adds `segment_breakdown` alongside the

@@ -26,8 +26,11 @@ def run_detection_endpoint(
     """Execute one detection pass over payment_events and persist incidents.
 
     Re-running with the same window/segment/detector updates the existing
-    incident instead of duplicating it. ``dry_run`` computes everything but
-    persists nothing.
+    incident instead of duplicating it; overlapping scheduled passes MERGE
+    into the open episode (original ``detected_at`` preserved); incidents must
+    clear the noise floors (``min_absolute_deviation`` / ``min_flagged_volume``
+    / ``min_flagged_run``) or they are counted in ``anomalies_filtered`` and
+    dropped. ``dry_run`` computes everything but persists nothing.
     """
     req = body or DetectionRunRequest()
     try:
@@ -41,6 +44,7 @@ def run_detection_endpoint(
         started_at=result.started_at,
         finished_at=result.finished_at,
         anomalies_detected=result.anomalies_detected,
+        anomalies_filtered=result.anomalies_filtered,
         incidents_created=result.incidents_created,
         incidents_updated=result.incidents_updated,
         detail=result.detail,
@@ -62,6 +66,7 @@ def run_detection_endpoint(
                 affected_payments_count=i.affected_payments_count,
                 revenue_at_risk_paise=i.revenue_at_risk_paise,
                 currency=i.currency,
+                detail=i.detail,
             )
             for i in result.incidents
         ],

@@ -5,12 +5,24 @@ A pass (``run_detection``) does:
 1. Resolve the analysis window — anchored at the latest terminal event (or an
    explicit ``as_of``) so identical data yields an identical window.
 2. Build the bucketed series per metric and run the chosen detector(s).
-3. Localize each anomaly by re-scoring per-segment slices
+3. Apply the incident-level noise floors (Watchdog-style): a detector fire
+   becomes an incident only when the deviation is big in absolute terms
+   (``min_absolute_deviation``), touches enough traffic
+   (``min_flagged_volume``), and persists across enough consecutive buckets
+   (``min_flagged_run``). Fires that fail a floor are counted
+   (``anomalies_filtered``) and dropped — organic night-traffic wobble is not
+   an incident.
+4. Localize each surviving anomaly by re-scoring per-segment slices
    (method / bank / gateway) and ranking contributors by deviation.
-4. Persist: one ``incidents`` row per (metric, detector, window, segment) —
+5. Persist: one ``incidents`` row per (metric, detector, window, segment) —
    re-running the same combination UPDATEs that row (original ``detected_at``
-   preserved, evidence refreshed) instead of duplicating it.
-5. Attach ``incident_evidence``: a ``metric_series`` snapshot and the
+   preserved, evidence refreshed) instead of duplicating it. Cross-window
+   re-detection of the SAME episode (overlapping scheduled passes) is merged
+   into the open incident when the anomaly spans overlap or lie within
+   ``dedup_cooldown_minutes``; re-detection of a signature that was resolved
+   (RESOLVED/CLOSED/FALSE_POSITIVE) within ``suppress_after_resolve_minutes``
+   is suppressed, not reopened.
+6. Attach ``incident_evidence``: a ``metric_series`` snapshot and the
    ``segment_breakdown`` ranking.
 
 Detection latency is computable from the persisted record: the true start
@@ -43,6 +55,7 @@ from app.services.detection.series import (
     KNOWN_METRICS,
     METRIC_CAPTURE_LATENCY,
     METRIC_DIRECTION,
+    METRIC_SUCCESS_RATE,
     Bucket,
     PaymentOutcome,
     build_series,
@@ -57,13 +70,32 @@ logger = get_logger("app.services.detection")
 COLLECTOR = "agent:detection"
 TOP_SEGMENTS_PER_DIMENSION = 3
 
+#: Incident-level floor: minimum absolute |observed - baseline| per metric, in
+#: metric-native units (request-overridable via ``min_absolute_deviation``).
+#: 5 percentage points for success rate, 75 ms for capture latency — below
+#: that, a detector fire is organic wobble, not an incident. Measured on the
+#: standard-scenario harness: not the binding floor there (organic noise
+#: deviates far more), it guards quiet-merchant hair-triggers.
+DEFAULT_MIN_ABSOLUTE_DEVIATION: dict[str, float] = {
+    METRIC_SUCCESS_RATE: 0.05,
+    METRIC_CAPTURE_LATENCY: 75.0,
+}
+
+#: Statuses after which re-detection of the same signature is eligible for
+#: the post-resolution suppression window.
+TERMINAL_STATUSES: tuple[IncidentStatus, ...] = (
+    IncidentStatus.RESOLVED,
+    IncidentStatus.CLOSED,
+    IncidentStatus.FALSE_POSITIVE,
+)
+
 
 @dataclass(frozen=True)
 class IncidentReport:
     """One created/updated (or, on dry-run, hypothetical) incident."""
 
     incident_id: str | None
-    action: str  # "created" | "updated" | "would_create" | "would_update"
+    action: str  # "created" | "updated" | "would_create" | "would_update" | "suppressed"
     metric: str
     detector: str
     severity: Severity
@@ -78,6 +110,7 @@ class IncidentReport:
     affected_payments_count: int
     revenue_at_risk_paise: int
     currency: str = "INR"
+    detail: str | None = None  # e.g. merge note / suppression reason
 
 
 @dataclass
@@ -87,6 +120,7 @@ class DetectionRunResult:
     started_at: datetime
     finished_at: datetime | None = None
     anomalies_detected: int = 0
+    anomalies_filtered: int = 0  # detector fires dropped by floors/suppression
     incidents_created: list[str] = field(default_factory=list)
     incidents_updated: list[str] = field(default_factory=list)
     incidents: list[IncidentReport] = field(default_factory=list)
@@ -159,7 +193,19 @@ def run_detection(db: Session, req: DetectionRunRequest) -> DetectionRunResult:
             anomaly = detector.detect(series, params)
             if anomaly is None:
                 continue
-            result.anomalies_detected += 1
+            floor_reason = _floor_violation(anomaly, series, metric=metric, req=req)
+            if floor_reason is not None:
+                result.anomalies_filtered += 1
+                logger.info(
+                    "detection_floor_filtered",
+                    extra={
+                        "run_id": run_id,
+                        "metric": metric,
+                        "detector": detector.name,
+                        "reason": floor_reason,
+                    },
+                )
+                continue
             localization = localize(
                 outcomes,
                 metric=metric,
@@ -187,8 +233,14 @@ def run_detection(db: Session, req: DetectionRunRequest) -> DetectionRunResult:
                 revenue_at_risk=revenue_at_risk,
                 dry_run=req.dry_run,
                 now=started_at,
+                dedup_cooldown_minutes=req.dedup_cooldown_minutes,
+                suppress_after_resolve_minutes=req.suppress_after_resolve_minutes,
             )
             result.incidents.append(report)
+            if report.action == "suppressed":
+                result.anomalies_filtered += 1
+                continue
+            result.anomalies_detected += 1
             if report.action == "created":
                 result.incidents_created.append(report.incident_id or "")
             elif report.action == "updated":
@@ -202,6 +254,7 @@ def run_detection(db: Session, req: DetectionRunRequest) -> DetectionRunResult:
         f"window=[{window_start.isoformat()}..{window_end.isoformat()}), "
         f"metrics={metrics}, detectors={[d.name for d in detectors]}, "
         f"outcomes={len(outcomes)}, anomalies={result.anomalies_detected}"
+        + (f", filtered={result.anomalies_filtered}" if result.anomalies_filtered else "")
         + (" (dry_run: nothing persisted)" if req.dry_run else "")
     )
     logger.info(
@@ -209,12 +262,63 @@ def run_detection(db: Session, req: DetectionRunRequest) -> DetectionRunResult:
         extra={
             "run_id": run_id,
             "anomalies": result.anomalies_detected,
+            "anomalies_filtered": result.anomalies_filtered,
             "incidents_created": len(result.incidents_created),
             "incidents_updated": len(result.incidents_updated),
             "dry_run": req.dry_run,
         },
     )
     return result
+
+
+# ---------------------------------------------------------------------------
+# Incident-level noise floors
+# ---------------------------------------------------------------------------
+
+
+def _flagged_run_and_volume(
+    anomaly: Anomaly, series: list[Bucket]
+) -> tuple[int, int]:
+    """(longest run of consecutive flagged buckets, total events in flagged
+    buckets) — the persistence and affected-volume signals for the floors."""
+    flagged = set(anomaly.flagged_ts)
+    volume = 0
+    longest = run = 0
+    for b in series:
+        if b.ts in flagged:
+            volume += b.count
+            run += 1
+            longest = max(longest, run)
+        else:
+            run = 0
+    return longest, volume
+
+
+def _floor_violation(
+    anomaly: Anomaly,
+    series: list[Bucket],
+    *,
+    metric: str,
+    req: DetectionRunRequest,
+) -> str | None:
+    """Return the reason a detector fire fails the incident-level noise
+    floors, or None when it clears them. Floors are engine-side (detectors
+    stay pure statistics); every floor is request-configurable."""
+    floor = req.min_absolute_deviation
+    if floor is None:
+        floor = DEFAULT_MIN_ABSOLUTE_DEVIATION[metric]
+    abs_dev = abs(anomaly.observed - anomaly.baseline)
+    if abs_dev < floor:
+        return f"|observed-baseline| {abs_dev:.4g} < min_absolute_deviation {floor:.4g}"
+    longest_run, volume = _flagged_run_and_volume(anomaly, series)
+    if volume < req.min_flagged_volume:
+        return f"flagged volume {volume} < min_flagged_volume {req.min_flagged_volume}"
+    if longest_run < req.min_flagged_run:
+        return (
+            f"persistence {longest_run} consecutive bucket(s) "
+            f"< min_flagged_run {req.min_flagged_run}"
+        )
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -294,13 +398,97 @@ def _impact(
 
 
 # ---------------------------------------------------------------------------
-# Persistence (idempotent upsert)
+# Persistence (idempotent upsert + cross-pass episode merge + suppression)
 # ---------------------------------------------------------------------------
 
 
 def _segment_fingerprint(segment: dict[str, str]) -> str:
     canonical = json.dumps(segment or {}, sort_keys=True, separators=(",", ":"))
     return hashlib.sha1(canonical.encode()).hexdigest()[:16]
+
+
+def _parse_ts(value: object) -> datetime:
+    ts = datetime.fromisoformat(str(value))
+    return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+
+
+def _episode_span(incident: Incident) -> tuple[datetime | None, datetime | None]:
+    """The incident's estimated episode bounds: meta.anomaly_start/end when
+    present, else the analysis window. Used for cross-window episode matching."""
+    meta = incident.meta or {}
+    try:
+        return _parse_ts(meta["anomaly_start"]), _parse_ts(meta["anomaly_end"])
+    except (KeyError, ValueError):
+        return incident.window_start, incident.window_end
+
+
+def _find_match(
+    candidates: list[Incident],
+    *,
+    anomaly: Anomaly,
+    window_start: datetime,
+    window_end: datetime,
+    dedup_cooldown_minutes: int | None,
+) -> tuple[Incident | None, bool]:
+    """Find the incident this anomaly belongs to: exact same-window upsert
+    first (idempotent re-run), then cross-window episode merge — an OPEN
+    (non-terminal) incident with the same signature whose anomaly span
+    overlaps the new one or lies within the cooldown gap. Returns
+    (incident, merged) where ``merged`` marks a cross-window episode merge."""
+    exact = next(
+        (
+            i
+            for i in candidates
+            if i.window_start == window_start and i.window_end == window_end
+        ),
+        None,
+    )
+    if exact is not None:
+        return exact, False
+    if dedup_cooldown_minutes is None:
+        return None, False
+    gap = timedelta(minutes=dedup_cooldown_minutes)
+    overlapping = []
+    for inc in candidates:
+        if inc.status in TERMINAL_STATUSES:
+            continue
+        start, end = _episode_span(inc)
+        if start is None or end is None:
+            continue
+        if anomaly.start_ts <= end + gap and start <= anomaly.end_ts + gap:
+            overlapping.append(inc)
+    if not overlapping:
+        return None, False
+    # the original detection owns the episode (earliest detected_at) — that
+    # keeps detected_at / window bounds / MTTD honest across merges
+    return min(overlapping, key=lambda i: i.detected_at), True
+
+
+def _find_suppressor(
+    candidates: list[Incident],
+    *,
+    anomaly: Anomaly,
+    suppress_after_resolve_minutes: int | None,
+) -> Incident | None:
+    """Post-resolution suppression: a terminal (RESOLVED/CLOSED/
+    FALSE_POSITIVE) incident with the same signature, resolved recently enough
+    that the new anomaly start falls inside the suppression window — the
+    episode tail must not reopen what a human already closed."""
+    if suppress_after_resolve_minutes is None:
+        return None
+    gap = timedelta(minutes=suppress_after_resolve_minutes)
+    terminal = [i for i in candidates if i.status in TERMINAL_STATUSES]
+    # most recent resolution first
+    terminal.sort(
+        key=lambda i: i.resolved_at or i.updated_at or i.detected_at, reverse=True
+    )
+    for inc in terminal:
+        ref = inc.resolved_at or inc.updated_at or inc.detected_at
+        if ref.tzinfo is None:
+            ref = ref.replace(tzinfo=timezone.utc)
+        if anomaly.start_ts <= ref + gap:
+            return inc
+    return None
 
 
 def _persist(
@@ -320,26 +508,70 @@ def _persist(
     revenue_at_risk: int,
     dry_run: bool,
     now: datetime,
+    dedup_cooldown_minutes: int | None,
+    suppress_after_resolve_minutes: int | None,
 ) -> IncidentReport:
     fingerprint = _segment_fingerprint(segment)
-    existing = db.scalars(
-        sa.select(Incident).where(
-            Incident.metric == metric,
-            Incident.detection_method == detector_name,
-            Incident.window_start == window_start,
-            Incident.window_end == window_end,
-        )
-    ).all()
-    match = next(
-        (i for i in existing if (i.meta or {}).get("segment_fingerprint") == fingerprint),
-        None,
+    candidates = [
+        i
+        for i in db.scalars(
+            sa.select(Incident).where(
+                Incident.metric == metric,
+                Incident.detection_method == detector_name,
+            )
+        ).all()
+        if (i.meta or {}).get("segment_fingerprint") == fingerprint
+    ]
+    match, merged = _find_match(
+        candidates,
+        anomaly=anomaly,
+        window_start=window_start,
+        window_end=window_end,
+        dedup_cooldown_minutes=dedup_cooldown_minutes,
     )
+    suppressor = None
+    if match is None:
+        suppressor = _find_suppressor(
+            candidates,
+            anomaly=anomaly,
+            suppress_after_resolve_minutes=suppress_after_resolve_minutes,
+        )
 
     severity = severity_for_deviation(anomaly.deviation_pct)
+    if suppressor is not None:
+        return IncidentReport(
+            incident_id=suppressor.id,
+            action="suppressed",
+            metric=metric,
+            detector=detector_name,
+            severity=severity,
+            baseline_value=round(anomaly.baseline, 6),
+            observed_value=round(anomaly.observed, 6),
+            deviation_pct=round(anomaly.deviation_pct, 2),
+            segment=segment,
+            window_start=window_start,
+            window_end=window_end,
+            detected_at=None,
+            anomaly_start=anomaly.start_ts,
+            affected_payments_count=affected,
+            revenue_at_risk_paise=revenue_at_risk,
+            detail=(
+                f"re-detection of {suppressor.status.value} incident "
+                f"{suppressor.id} suppressed "
+                f"(suppress_after_resolve_minutes={suppress_after_resolve_minutes})"
+            ),
+        )
+
     if match is None:
         action = "would_create" if dry_run else "created"
     else:
         action = "would_update" if dry_run else "updated"
+    detail = (
+        f"merged into open episode incident {match.id} "
+        f"(dedup_cooldown_minutes={dedup_cooldown_minutes})"
+        if merged and match is not None
+        else None
+    )
 
     if dry_run:
         return IncidentReport(
@@ -358,6 +590,7 @@ def _persist(
             anomaly_start=anomaly.start_ts,
             affected_payments_count=affected,
             revenue_at_risk_paise=revenue_at_risk,
+            detail=detail,
         )
 
     meta = {
@@ -372,6 +605,17 @@ def _persist(
         "run_id": run_id,
         "last_confirmed_at": now.isoformat(),
     }
+    if merged and match is not None:
+        # widen the episode span, never narrow it: the earliest estimated
+        # start and the latest evidence end describe the whole episode
+        prev_start, prev_end = _episode_span(match)
+        meta["anomaly_start"] = (
+            min(prev_start, anomaly.start_ts) if prev_start else anomaly.start_ts
+        ).isoformat()
+        meta["anomaly_end"] = (
+            max(prev_end, anomaly.end_ts) if prev_end else anomaly.end_ts
+        ).isoformat()
+        meta["merge_count"] = int((match.meta or {}).get("merge_count", 0)) + 1
     evidence_rows = _build_evidence(
         incident_id=match.id if match else None,
         metric=metric,
@@ -409,7 +653,8 @@ def _persist(
     else:
         incident = match
         # Status is deliberately left untouched (a human may have triaged it);
-        # original detected_at is preserved so MTTD stays honest.
+        # original detected_at and window bounds are preserved so MTTD stays
+        # honest across both same-window re-runs and cross-window merges.
         incident.severity = severity
         incident.baseline_value = round(anomaly.baseline, 6)
         incident.observed_value = round(anomaly.observed, 6)
@@ -442,6 +687,7 @@ def _persist(
         anomaly_start=anomaly.start_ts,
         affected_payments_count=affected,
         revenue_at_risk_paise=revenue_at_risk,
+        detail=detail,
     )
 
 
