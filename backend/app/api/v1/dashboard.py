@@ -248,13 +248,19 @@ def get_timeseries(
         outcomes = load_outcomes(db, window_start, window_end)
         if metric in KNOWN_METRICS:
             # Rates: buckets without observations carry no information -> skip.
-            series = build_series(
-                outcomes,
-                metric=metric,
-                window_start=window_start,
-                window_end=window_end,
-                bucket_minutes=bucket_minutes,
-            )
+            # Attempt/share-based detection metrics (e.g. checkout_abandonment_rate,
+            # insufficient_fund_share) are detection-only for now: build_series
+            # raises ValueError for them here -> answer 400, never a 500.
+            try:
+                series = build_series(
+                    outcomes,
+                    metric=metric,
+                    window_start=window_start,
+                    window_end=window_end,
+                    bucket_minutes=bucket_minutes,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             points = [
                 TimeSeriesPoint(ts=b.ts, value=round(b.value, 6))
                 for b in series

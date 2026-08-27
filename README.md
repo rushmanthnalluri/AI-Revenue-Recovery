@@ -254,19 +254,21 @@ no policy, no verification) vs **PULSECOVER** (the real product loop,
 unchanged). All harness roles (the approving operator, the customer
 conversion table) are deterministic and disclosed in the doc.
 
-Reproduced results — run `run_caa1f1a90ef243d08860679b6631fe6d`, scenario
-`standard`, seed 42 (30 days, 68,993 payment events, 4,918 failed payments,
-6 injected incidents; stored and browsable in the Evaluation Lab):
+Reproduced results — scenario `standard`, seed 42 (30 days, 68,993 payment
+events, 4,918 failed payments, 6 injected incidents; runs stored and
+browsable in the Evaluation Lab). Detection/diagnosis: detection-v2 run
+`run_0022000d…`. Arm/holdout analysis: run
+`run_caa1f1a90ef243d08860679b6631fe6d` (detection v1 — see the note after
+the recovery table for what detection v2 changes):
 
-**Detection** (scheduled 12h/6h passes, production defaults): precision
-**0.667**, recall **0.500** (3/6 injected incidents found), F1 0.571, MTTD
-**895 min**. This is *after* the noise-floor + episode-dedup fix
-([docs/detection.md](docs/detection.md)): the same dataset before it scored
-precision 0.156 with 90 incident rows (76 of them organic noise); admission
-floors + episode merge cut that to 6 rows at unchanged recall — at the honest
-cost of later first-persisted detection (MTTD 415→895 min). Remaining
-measured coverage gaps: `route_latency`, `checkout_abandonment_spike`,
-`customer_insufficient_funds_wave` (all documented).
+**Detection** (scheduled 12h/6h passes, production defaults, detection v2):
+precision **0.778**, recall **1.000** (6/6 injected incidents found), F1
+0.875, MTTD **585 min**. Two evidence-gated redesigns got here
+([docs/detection.md](docs/detection.md), `ml/experiments/detection/`): noise
+floors + episode dedup (precision 0.156→0.667, rows 90→6), then three new
+signals — per-route latency scan, `checkout_abandonment_rate`,
+`insufficient_fund_share` — which closed all three former blind spots while
+*raising* precision to 0.778 and adding zero quiet-control false positives.
 
 **Diagnosis on detection windows:** top-1 0.667 / top-3 0.667 — diluted
 12h scheduled-pass windows blur weak incidents; the same model is 6/6 on
@@ -282,6 +284,12 @@ flow through the real signed-webhook path):
 | False interventions (never-approve resubmissions) | **432** | **5** |
 | Unsafe actions (no gate, no approval) | 4,918 ungated | **0** |
 | Human approvals required | 0 | 58 |
+
+*Detection-v2 run (`run_0022000d…`, same dataset/seed): recovered revenue
+rises to **2,452,900 paise (+77.7%)** across 90 interventions with 7 false
+interventions and **0 unsafe** — newly detected incidents surface ₹173,659 of
+additional revenue at risk. The arm-shape story (98.8% fewer interventions)
+is unchanged.*
 
 **Incremental lift (randomized holdout, pre-registered estimand):** 8.85% of
 customers (165/1,865) were deterministically held out of all PulseRecover

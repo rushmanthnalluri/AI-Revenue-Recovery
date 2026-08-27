@@ -292,6 +292,36 @@ explicit rather than invisible. Tightening the ITT estimate is a policy-
 file decision (wider per-incident caps) or a longer-horizon run, not a code
 change; both are follow-ups, disclosed here rather than silently tuned.
 
+### 3b. Detection v2 (recall-track) results — 2026-08-27
+
+After the §3 run, the detection engine gained three evidence-gated signals
+(per-route latency scan, `checkout_abandonment_rate`,
+`insufficient_fund_share` — design, rejected iterations, and per-signal
+floors in docs/detection.md and `ml/experiments/detection/exp000–003`).
+Same dataset, same seed, same day (`sim_42_50f24b57d0`, scenario `standard`,
+seed 42), before `run_4f3b346e…` vs after `run_0022000d…`:
+
+| metric | before (detection v1) | after (detection v2) |
+|---|---:|---:|
+| precision | 0.667 | **0.778** |
+| recall (injected incidents found) | 0.500 (3/6) | **1.000 (6/6)** |
+| F1 | 0.571 | **0.875** |
+| MTTD (sim minutes) | 895 | **585** |
+| persisted incidents (TP/FP rows) | 6 (4/2) | 9 (7/2 — same 2 organic FPs) |
+| opportunities / interventions | 655 / 60 | 903 / 90 |
+| false interventions | 5 | 7 |
+| unsafe actions | 0 | **0** |
+| recovered revenue (verified) | 1,380,700 paise | **2,452,900 paise (+77.7%)** |
+
+All three former blind spots (`route_latency`, `checkout_abandonment_spike`,
+`customer_insufficient_funds_wave`) are now detected at MTTD 330 min, and the
+quiet-control replay adds **zero** false positives. Newly surfaced
+recoverable revenue at risk: ₹173,659 (ground-truth affected sums).
+Diagnosis top-1 on detection windows is unchanged (0.667); the diagnosis
+track's production-frame study (calibration, safe-auto-lane business metric,
+and a NO-SHIP challenger decision) is in docs/ml.md §9 and
+`ml/experiments/diagnosis/exp01–06`.
+
 <!-- RESULTS-END -->
 
 ## 4. Honest limitations
