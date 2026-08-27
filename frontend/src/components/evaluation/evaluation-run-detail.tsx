@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/empty-state";
 import { SectionCard } from "@/components/section-card";
 import { StatusPill } from "@/components/status-pill";
 import { EvaluationComparison } from "@/components/evaluation/evaluation-comparison";
+import { EvaluationHoldout } from "@/components/evaluation/evaluation-holdout";
 import { EvaluationMethodology } from "@/components/evaluation/evaluation-methodology";
 import { EvaluationMetricBars } from "@/components/evaluation/evaluation-metric-bars";
 import {
@@ -88,7 +89,7 @@ function FailedState({ run }: { run: EvaluationRunDetail }) {
 }
 
 function CompletedSections({ run, parsed }: { run: EvaluationRunDetail; parsed: ParsedRunMetrics }) {
-  const { baseline, pulsecover, comparison } = parsed;
+  const { baseline, pulsecover, comparison, holdout } = parsed;
   const detection = pulsecover?.detection;
   const diagnosis = pulsecover?.diagnosis;
 
@@ -152,6 +153,15 @@ function CompletedSections({ run, parsed }: { run: EvaluationRunDetail; parsed: 
           description="The stored metrics payload carries no arms.baseline / arms.pulsecover objects — only completed end-to-end runs produce them."
         />
       )}
+
+      {holdout ? (
+        <SectionCard
+          title="Incremental lift (holdout-adjusted)"
+          description="Randomized customer holdout — treatment vs no-action recovery over the run's fixed attribution window, with 95% confidence intervals"
+        >
+          <EvaluationHoldout holdout={holdout} />
+        </SectionCard>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <SectionCard

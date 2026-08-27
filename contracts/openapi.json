@@ -378,7 +378,7 @@
           "detection"
         ],
         "summary": "Run Detection Endpoint",
-        "description": "Execute one detection pass over payment_events and persist incidents.\n\nRe-running with the same window/segment/detector updates the existing\nincident instead of duplicating it. ``dry_run`` computes everything but\npersists nothing.",
+        "description": "Execute one detection pass over payment_events and persist incidents.\n\nRe-running with the same window/segment/detector updates the existing\nincident instead of duplicating it; overlapping scheduled passes MERGE\ninto the open episode (original ``detected_at`` preserved); incidents must\nclear the noise floors (``min_absolute_deviation`` / ``min_flagged_volume``\n/ ``min_flagged_run``) or they are counted in ``anomalies_filtered`` and\ndropped. ``dry_run`` computes everything but persists nothing.",
         "operationId": "run_detection_endpoint_api_v1_detection_run_post",
         "requestBody": {
           "content": {
@@ -2085,6 +2085,17 @@
             "type": "string",
             "title": "Currency",
             "default": "INR"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
           }
         },
         "type": "object",
@@ -2194,6 +2205,60 @@
               }
             ],
             "title": "As Of"
+          },
+          "min_absolute_deviation": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Absolute Deviation"
+          },
+          "min_flagged_volume": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Min Flagged Volume",
+            "default": 15
+          },
+          "min_flagged_run": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Min Flagged Run",
+            "default": 2
+          },
+          "dedup_cooldown_minutes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 10080.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dedup Cooldown Minutes",
+            "default": 360
+          },
+          "suppress_after_resolve_minutes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 43200.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suppress After Resolve Minutes",
+            "default": 720
           }
         },
         "type": "object",
@@ -2262,6 +2327,11 @@
             },
             "type": "array",
             "title": "Incidents"
+          },
+          "anomalies_filtered": {
+            "type": "integer",
+            "title": "Anomalies Filtered",
+            "default": 0
           }
         },
         "type": "object",
@@ -2519,6 +2589,17 @@
             "type": "integer",
             "title": "Baseline Recovered Revenue Paise",
             "default": 0
+          },
+          "incremental_lift": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Incremental Lift"
           }
         },
         "type": "object",
@@ -3051,6 +3132,16 @@
                 "type": "null"
               }
             ]
+          },
+          "insights": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IncidentInsightsView"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -3064,6 +3155,36 @@
           "detected_at"
         ],
         "title": "IncidentDetail"
+      },
+      "IncidentInsightsView": {
+        "properties": {
+          "outliers": {
+            "items": {
+              "$ref": "#/components/schemas/InsightsOutlierView"
+            },
+            "type": "array",
+            "title": "Outliers"
+          },
+          "platform_callout": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlatformCalloutView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "computed_from": {
+            "$ref": "#/components/schemas/InsightsComputedFrom"
+          }
+        },
+        "type": "object",
+        "required": [
+          "computed_from"
+        ],
+        "title": "IncidentInsightsView",
+        "description": "Decline-outlier diagnostics: ranked facets + platform callout."
       },
       "IncidentListResponse": {
         "properties": {
@@ -3232,6 +3353,135 @@
           "summary"
         ],
         "title": "IncidentTimelineEvent"
+      },
+      "InsightsComputedFrom": {
+        "properties": {
+          "window_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window Start"
+          },
+          "window_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window End"
+          },
+          "baseline_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Baseline Start"
+          },
+          "baseline_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Baseline End"
+          },
+          "segment": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Segment"
+          },
+          "window_payments": {
+            "type": "integer",
+            "title": "Window Payments",
+            "default": 0
+          },
+          "window_failures": {
+            "type": "integer",
+            "title": "Window Failures",
+            "default": 0
+          },
+          "baseline_payments": {
+            "type": "integer",
+            "title": "Baseline Payments",
+            "default": 0
+          },
+          "baseline_failures": {
+            "type": "integer",
+            "title": "Baseline Failures",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "window_start",
+          "window_end",
+          "baseline_start",
+          "baseline_end"
+        ],
+        "title": "InsightsComputedFrom",
+        "description": "Provenance windows + support behind the insights numbers."
+      },
+      "InsightsOutlierView": {
+        "properties": {
+          "dimension": {
+            "type": "string",
+            "title": "Dimension"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "failure_rate",
+              "failure_share"
+            ],
+            "title": "Basis"
+          },
+          "incident_rate": {
+            "type": "number",
+            "title": "Incident Rate"
+          },
+          "baseline_rate": {
+            "type": "number",
+            "title": "Baseline Rate"
+          },
+          "lift": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lift"
+          },
+          "support": {
+            "type": "integer",
+            "title": "Support"
+          },
+          "window_group_size": {
+            "type": "integer",
+            "title": "Window Group Size"
+          },
+          "baseline_group_size": {
+            "type": "integer",
+            "title": "Baseline Group Size"
+          },
+          "low_confidence": {
+            "type": "boolean",
+            "title": "Low Confidence",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "dimension",
+          "value",
+          "basis",
+          "incident_rate",
+          "baseline_rate",
+          "support",
+          "window_group_size",
+          "baseline_group_size"
+        ],
+        "title": "InsightsOutlierView",
+        "description": "One failure facet overrepresented in the incident window vs baseline.\n\nbasis=failure_rate: rate = within-group failure rate (method/bank/gateway).\nbasis=failure_share: rate = share of all failures (error_code/error_reason).\nlift=null means the facet was absent at baseline (\"new\") and ranks first."
       },
       "InvestigateRequest": {
         "properties": {
@@ -3785,6 +4035,70 @@
           "created_at"
         ],
         "title": "OpportunitySummary"
+      },
+      "PlatformCalloutView": {
+        "properties": {
+          "dimension": {
+            "type": "string",
+            "title": "Dimension"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "classification": {
+            "type": "string",
+            "enum": [
+              "platform_wide",
+              "incident_specific"
+            ],
+            "title": "Classification"
+          },
+          "platform_scope": {
+            "type": "string",
+            "title": "Platform Scope",
+            "default": "simulated_fleet"
+          },
+          "platform_window_rate": {
+            "type": "number",
+            "title": "Platform Window Rate"
+          },
+          "platform_baseline_rate": {
+            "type": "number",
+            "title": "Platform Baseline Rate"
+          },
+          "platform_lift": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform Lift"
+          },
+          "platform_support": {
+            "type": "integer",
+            "title": "Platform Support"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dimension",
+          "value",
+          "classification",
+          "platform_window_rate",
+          "platform_baseline_rate",
+          "platform_support",
+          "summary"
+        ],
+        "title": "PlatformCalloutView",
+        "description": "Merchant-vs-network benchmark of the top outlier (Pagos pattern).\n\nplatform_scope documents the deployment reality: this is the\nsingle-merchant simulator, so \"platform\" = the simulated fleet (this\nmerchant's full payment stream). In a multi-merchant deployment the same\ncomparison would benchmark against all merchants on the platform."
       },
       "PolicyDecisionView": {
         "properties": {
@@ -4495,6 +4809,17 @@
               }
             ],
             "title": "Customers"
+          },
+          "holdout_fraction": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holdout Fraction"
           }
         },
         "type": "object",

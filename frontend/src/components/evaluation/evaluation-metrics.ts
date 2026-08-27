@@ -75,10 +75,59 @@ export interface EvalComparison {
   falseInterventionsPulsecover?: number;
 }
 
+export interface EvalHoldoutGroup {
+  failedPayments?: number;
+  failedAmountPaise?: number;
+  recoveredPayments?: number;
+  recoveredAmountPaise?: number;
+  recoveryRate?: number;
+  recoveryRateAmount?: number;
+  medianTimeToRecoverMinutes?: number | null;
+  /* treatment group only */
+  recoveredViaAction?: number;
+  recoveredOrganic?: number;
+}
+
+export interface EvalLift {
+  point?: number;
+  ci95Low?: number;
+  ci95High?: number;
+}
+
+export interface EvalLiftStratum {
+  stratum: string;
+  treatment: EvalHoldoutGroup;
+  holdout: EvalHoldoutGroup;
+  lift: EvalLift;
+}
+
+export interface EvalHoldout {
+  configuredFraction?: number;
+  realizedFraction?: number;
+  seed?: number;
+  assignment?: string;
+  estimand?: string;
+  attributionWindowHours?: number | null;
+  ciMethod?: string;
+  customersTreatment?: number;
+  customersHoldout?: number;
+  treatment: EvalHoldoutGroup;
+  holdout: EvalHoldoutGroup;
+  lift: EvalLift;
+  /** Mix-adjusted (class-standardized) secondary estimator. */
+  liftAdjusted?: EvalLift;
+  strataByFailureClass: EvalLiftStratum[];
+  strataByMethod: EvalLiftStratum[];
+  holdoutOpportunitiesCount?: number;
+  holdoutActionsCount?: number;
+  notes: string[];
+}
+
 export interface ParsedRunMetrics {
   baseline: EvalArm | null;
   pulsecover: EvalArm | null;
   comparison: EvalComparison | null;
+  holdout: EvalHoldout | null;
 }
 
 function asRecord(value: unknown): JsonObject | null {
@@ -207,6 +256,87 @@ function parseComparison(value: unknown): EvalComparison | null {
   };
 }
 
+function parseHoldoutGroup(value: unknown): EvalHoldoutGroup {
+  const rec = asRecord(value);
+  if (!rec) return {};
+  return {
+    failedPayments: asNumber(rec.failed_payments),
+    failedAmountPaise: asNumber(rec.failed_amount_paise),
+    recoveredPayments: asNumber(rec.recovered_payments),
+    recoveredAmountPaise: asNumber(rec.recovered_amount_paise),
+    recoveryRate: asNumber(rec.recovery_rate),
+    recoveryRateAmount: asNumber(rec.recovery_rate_amount),
+    medianTimeToRecoverMinutes: asNumberOrNull(rec.median_time_to_recover_minutes),
+    recoveredViaAction: asNumber(rec.recovered_via_action),
+    recoveredOrganic: asNumber(rec.recovered_organic),
+  };
+}
+
+function parseLift(value: unknown): EvalLift {
+  const rec = asRecord(value);
+  if (!rec) return {};
+  return {
+    point: asNumber(rec.point),
+    ci95Low: asNumber(rec.ci95_low),
+    ci95High: asNumber(rec.ci95_high),
+  };
+}
+
+function parseLiftStrata(value: unknown): EvalLiftStratum[] {
+  if (!Array.isArray(value)) return [];
+  const out: EvalLiftStratum[] = [];
+  for (const item of value) {
+    const rec = asRecord(item);
+    const stratum = rec ? asString(rec.stratum) : undefined;
+    if (!rec || !stratum) continue;
+    out.push({
+      stratum,
+      treatment: parseHoldoutGroup(rec.treatment),
+      holdout: parseHoldoutGroup(rec.holdout),
+      lift: parseLift(rec.lift),
+    });
+  }
+  return out;
+}
+
+/**
+ * The randomized-holdout section. Returns null unless the core objects are
+ * present — runs stored before the holdout arm existed (or with fraction 0)
+ * simply have no section, and the UI hides it cleanly.
+ */
+function parseHoldout(value: unknown): EvalHoldout | null {
+  const rec = asRecord(value);
+  if (!rec) return null;
+  const treatment = asRecord(rec.treatment);
+  const holdout = asRecord(rec.holdout);
+  const lift = asRecord(rec.lift);
+  if (!treatment || !holdout || !lift) return null;
+  const attribution = asRecord(rec.attribution_window);
+  const customers = asRecord(rec.customers);
+  const isolation = asRecord(rec.isolation);
+  const strata = asRecord(rec.strata);
+  return {
+    configuredFraction: asNumber(rec.configured_fraction),
+    realizedFraction: asNumber(rec.realized_fraction),
+    seed: asNumber(rec.seed),
+    assignment: asString(rec.assignment),
+    estimand: asString(rec.estimand),
+    attributionWindowHours: asNumberOrNull(attribution?.max_window_hours),
+    ciMethod: asString(rec.ci_method),
+    customersTreatment: asNumber(customers?.treatment),
+    customersHoldout: asNumber(customers?.holdout),
+    treatment: parseHoldoutGroup(treatment),
+    holdout: parseHoldoutGroup(holdout),
+    lift: parseLift(lift),
+    liftAdjusted: parseLift(rec.lift_class_adjusted),
+    strataByFailureClass: parseLiftStrata(strata?.by_failure_class),
+    strataByMethod: parseLiftStrata(strata?.by_method),
+    holdoutOpportunitiesCount: asNumber(isolation?.holdout_opportunities_count),
+    holdoutActionsCount: asNumber(isolation?.holdout_actions_count),
+    notes: asStringArray(rec.notes),
+  };
+}
+
 /** Narrow the stored metrics JSON into typed arm / comparison views. */
 export function parseRunMetrics(metrics: JsonObject): ParsedRunMetrics {
   const arms = asRecord(metrics.arms);
@@ -214,5 +344,6 @@ export function parseRunMetrics(metrics: JsonObject): ParsedRunMetrics {
     baseline: parseArm(arms?.baseline),
     pulsecover: parseArm(arms?.pulsecover),
     comparison: parseComparison(metrics.comparison),
+    holdout: parseHoldout(metrics.holdout),
   };
 }

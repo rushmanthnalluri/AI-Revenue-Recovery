@@ -33,6 +33,9 @@ def main() -> int:
     p.add_argument("--days", type=int, default=None)
     p.add_argument("--events", type=int, default=None)
     p.add_argument("--customers", type=int, default=None)
+    p.add_argument("--holdout-fraction", type=float, default=None,
+                   help="share of customers randomized into the no-action holdout "
+                        "inside the PulseRecover arm (default: 0.10; 0 disables)")
     p.add_argument("--database-url", default=None,
                    help="where to persist the evaluation_runs row (default: app settings)")
     args = p.parse_args()
@@ -46,6 +49,7 @@ def main() -> int:
             days=args.days,
             events=args.events,
             customers=args.customers,
+            holdout_fraction=args.holdout_fraction,
         )
     finally:
         session.close()

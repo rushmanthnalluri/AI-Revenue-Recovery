@@ -48,6 +48,9 @@ class EvaluationMetrics(BaseModel):
     unsafe_action_count: int = 0  # executed actions without gate evidence; must be 0
     baseline_recovery_rate: float | None = None  # naive-retry arm comparison
     baseline_recovered_revenue_paise: int = 0
+    # Mean incremental lift (treatment − holdout recovery rate) over completed
+    # runs that carried a randomized holdout; None when no run has one.
+    incremental_lift: float | None = None
 
 
 class RunEvaluationRequest(BaseModel):
@@ -64,6 +67,9 @@ class RunEvaluationRequest(BaseModel):
     days: int | None = None
     events: int | None = None
     customers: int | None = None
+    # Share of customers randomized into the no-action holdout inside the
+    # PulseRecover arm. None -> harness default (0.10); 0 disables it.
+    holdout_fraction: float | None = None
 
 
 class RunEvaluationResponse(BaseModel):

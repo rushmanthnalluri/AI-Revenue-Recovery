@@ -131,7 +131,14 @@ POST /api/v1/demo/reset → bulk-delete commerce+derived tables in FK-safe order
    evaluation_runs/experiments/audit_logs; exactly one demo.reset audit row
 POST /api/v1/evaluation/run → harness: isolated scratch DBs, two arms (baseline generic retry vs
    full loop with real services + SimulatedPaymentGateway), disclosed deterministic operator/customer
-   roles → metrics persisted to evaluation_runs + experiments; GETs serve stored rows only
+   roles → metrics persisted to evaluation_runs + experiments; GETs serve stored rows only.
+   Holdout arm (default 10%): customers assigned by sha256("holdout:{seed}:{customer_id}") receive
+   NO PulseRecover actions (detection still runs); incremental lift = treatment − holdout recovery
+   rate with Newcombe 95% CI, class-standardized variant, strata, median TTR; ITT denominators
+   snapshotted before recovery; all captures in both groups via the real signed-webhook path.
+GET  /api/v1/incidents/{id} → detail also computes insights (leaf, read-time, null-safe on bad
+   windows): ranked failure-facet outliers (lift vs pre-incident baseline, min-support floors,
+   low-confidence flags) + platform callout (fleet-wide vs incident-specific, simulated_fleet scope).
 ```
 
 ## Transaction boundaries

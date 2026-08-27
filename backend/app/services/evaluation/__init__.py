@@ -1,5 +1,16 @@
 """Evaluation harness package — see runner.py and docs/evaluation.md."""
 
+from app.services.evaluation.holdout import (
+    CI_LEVEL,
+    CI_Z,
+    DEFAULT_HOLDOUT_FRACTION,
+    HoldoutExcludingBuilder,
+    holdout_token,
+    is_holdout,
+    median,
+    newcombe_ci,
+    wilson_interval,
+)
 from app.services.evaluation.runner import (
     CONVERSION,
     DETECTION_STEP_MINUTES,
@@ -7,17 +18,30 @@ from app.services.evaluation.runner import (
     GATEWAY_SUCCESS_RATE,
     KIND_TO_CAUSE,
     OPERATOR,
+    SELF_RESOLUTION_MAX_LAG_MINUTES,
     EvaluationRunner,
+    ScopedFailure,
     truth_cause,
 )
 
 __all__ = [
+    "CI_LEVEL",
+    "CI_Z",
     "CONVERSION",
+    "DEFAULT_HOLDOUT_FRACTION",
     "DETECTION_STEP_MINUTES",
     "DETECTION_WINDOW_MINUTES",
     "GATEWAY_SUCCESS_RATE",
+    "HoldoutExcludingBuilder",
     "KIND_TO_CAUSE",
     "OPERATOR",
+    "SELF_RESOLUTION_MAX_LAG_MINUTES",
     "EvaluationRunner",
+    "ScopedFailure",
+    "holdout_token",
+    "is_holdout",
+    "median",
+    "newcombe_ci",
     "truth_cause",
+    "wilson_interval",
 ]

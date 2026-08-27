@@ -99,6 +99,7 @@ def get_metrics(db: Session = Depends(get_db)) -> EvaluationMetrics:
     out.recovery_rate = _mean("recovery_rate")
     out.false_action_rate = _mean("false_action_rate")
     out.baseline_recovery_rate = _mean("baseline_recovery_rate")
+    out.incremental_lift = _mean("incremental_lift")
     out.recovered_revenue_paise = sum(
         int((run.metrics or {}).get("recovered_revenue_paise") or 0) for run in runs
     )
@@ -129,6 +130,7 @@ def run_evaluation(
             events=body.events,
             customers=body.customers,
             evaluation_type=body.evaluation_type,
+            holdout_fraction=body.holdout_fraction,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

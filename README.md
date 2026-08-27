@@ -254,46 +254,65 @@ no policy, no verification) vs **PULSECOVER** (the real product loop,
 unchanged). All harness roles (the approving operator, the customer
 conversion table) are deterministic and disclosed in the doc.
 
-Reproduced results — run `final`, scenario `standard` (30 days, 67,727
-payment events, 4,893 failed payments, 6 injected incidents):
+Reproduced results — run `run_caa1f1a90ef243d08860679b6631fe6d`, scenario
+`standard`, seed 42 (30 days, 68,993 payment events, 4,918 failed payments,
+6 injected incidents; stored and browsable in the Evaluation Lab):
 
 **Detection** (scheduled 12h/6h passes, production defaults): precision
-**0.185**, recall **0.833** (5/6 injected incidents found), F1 0.302, MTTD
-**527 min**. The missed incident is `route_latency` — a single route's
-latency barely moves merchant-wide p90; a real coverage gap, not a harness
-artifact. Precision is dragged down by incident rows on organic noise and
-pass-window re-detection (both analyzed in the doc).
+**0.667**, recall **0.500** (3/6 injected incidents found), F1 0.571, MTTD
+**895 min**. This is *after* the noise-floor + episode-dedup fix
+([docs/detection.md](docs/detection.md)): the same dataset before it scored
+precision 0.156 with 90 incident rows (76 of them organic noise); admission
+floors + episode merge cut that to 6 rows at unchanged recall — at the honest
+cost of later first-persisted detection (MTTD 415→895 min). Remaining
+measured coverage gaps: `route_latency`, `checkout_abandonment_spike`,
+`customer_insufficient_funds_wave` (all documented).
 
-**Diagnosis on detection windows:** top-1 0.60 / top-3 0.80 — the diluted
-12h scheduled-pass windows blur the abandonment and subscription spikes into
-`no_fault`; the same model is 6/6 on exact incident spans.
+**Diagnosis on detection windows:** top-1 0.667 / top-3 0.667 — diluted
+12h scheduled-pass windows blur weak incidents; the same model is 6/6 on
+exact incident spans.
 
-**Recovery** (verified = webhook/inline-confirmed `RECOVERED` only):
+**Recovery** (verified = webhook/inline-confirmed `RECOVERED` only; both arms
+flow through the real signed-webhook path):
 
 | Metric | BASELINE (retry everything) | PULSECOVER |
 |---|---:|---:|
-| Interventions (actions reaching the gateway) | 4,893 | **100** (98.0% fewer) |
-| Recovered revenue (verified) | 99,011,600 paise | 1,945,400 paise |
-| Recovery rate (of failed amount) | 27.0% | 0.53% |
-| False interventions (never-approve resubmissions) | **433** | **13** |
-| Unsafe actions (no gate, no approval) | 4,893 ungated | **0** |
-| UNKNOWN / unverifiable outcomes | n/a (no verification) | 0 |
-| Human approvals required | 0 | 100 |
+| Interventions (actions reaching the gateway) | 4,918 | **60** (98.8% fewer) |
+| Recovered revenue (gross, verified) | 99,025,100 paise (27.2%) | 1,380,700 paise (16 actions) |
+| False interventions (never-approve resubmissions) | **432** | **5** |
+| Unsafe actions (no gate, no approval) | 4,918 ungated | **0** |
+| Human approvals required | 0 | 58 |
+
+**Incremental lift (randomized holdout, pre-registered estimand):** 8.85% of
+customers (165/1,865) were deterministically held out of all PulseRecover
+actions. Treatment recovered 14.38% of first-attempt failures (639/4,445) vs
+holdout 18.18% (86/473): raw ITT lift **−3.8pp [−7.7, −0.4]** (Newcombe 95%
+CI), class-adjusted **−2.7pp [−6.1, +0.7]**. Meanwhile **executed actions
+convert at 26.7% vs ~14.4% organic** — the intervention works where it
+fires; the fleet-level effect is underpowered because the policy envelope
+permits only ~1.3% action coverage (60 actions across 4,445 failures;
+expected fleet effect +0.2–0.4pp vs ±1.9pp of sampling noise). That is the
+Lewis & Rao measurement-power problem, reported instead of hidden — full
+analysis in [docs/evaluation.md](docs/evaluation.md).
 
 **The honest read:** the naive baseline recovers more *gross* revenue by
 construction — it fires at every organic failure too, and 27% of a much
-larger blast radius is a big number. It pays with 49× the interventions, 433
+larger blast radius is a big number. It pays with 82× the interventions, 432
 never-approve resubmissions (network-penalty territory), zero verification,
 and zero auditability. PulseRecover's number is small but *clean*: gated,
-verified, audited, and it never touches a customer it shouldn't. Widening
-recovery volume is a policy-file decision (per-incident caps, the 100/hour
-global brake), not a code change.
+verified, audited, and it never touches a customer it shouldn't. Its gross
+figure also *dropped* versus earlier runs for two honest reasons — the
+detection fix removed noise-window "recovery" no action ever caused, and the
+holdout withholds ~9% of customers by design. Widening recovery volume is a
+policy-file decision (per-incident caps, the global rate brake), not a code
+change.
 
 Reproduce:
 
 ```bash
 cd backend
-.venv/Scripts/python scripts/run_evaluation.py --scenario standard            # full preset (~3 min)
+.venv/Scripts/python scripts/run_evaluation.py --scenario standard            # full preset incl. holdout arm (~15-20 min)
+.venv/Scripts/python scripts/run_evaluation.py --scenario standard --holdout-fraction 0   # arms only, no holdout
 .venv/Scripts/python scripts/run_evaluation.py --scenario upi_outage_demo --days 5 --events 8000   # faster smoke
 ```
 
@@ -384,7 +403,7 @@ cp .env.example .env        # defaults: SIMULATION_MODE=true, SQLite, no keys ne
 cd backend
 python -m venv .venv
 .venv/Scripts/python -m pip install -r requirements.txt
-.venv/Scripts/python -m pytest tests -q            # 415 tests
+.venv/Scripts/python -m pytest tests -q            # 471 tests
 .venv/Scripts/python -m uvicorn app.main:app --reload --port 8000
 
 # 2) Seed the simulator (separate shell; ~30 days of synthetic traffic + incidents)
@@ -505,7 +524,7 @@ Stated plainly — each is documented in the linked doc:
 ## Repository layout & docs
 
 ```
-backend/    FastAPI app, services, simulator, evaluation harness, tests (415)
+backend/    FastAPI app, services, simulator, evaluation harness, tests (471)
 frontend/   Next.js 15 operations console (see frontend/README.md)
 contracts/  Generated openapi.json (committed; regenerate with backend/scripts/export_openapi.py)
 policies/   default.yaml — the deterministic policy gate config
