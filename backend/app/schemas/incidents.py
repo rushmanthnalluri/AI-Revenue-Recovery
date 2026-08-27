@@ -1,7 +1,7 @@
 """Incident schemas — list/detail, timeline, evidence, diagnosis."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -96,6 +96,68 @@ class RevenueBreakdown(BaseModel):
     failure_classes: list[FailureClassView] = Field(default_factory=list)
 
 
+class InsightsOutlierView(BaseModel):
+    """One failure facet overrepresented in the incident window vs baseline.
+
+    basis=failure_rate: rate = within-group failure rate (method/bank/gateway).
+    basis=failure_share: rate = share of all failures (error_code/error_reason).
+    lift=null means the facet was absent at baseline ("new") and ranks first.
+    """
+
+    dimension: str
+    value: str
+    basis: Literal["failure_rate", "failure_share"]
+    incident_rate: float
+    baseline_rate: float
+    lift: float | None = None
+    support: int
+    window_group_size: int
+    baseline_group_size: int
+    low_confidence: bool = False
+
+
+class PlatformCalloutView(BaseModel):
+    """Merchant-vs-network benchmark of the top outlier (Pagos pattern).
+
+    platform_scope documents the deployment reality: this is the
+    single-merchant simulator, so "platform" = the simulated fleet (this
+    merchant's full payment stream). In a multi-merchant deployment the same
+    comparison would benchmark against all merchants on the platform.
+    """
+
+    dimension: str
+    value: str
+    classification: Literal["platform_wide", "incident_specific"]
+    platform_scope: str = "simulated_fleet"
+    platform_window_rate: float
+    platform_baseline_rate: float
+    platform_lift: float | None = None
+    platform_support: int
+    summary: str
+
+
+class InsightsComputedFrom(BaseModel):
+    """Provenance windows + support behind the insights numbers."""
+
+    window_start: datetime
+    window_end: datetime
+    baseline_start: datetime
+    baseline_end: datetime
+    segment: dict[str, str] = Field(default_factory=dict)
+    window_payments: int = 0
+    window_failures: int = 0
+    baseline_payments: int = 0
+    baseline_failures: int = 0
+
+
+class IncidentInsightsView(BaseModel):
+    """Decline-outlier diagnostics: ranked facets + platform callout."""
+
+    outliers: list[InsightsOutlierView] = Field(default_factory=list)
+    platform_callout: PlatformCalloutView | None = None
+    computed_from: InsightsComputedFrom
+
+
 class IncidentDetail(IncidentSummary):
     description: str | None = None
     window_start: datetime | None = None
@@ -111,3 +173,4 @@ class IncidentDetail(IncidentSummary):
     opportunities_count: int = 0
     recovery_actions_count: int = 0
     revenue: RevenueBreakdown | None = None
+    insights: IncidentInsightsView | None = None

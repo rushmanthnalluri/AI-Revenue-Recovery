@@ -41,6 +41,7 @@ _ALL_SERVICE_PACKAGES = (
     "app.services.detection",
     "app.services.diagnosis",
     "app.services.evaluation",
+    "app.services.insights",
     "app.services.policy",
     "app.services.razorpay",
     "app.services.recovery",
@@ -97,6 +98,11 @@ RULES: tuple[Rule, ...] = (
         "app.services.diagnosis",
         _leaf_forbidden("app.services.diagnosis"),
         "leaf: features + model artifacts in, diagnoses out",
+    ),
+    Rule(
+        "app.services.insights",
+        _leaf_forbidden("app.services.insights"),
+        "leaf: payment_events in, ranked failure-facet outliers out",
     ),
     Rule(
         "app.simulator",

@@ -227,6 +227,51 @@ export interface RevenueBreakdown {
   failure_classes?: FailureClassView[];
 }
 
+export interface InsightsOutlier {
+  dimension: string;
+  value: string;
+  basis: "failure_rate" | "failure_share";
+  incident_rate: number;
+  baseline_rate: number;
+  /** null = facet absent at baseline ("new"), ranks above any finite lift */
+  lift?: number | null;
+  support: number;
+  window_group_size: number;
+  baseline_group_size: number;
+  low_confidence: boolean;
+}
+
+export interface PlatformCallout {
+  dimension: string;
+  value: string;
+  classification: "platform_wide" | "incident_specific";
+  /** single-merchant sim reality: the benchmark is the simulated fleet */
+  platform_scope: string;
+  platform_window_rate: number;
+  platform_baseline_rate: number;
+  platform_lift?: number | null;
+  platform_support: number;
+  summary: string;
+}
+
+export interface InsightsComputedFrom {
+  window_start: ISODateTime;
+  window_end: ISODateTime;
+  baseline_start: ISODateTime;
+  baseline_end: ISODateTime;
+  segment?: Record<string, string>;
+  window_payments: number;
+  window_failures: number;
+  baseline_payments: number;
+  baseline_failures: number;
+}
+
+export interface IncidentInsights {
+  outliers?: InsightsOutlier[];
+  platform_callout?: PlatformCallout | null;
+  computed_from: InsightsComputedFrom;
+}
+
 export interface IncidentDetail extends IncidentSummary {
   description?: string | null;
   window_start?: ISODateTime | null;
@@ -241,6 +286,7 @@ export interface IncidentDetail extends IncidentSummary {
   opportunities_count?: number;
   recovery_actions_count?: number;
   revenue?: RevenueBreakdown | null;
+  insights?: IncidentInsights | null;
 }
 
 export interface InvestigateRequest {
@@ -426,6 +472,9 @@ export interface EvaluationMetrics {
   unsafe_action_count?: number;
   baseline_recovery_rate?: number | null;
   baseline_recovered_revenue_paise?: number;
+  /** Mean incremental lift (treatment − holdout) over completed runs that
+   * carried a randomized holdout; null/absent when no run has one. */
+  incremental_lift?: number | null;
 }
 
 export interface EvaluationRunSummary {
@@ -463,6 +512,9 @@ export interface RunEvaluationRequest {
   days?: number | null;
   events?: number | null;
   customers?: number | null;
+  /** Share of customers randomized into the no-action holdout inside the
+   * PulseRecover arm; omitted -> harness default (0.10), 0 disables. */
+  holdout_fraction?: number | null;
 }
 
 export interface RunEvaluationResponse {

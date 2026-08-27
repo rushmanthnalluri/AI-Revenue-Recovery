@@ -23,6 +23,10 @@ import {
   extractSegmentBreakdown,
   IncidentSegmentBreakdown,
 } from "@/components/incident/incident-segment-breakdown";
+import {
+  extractInsights,
+  IncidentInsightsPanel,
+} from "@/components/incident/incident-insights";
 import { IncidentDiagnosisCard } from "@/components/incident/incident-diagnosis-card";
 import { IncidentAuditTimeline } from "@/components/incident/incident-audit-timeline";
 import {
@@ -270,6 +274,14 @@ export function IncidentDetailView({ incidentId }: { incidentId: string }) {
           <IncidentDiagnosisCard diagnosis={incident.diagnosis} />
         </SectionCard>
       </div>
+
+      {/* failure outliers + merchant-vs-network callout */}
+      <SectionCard
+        title="Failure outliers"
+        description="Failure facets overrepresented in the incident window vs the pre-incident baseline, ranked by lift with min-count floors. The banner benchmarks the top facet against the whole platform stream (simulated fleet in this deployment)."
+      >
+        <IncidentInsightsPanel insights={extractInsights(incident)} />
+      </SectionCard>
 
       {/* AI investigation */}
       <InvestigationPanel incidentId={incident.id} />

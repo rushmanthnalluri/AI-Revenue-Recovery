@@ -44,6 +44,7 @@ app/
     revenue/       revenue-at-risk + expected-recovery quantification (leaf)
     detection/     anomaly detectors + incident engine (leaf)
     diagnosis/     ML root-cause model: features, training, artifacts (leaf)
+    insights/      failure-facet outlier ranking + platform callout (leaf)
     razorpay/      PaymentGateway adapter: raw REST client + simulator twin (leaf)
     recovery/      execution engine: builder, strategies, executor,
                    webhook_handlers (verification registry), reconcile (sweep)
@@ -171,6 +172,7 @@ contracts (`app.models`, `app.ports`, `app.config`, `app.db`, `app.ids`,
 | `services.policy` | — (leaf) | any other `services.*`, `api`, `simulator` |
 | `services.revenue` | — (leaf) | any other `services.*`, `api`, `simulator` |
 | `services.detection` | — (leaf; `schemas` sanctioned) | any other `services.*`, `api`, `simulator` |
+| `services.insights` | — (leaf) | any other `services.*`, `api`, `simulator` |
 | `services.diagnosis` | — (leaf) | any other `services.*`, `api`, `simulator` |
 | `services.razorpay` | — (leaf adapter) | `services.{policy,recovery,agent,revenue,detection,diagnosis,evaluation}`, `api` |
 | `services.recovery` | `services.{policy, revenue, razorpay.errors}` (sanctioned: executor gates through policy, strategies price via revenue) | `services.agent`, `api`, `simulator` |

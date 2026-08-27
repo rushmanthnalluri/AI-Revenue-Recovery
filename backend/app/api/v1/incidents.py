@@ -31,12 +31,17 @@ from app.schemas.incidents import (
     EvidenceItem,
     FailureClassView,
     IncidentDetail,
+    IncidentInsightsView,
     IncidentListResponse,
     IncidentSummary,
     IncidentTimelineEvent,
+    InsightsComputedFrom,
+    InsightsOutlierView,
+    PlatformCalloutView,
     RevenueBreakdown,
 )
 from app.services.diagnosis.service import DiagnosisError, DiagnosisService
+from app.services.insights.service import InsightsError, InsightsService
 from app.services.revenue import RevenueService
 from app.services.revenue.types import Estimate
 
@@ -129,6 +134,27 @@ def _diagnosis_view(row: Diagnosis) -> DiagnosisView:
         confidence=row.confidence,
         explanation=row.explanation,
         created_at=row.created_at,
+    )
+
+
+def _insights_view(db: Session, incident: Incident) -> IncidentInsightsView | None:
+    """Decline-outlier diagnostics (read-only); None when not computable."""
+    try:
+        result = InsightsService(db).incident_insights(incident.id)
+    except InsightsError as exc:
+        logger.warning(
+            "insights computation failed",
+            extra={"incident_id": incident.id, "error": str(exc)},
+        )
+        return None
+    return IncidentInsightsView(
+        outliers=[InsightsOutlierView(**vars(o)) for o in result.outliers],
+        platform_callout=(
+            PlatformCalloutView(**vars(result.platform_callout))
+            if result.platform_callout is not None
+            else None
+        ),
+        computed_from=InsightsComputedFrom(**vars(result.computed_from)),
     )
 
 
@@ -283,6 +309,7 @@ def get_incident(incident_id: str, db: Session = Depends(get_db)) -> IncidentDet
             for row in sorted(incident.evidence, key=lambda r: (r.collected_at, r.id))
         ],
         diagnosis=_diagnosis_view(diagnosis) if diagnosis is not None else None,
+        insights=_insights_view(db, incident),
         revenue=RevenueBreakdown(
             currency=report.currency,
             window_start=report.window_start,
