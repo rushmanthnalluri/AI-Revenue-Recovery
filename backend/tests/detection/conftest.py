@@ -108,9 +108,12 @@ class Stream:
 
     method: str = "card"
     bank: str = "hdfc"
+    route: str | None = None  # Payment.meta["route"], e.g. "pg_primary"
     per_bucket: int = 20
     rate_at: Callable[[int], float] = lambda i: 0.9
     latency_at: Callable[[int], float | None] = lambda i: None
+    # failure reason for the j-th failed payment in bucket i (None = untagged)
+    reason_at: Callable[[int, int], str | None] = lambda i, j: None
 
 
 @pytest.fixture()
@@ -145,17 +148,25 @@ def seed_payment_events(db_session: Session):
                 for j in range(stream.per_bucket):
                     ok = j < n_success
                     status = "captured" if ok else "failed"
+                    reason = None if ok else stream.reason_at(i, j - n_success)
+                    meta: dict = {"bank": stream.bank, "gateway": "razorpay"}
+                    if stream.route is not None:
+                        meta["route"] = stream.route
+                    if reason is not None:
+                        meta["error_reason"] = reason
                     payment = Payment(
                         merchant_id=merchant.id,
                         amount_paise=amount_paise,
                         status=status,
                         method=stream.method,
                         gateway_created_at=ts,
-                        meta={"bank": stream.bank, "gateway": "razorpay"},
+                        meta=meta,
                     )
                     db_session.add(payment)
                     db_session.flush()
                     payload = {"latency_ms": latency} if (ok and latency is not None) else {}
+                    if reason is not None:
+                        payload["error_reason"] = reason
                     db_session.add(
                         PaymentEvent(
                             payment_id=payment.id,
@@ -166,6 +177,91 @@ def seed_payment_events(db_session: Session):
                             occurred_at=ts + timedelta(seconds=30),
                         )
                     )
+        db_session.commit()
+        return merchant
+
+    return _seed
+
+
+# ---------------------------------------------------------------------------
+# DB seeding: checkout attempts (some resolve, some stay `created`)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CheckoutStream:
+    """Creations per bucket where an exact number stay ``created`` forever
+    (abandoned checkouts — they never produce a terminal event)."""
+
+    method: str = "card"
+    bank: str = "hdfc"
+    route: str | None = None
+    per_bucket: int = 10
+    stuck_at: Callable[[int], int] = lambda i: 0  # exact stuck count in bucket i
+    resolve_seconds: int = 60  # resolution delay for non-stuck payments
+
+
+@pytest.fixture()
+def seed_checkout_events(db_session: Session):
+    """Seed checkout attempts on the same grid as ``seed_payment_events``:
+    every payment gets a ``payment.created`` event; non-stuck ones also get a
+    terminal ``payment.captured`` event ``resolve_seconds`` later. Stuck ones
+    keep status ``created`` — they are the abandonment signal."""
+
+    def _seed(
+        *,
+        buckets: int = 48,
+        bucket_minutes: int = 5,
+        streams: list[CheckoutStream] | None = None,
+        amount_paise: int = 10000,
+    ) -> Merchant:
+        streams = streams or [CheckoutStream()]
+        merchant = Merchant(name="Detection Checkout Merchant")
+        db_session.add(merchant)
+        db_session.flush()
+
+        step = timedelta(minutes=bucket_minutes)
+        start = floor_bucket(utcnow(), bucket_minutes) - buckets * step
+        for i in range(buckets):
+            ts = start + i * step
+            for stream in streams:
+                n_stuck = stream.stuck_at(i)
+                for j in range(stream.per_bucket):
+                    stuck = j < n_stuck
+                    meta: dict = {"bank": stream.bank, "gateway": "razorpay"}
+                    if stream.route is not None:
+                        meta["route"] = stream.route
+                    payment = Payment(
+                        merchant_id=merchant.id,
+                        amount_paise=amount_paise,
+                        status="created" if stuck else "captured",
+                        method=stream.method,
+                        gateway_created_at=ts,
+                        meta=meta,
+                    )
+                    db_session.add(payment)
+                    db_session.flush()
+                    db_session.add(
+                        PaymentEvent(
+                            payment_id=payment.id,
+                            event_type="payment.created",
+                            to_status="created",
+                            source="seed",
+                            payload={},
+                            occurred_at=ts,
+                        )
+                    )
+                    if not stuck:
+                        db_session.add(
+                            PaymentEvent(
+                                payment_id=payment.id,
+                                event_type="payment.captured",
+                                to_status="captured",
+                                source="seed",
+                                payload={},
+                                occurred_at=ts + timedelta(seconds=stream.resolve_seconds),
+                            )
+                        )
         db_session.commit()
         return merchant
 

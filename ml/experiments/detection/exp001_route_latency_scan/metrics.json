@@ -1,0 +1,30 @@
+{
+  "dataset": "standard / seed 42 / sim_42_50f24b57d0 (anchored 2026-08-27)",
+  "before": {
+    "source": "harness run run_4f3b346e88e74d3d91c4fba2c2caa94a + replay (identical)",
+    "incidents": 6, "tp_rows": 4, "fp_rows": 2,
+    "precision": 0.666667, "recall": 0.5, "f1": 0.571429, "mttd_minutes": 895.0,
+    "per_kind_recall": {"route_latency": "0/1"}
+  },
+  "after": {
+    "source": "replay ml/experiments/detection/_lib/replay_after_c2_standard42.json, confirmed row-for-row by harness run run_0022000d8df942e6ac4b7299986f994a",
+    "incidents": 9, "tp_rows": 7, "fp_rows": 2,
+    "precision": 0.777778, "recall": 1.0, "f1": 0.875, "mttd_minutes": 585.0,
+    "per_kind_recall": {"route_latency": "1/1 (segment {route: pg_primary}, anomaly start 03:30Z = injected start, dev +988.65%, MTTD 330 min)"},
+    "confusion": {"tp_rows": 7, "fp_rows": 2, "gt_missed": 0}
+  },
+  "validation": {
+    "quiet_42": {
+      "scan_false_positives": 0,
+      "note": "6 quiet FPs total, all pre-existing classes (4 merchant-wide latency + 2 success-rate); byte-identical to the before-state quiet replay (worktree at HEAD)"
+    },
+    "standard_7": {
+      "before": {"precision": 0.166667, "recall": 0.166667, "fp_rows": 5},
+      "after": {"precision": 0.4, "recall": 0.666667, "fp_rows": 6},
+      "route_latency": "1/1 caught by scan",
+      "scan_false_positives": 1,
+      "scan_fp_detail": "capture_latency_ms {route: pg_primary} dev +907.23% span 2026-07-31T10:00..11:00Z — an organic latency episode that rose >=2x within >=2 methods (corroboration passed); a real organic latency incident, not an injected one"
+    }
+  },
+  "unit_tests": "tests/detection/test_new_signals.py::TestRouteLatencyScan (4 tests: localized fire, quiet control, scan-skip when aggregate fires, mix-shift guard) + series/registry tests — all green (78/78 detection suite)"
+}

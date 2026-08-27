@@ -196,16 +196,17 @@ def list_scenarios() -> list[dict]:
         metric = None
         if cfg.incidents:
             # Hints must stay within detection's KNOWN_METRICS
-            # (payment_success_rate, capture_latency_ms). Subscription
-            # failures are terminal payment failures, so they do degrade the
-            # success rate. Abandoned checkouts stay `created` (never
-            # terminal), so payment_success_rate does NOT see them —
-            # checkout_abandonment_rate is a future detection metric.
+            # (payment_success_rate, capture_latency_ms,
+            # checkout_abandonment_rate, insufficient_fund_share).
+            # Subscription failures are terminal payment failures, so they do
+            # degrade the success rate. Abandoned checkouts stay `created`
+            # (never terminal) — the detection engine sees them via the
+            # attempt-based checkout_abandonment_rate metric.
             metric = {
                 IncidentKind.GATEWAY_DEGRADATION: "payment_success_rate",
                 IncidentKind.ROUTE_LATENCY: "capture_latency_ms",
                 IncidentKind.METHOD_OUTAGE: "payment_success_rate",
-                IncidentKind.CHECKOUT_ABANDONMENT_SPIKE: "checkout_abandonment_rate (future metric)",
+                IncidentKind.CHECKOUT_ABANDONMENT_SPIKE: "checkout_abandonment_rate",
                 IncidentKind.SUBSCRIPTION_FAILURE_SPIKE: "payment_success_rate",
                 IncidentKind.CUSTOMER_INSUFFICIENT_FUNDS_WAVE: "payment_success_rate",
             }[cfg.incidents[0].kind]

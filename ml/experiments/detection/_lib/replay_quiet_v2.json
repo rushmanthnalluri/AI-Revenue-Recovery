@@ -1,0 +1,391 @@
+{
+  "config": {
+    "seed": 42,
+    "days": 30,
+    "target_events": 65000,
+    "customers": 3000,
+    "scenario": "quiet",
+    "incidents": [],
+    "end_date": null,
+    "merchant_name": "PulseRecover Demo Store"
+  },
+  "simulator_run_id": "sim_42_c2262ae772",
+  "ground_truth": [],
+  "passes": 119,
+  "detection": {
+    "incidents": 9,
+    "matched_incidents": 0,
+    "matched_ground_truth": 0,
+    "precision": 0.0,
+    "recall": null,
+    "f1": null,
+    "mttd_minutes": null,
+    "per_kind_recall": {},
+    "matched": [],
+    "unmatched": [],
+    "per_incident": [
+      {
+        "incident_id": "inc_fc39584f1fb440cb82d4a5e7d6be07f6",
+        "metric": "capture_latency_ms",
+        "detector": "zscore",
+        "segment": {},
+        "window": [
+          "2026-07-30T00:05:00+00:00",
+          "2026-07-30T12:05:00+00:00"
+        ],
+        "anomaly_span": [
+          "2026-07-30T06:55:00+00:00",
+          "2026-07-30T09:55:00+00:00"
+        ],
+        "deviation_pct": 148.9,
+        "severity": "CRITICAL",
+        "affected_payments_count": 82,
+        "revenue_at_risk_paise": 5380000,
+        "matched_gt": null,
+        "matched_kind": null
+      },
+      {
+        "incident_id": "inc_2208db0f0c344cd9b1a83ecb4111ace7",
+        "metric": "payment_success_rate",
+        "detector": "zscore",
+        "segment": {},
+        "window": [
+          "2026-08-05T06:05:00+00:00",
+          "2026-08-05T18:05:00+00:00"
+        ],
+        "anomaly_span": [
+          "2026-08-05T07:20:00+00:00",
+          "2026-08-05T12:50:00+00:00"
+        ],
+        "deviation_pct": -44.15,
+        "severity": "HIGH",
+        "affected_payments_count": 95,
+        "revenue_at_risk_paise": 6802400,
+        "matched_gt": null,
+        "matched_kind": null
+      },
+      {
+        "incident_id": "inc_12810a87f1c5413e9ed290d68a7e4c73",
+        "metric": "insufficient_fund_share",
+        "detector": "zscore",
+        "segment": {},
+        "window": [
+          "2026-08-06T00:05:00+00:00",
+          "2026-08-06T12:05:00+00:00"
+        ],
+        "anomaly_span": [
+          "2026-08-06T11:00:00+00:00",
+          "2026-08-06T11:00:00+00:00"
+        ],
+        "deviation_pct": 265.27,
+        "severity": "CRITICAL",
+        "affected_payments_count": 4,
+        "revenue_at_risk_paise": 222800,
+        "matched_gt": null,
+        "matched_kind": null
+      },
+      {
+        "incident_id": "inc_11364e002c4f4b7cb192348a9c53da5b",
+        "metric": "insufficient_fund_share",
+        "detector": "zscore",
+        "segment": {},
+        "window": [
+          "2026-08-14T06:05:00+00:00",
+          "2026-08-14T18:05:00+00:00"
+        ],
+        "anomaly_span": [
+          "2026-08-14T14:00:00+00:00",
+          "2026-08-14T14:00:00+00:00"
+        ],
+        "deviation_pct": 346.14,
+        "severity": "CRITICAL",
+        "affected_payments_count": 10,
+        "revenue_at_risk_paise": 739700,
+        "matched_gt": null,
+        "matched_kind": null
+      },
+      {
+        "incident_id": "inc_68d61c554ce44e2da4c8e48d14053d55",
+        "metric": "capture_latency_ms",
+        "detector": "zscore",
+        "segment": {},
+        "window": [
+          "2026-08-14T06:05:00+00:00",
+          "2026-08-14T18:05:00+00:00"
+        ],
+        "anomaly_span": [
+          "2026-08-14T09:15:00+00:00",
+          "2026-08-14T14:55:00+00:00"
+        ],
+        "deviation_pct": 552.87,
+        "severity": "CRITICAL",
+        "affected_payments_count": 214,
+        "revenue_at_risk_paise": 18310400,
+        "matched_gt": null,
+        "matched_kind": null
+      },
+      {
+        "incident_id": "inc_433049f3e86c4333aea6cd1d33afa256",
+        "metric": "capture_latency_ms",
+        "detector": "zscore",
+        "segment": {},
+        "window": [
+          "2026-08-17T06:05:00+00:00",
+          "2026-08-17T18:05:00+00:00"
+        ],
+        "anomaly_span": [
+          "2026-08-17T07:30:00+00:00",
+          "2026-08-17T18:00:00+00:00"
+        ],
+        "deviation_pct": 205.7,
+        "severity": "CRITICAL",
+        "affected_payments_count": 109,
+        "revenue_at_risk_paise": 9972500,
+        "matched_gt": null,
+        "matched_kind": null
+      },
+      {
+        "incident_id": "inc_db4094ed80544b82adeb9ec1e143b0d4",
+        "metric": "insufficient_fund_share",
+        "detector": "zscore",
+        "segment": {},
+        "window": [
+          "2026-08-18T00:05:00+00:00",
+          "2026-08-18T12:05:00+00:00"
+        ],
+        "anomaly_span": [
+          "2026-08-18T10:00:00+00:00",
+          "2026-08-18T10:00:00+00:00"
+        ],
+        "deviation_pct": 339.47,
+        "severity": "CRITICAL",
+        "affected_payments_count": 5,
+        "revenue_at_risk_paise": 575600,
+        "matched_gt": null,
+        "matched_kind": null
+      },
+      {
+        "incident_id": "inc_2f5b1c7de73d433f8ef9a7d48dba03fe",
+        "metric": "payment_success_rate",
+        "detector": "zscore",
+        "segment": {},
+        "window": [
+          "2026-08-20T06:05:00+00:00",
+          "2026-08-20T18:05:00+00:00"
+        ],
+        "anomaly_span": [
+          "2026-08-20T08:30:00+00:00",
+          "2026-08-20T16:40:00+00:00"
+        ],
+        "deviation_pct": -56.95,
+        "severity": "CRITICAL",
+        "affected_payments_count": 87,
+        "revenue_at_risk_paise": 5302500,
+        "matched_gt": null,
+        "matched_kind": null
+      },
+      {
+        "incident_id": "inc_c6a0f12c810e4849aa51f3a74df9322e",
+        "metric": "capture_latency_ms",
+        "detector": "zscore",
+        "segment": {},
+        "window": [
+          "2026-08-22T12:05:00+00:00",
+          "2026-08-23T00:05:00+00:00"
+        ],
+        "anomaly_span": [
+          "2026-08-22T14:55:00+00:00",
+          "2026-08-22T16:50:00+00:00"
+        ],
+        "deviation_pct": 107.85,
+        "severity": "CRITICAL",
+        "affected_payments_count": 86,
+        "revenue_at_risk_paise": 7318200,
+        "matched_gt": null,
+        "matched_kind": null
+      }
+    ],
+    "false_positives": [
+      {
+        "incident_id": "inc_fc39584f1fb440cb82d4a5e7d6be07f6",
+        "metric": "capture_latency_ms",
+        "detector": "zscore",
+        "segment": {},
+        "window": [
+          "2026-07-30T00:05:00+00:00",
+          "2026-07-30T12:05:00+00:00"
+        ],
+        "anomaly_span": [
+          "2026-07-30T06:55:00+00:00",
+          "2026-07-30T09:55:00+00:00"
+        ],
+        "deviation_pct": 148.9,
+        "severity": "CRITICAL",
+        "affected_payments_count": 82,
+        "revenue_at_risk_paise": 5380000,
+        "matched_gt": null,
+        "matched_kind": null
+      },
+      {
+        "incident_id": "inc_2208db0f0c344cd9b1a83ecb4111ace7",
+        "metric": "payment_success_rate",
+        "detector": "zscore",
+        "segment": {},
+        "window": [
+          "2026-08-05T06:05:00+00:00",
+          "2026-08-05T18:05:00+00:00"
+        ],
+        "anomaly_span": [
+          "2026-08-05T07:20:00+00:00",
+          "2026-08-05T12:50:00+00:00"
+        ],
+        "deviation_pct": -44.15,
+        "severity": "HIGH",
+        "affected_payments_count": 95,
+        "revenue_at_risk_paise": 6802400,
+        "matched_gt": null,
+        "matched_kind": null
+      },
+      {
+        "incident_id": "inc_12810a87f1c5413e9ed290d68a7e4c73",
+        "metric": "insufficient_fund_share",
+        "detector": "zscore",
+        "segment": {},
+        "window": [
+          "2026-08-06T00:05:00+00:00",
+          "2026-08-06T12:05:00+00:00"
+        ],
+        "anomaly_span": [
+          "2026-08-06T11:00:00+00:00",
+          "2026-08-06T11:00:00+00:00"
+        ],
+        "deviation_pct": 265.27,
+        "severity": "CRITICAL",
+        "affected_payments_count": 4,
+        "revenue_at_risk_paise": 222800,
+        "matched_gt": null,
+        "matched_kind": null
+      },
+      {
+        "incident_id": "inc_11364e002c4f4b7cb192348a9c53da5b",
+        "metric": "insufficient_fund_share",
+        "detector": "zscore",
+        "segment": {},
+        "window": [
+          "2026-08-14T06:05:00+00:00",
+          "2026-08-14T18:05:00+00:00"
+        ],
+        "anomaly_span": [
+          "2026-08-14T14:00:00+00:00",
+          "2026-08-14T14:00:00+00:00"
+        ],
+        "deviation_pct": 346.14,
+        "severity": "CRITICAL",
+        "affected_payments_count": 10,
+        "revenue_at_risk_paise": 739700,
+        "matched_gt": null,
+        "matched_kind": null
+      },
+      {
+        "incident_id": "inc_68d61c554ce44e2da4c8e48d14053d55",
+        "metric": "capture_latency_ms",
+        "detector": "zscore",
+        "segment": {},
+        "window": [
+          "2026-08-14T06:05:00+00:00",
+          "2026-08-14T18:05:00+00:00"
+        ],
+        "anomaly_span": [
+          "2026-08-14T09:15:00+00:00",
+          "2026-08-14T14:55:00+00:00"
+        ],
+        "deviation_pct": 552.87,
+        "severity": "CRITICAL",
+        "affected_payments_count": 214,
+        "revenue_at_risk_paise": 18310400,
+        "matched_gt": null,
+        "matched_kind": null
+      },
+      {
+        "incident_id": "inc_433049f3e86c4333aea6cd1d33afa256",
+        "metric": "capture_latency_ms",
+        "detector": "zscore",
+        "segment": {},
+        "window": [
+          "2026-08-17T06:05:00+00:00",
+          "2026-08-17T18:05:00+00:00"
+        ],
+        "anomaly_span": [
+          "2026-08-17T07:30:00+00:00",
+          "2026-08-17T18:00:00+00:00"
+        ],
+        "deviation_pct": 205.7,
+        "severity": "CRITICAL",
+        "affected_payments_count": 109,
+        "revenue_at_risk_paise": 9972500,
+        "matched_gt": null,
+        "matched_kind": null
+      },
+      {
+        "incident_id": "inc_db4094ed80544b82adeb9ec1e143b0d4",
+        "metric": "insufficient_fund_share",
+        "detector": "zscore",
+        "segment": {},
+        "window": [
+          "2026-08-18T00:05:00+00:00",
+          "2026-08-18T12:05:00+00:00"
+        ],
+        "anomaly_span": [
+          "2026-08-18T10:00:00+00:00",
+          "2026-08-18T10:00:00+00:00"
+        ],
+        "deviation_pct": 339.47,
+        "severity": "CRITICAL",
+        "affected_payments_count": 5,
+        "revenue_at_risk_paise": 575600,
+        "matched_gt": null,
+        "matched_kind": null
+      },
+      {
+        "incident_id": "inc_2f5b1c7de73d433f8ef9a7d48dba03fe",
+        "metric": "payment_success_rate",
+        "detector": "zscore",
+        "segment": {},
+        "window": [
+          "2026-08-20T06:05:00+00:00",
+          "2026-08-20T18:05:00+00:00"
+        ],
+        "anomaly_span": [
+          "2026-08-20T08:30:00+00:00",
+          "2026-08-20T16:40:00+00:00"
+        ],
+        "deviation_pct": -56.95,
+        "severity": "CRITICAL",
+        "affected_payments_count": 87,
+        "revenue_at_risk_paise": 5302500,
+        "matched_gt": null,
+        "matched_kind": null
+      },
+      {
+        "incident_id": "inc_c6a0f12c810e4849aa51f3a74df9322e",
+        "metric": "capture_latency_ms",
+        "detector": "zscore",
+        "segment": {},
+        "window": [
+          "2026-08-22T12:05:00+00:00",
+          "2026-08-23T00:05:00+00:00"
+        ],
+        "anomaly_span": [
+          "2026-08-22T14:55:00+00:00",
+          "2026-08-22T16:50:00+00:00"
+        ],
+        "deviation_pct": 107.85,
+        "severity": "CRITICAL",
+        "affected_payments_count": 86,
+        "revenue_at_risk_paise": 7318200,
+        "matched_gt": null,
+        "matched_kind": null
+      }
+    ]
+  }
+}

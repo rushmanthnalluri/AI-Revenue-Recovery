@@ -1,0 +1,27 @@
+{
+  "dataset": "standard / seed 42 / sim_42_50f24b57d0 (anchored 2026-08-27)",
+  "before": {
+    "source": "harness run run_4f3b346e88e74d3d91c4fba2c2caa94a + replay (identical)",
+    "per_kind_recall": {"customer_insufficient_funds_wave": "0/1 — night buckets under min_bucket_count + 20h-wave baseline poisoning (all 5 overlapping passes silent on both metrics, measured)"}
+  },
+  "after": {
+    "source": "replay ml/experiments/detection/_lib/replay_after_c2_standard42.json, confirmed by harness run run_0022000d8df942e6ac4b7299986f994a",
+    "per_kind_recall": {"customer_insufficient_funds_wave": "1/1 (metric insufficient_fund_share, bucket 2026-08-16T23:00Z share 1.0 on 3 failures, dev +218.97%, MTTD 330 min)"},
+    "if_share_false_positives": 0
+  },
+  "signal_measurements": {
+    "wave_night_band_60min": "buckets f=0-3 failures; 23:00Z f=3 share 1.0 (z=3.22 vs baseline mu 0.314 sigma 0.213)",
+    "organic_clusters_60min": "08-02 11:00Z f=7 share 0.71 (z=3.20); 08-06 11:00Z f=7 share 0.71 (z=6.99); month scan: exactly one f>=3 share>=0.9 bucket outside the wave (none); one f>=4 share>=0.75 organic bucket (08-22 02:00Z, never reached z>=3 in its window)",
+    "precision_gate": "C2 overall P 0.778 >= 0.65; v2 P 0.636 rejected"
+  },
+  "validation": {
+    "quiet_42": {"if_share_false_positives": 0},
+    "standard_7": {"if_share_false_positives": 0, "recall": "wave 1/1"},
+    "payday_wave_demo_42": {
+      "recall": "wave 0/1 — MISSED, scale limitation (see failure_analysis.md)",
+      "detail": "25k events/14 days: the wave's only near-pure hour (08-21T01:00Z, share 1.0) carries f=2 < 3 (volume floor); its f>=3 hours top out at 0.78 share, under the 0.9 bar that organic clusters (0.71) force",
+      "false_positives": 0
+    }
+  },
+  "unit_tests": "tests/detection/test_new_signals.py: share semantics (3 series tests incl. defensive reason matching), quiet control, near-pure wave detected, 0.75 mixed wave held by min_observed, wrong-class wave silent, explicit-floor override — all green"
+}

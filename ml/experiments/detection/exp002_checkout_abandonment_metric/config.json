@@ -1,0 +1,48 @@
+{
+  "experiment_id": "exp002_checkout_abandonment_metric",
+  "track": "detection-recall",
+  "date_utc": "2026-08-27",
+  "title": "checkout_abandonment_rate — attempt-based abandonment signal with honest right-censoring",
+  "hypothesis": "checkout_abandonment_spike is blind by construction: abandoned checkouts stay `created` and never produce terminal events, so outcome-based series cannot see them. An attempt-based metric — share of payments created in a bucket that reach no terminal outcome within a 30-min inactivity threshold — sees the spike cleanly (measured baseline ~0.04 vs spike 0.4-0.8 stuck share).",
+  "dataset": {
+    "scenario": "standard",
+    "seed": 42,
+    "simulator_run_id": "sim_42_50f24b57d0",
+    "days": 30,
+    "target_events": 65000,
+    "customers": 3000,
+    "anchor": "2026-08-27",
+    "ground_truth": "checkout_abandonment_spike 2026-08-21T12:30..15:00Z (18:00-20:30 IST), abandon_boost +0.45 over NATURAL_ABANDON_RATE 0.04, affected INR 69,201 (recoverable=True)",
+    "validation_datasets": ["quiet/seed42 (sim_42_c2262ae772)", "standard/seed7 (sim_7_909aa7dd5e)"]
+  },
+  "metric_definition": {
+    "name": "checkout_abandonment_rate",
+    "family": "attempt-based (load_checkout_attempts, not terminal outcomes)",
+    "bucket_value": "abandoned / decidable attempts created in the bucket",
+    "abandoned": "no terminal outcome within created + inactivity_threshold",
+    "inactivity_threshold_minutes": 30,
+    "right_censoring": "attempts with created + threshold > window_end (the pass's knowledge edge) are excluded from numerator AND denominator; events after window_end are never consulted (no future leakage)",
+    "bucket_grid": "30 min (6x the 5-min request grid)",
+    "direction": "up",
+    "floors": "min_bucket_count 10 decidable creations (metric default), min_absolute_deviation 0.20, min_observed 0.35, min_flagged_volume 15 (global default), min_flagged_run 2 (global default), z >= 3"
+  },
+  "code": {
+    "base_git_sha": "437dac6dcedfaed7eb54eb438bdc71f94d076295",
+    "tree_note": "uncommitted detection-track changes (lead commits)",
+    "candidate_history": [
+      "v1 floors (count 5, abs 0.10, no min_observed): 4 organic FPs on standard-42 — natural abandonment clumps of 1-2 stuck payments on tiny night/morning buckets (share up to 1.0 on 2-7 decidable creations)",
+      "v2 final floors: 0 abandonment FPs on standard-42, quiet-42, standard-7"
+    ]
+  },
+  "commands": [
+    "python ml/experiments/detection/_lib/analyze_detection.py --scenario standard --seed 42 --json ml/experiments/detection/_lib/replay_after_c2_standard42.json",
+    "python ml/experiments/detection/_lib/analyze_detection.py --scenario quiet --seed 42 --json ml/experiments/detection/_lib/replay_after_c2_quiet42.json"
+  ],
+  "selection": "floors selected on standard-42 measured organic vs injected separation (organic stuck <= 2/bucket, share <= 0.2 on >= 10 decidable creations; injected spike 15-25 stuck/bucket, share 0.4-0.8); validated on quiet-42 and standard-7 (0 FPs both)",
+  "evidence": [
+    "ml/experiments/detection/_lib/probe_before.json",
+    "ml/experiments/detection/_lib/replay_after_c2_standard42.json",
+    "ml/experiments/detection/_lib/replay_after_c2_quiet42.json",
+    "ml/experiments/detection/_lib/replay_after_c2_standard7.json"
+  ]
+}

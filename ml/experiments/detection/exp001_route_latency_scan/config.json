@@ -1,0 +1,42 @@
+{
+  "experiment_id": "exp001_route_latency_scan",
+  "track": "detection-recall",
+  "date_utc": "2026-08-27",
+  "title": "Per-route capture-latency scan with within-method mix-shift corroboration",
+  "hypothesis": "route_latency is missed because the merchant-wide latency z-score never fires (sparse early-morning buckets + leading-baseline poisoning — measured in exp000, NOT 'a route barely moves the aggregate': the aggregate mean rises 6-10x but the chart stays silent). A per-route slice series (15-min buckets, count floor 3) sees the incident starkly; scoring slices only when the merchant-wide pass admits nothing avoids duplicate incidents on fleet-wide latency events.",
+  "dataset": {
+    "scenario": "standard",
+    "seed": 42,
+    "simulator_run_id": "sim_42_50f24b57d0",
+    "days": 30,
+    "target_events": 65000,
+    "customers": 3000,
+    "anchor": "2026-08-27 (simulator anchors at run-day 00:00 UTC)",
+    "ground_truth": "route_latency 2026-08-13T03:30..05:30Z, pg_primary, latency x8, affected INR 51,727 (recoverable=False)",
+    "validation_datasets": ["quiet/seed42 (sim_42_c2262ae772)", "standard/seed7 (sim_7_909aa7dd5e)"]
+  },
+  "feature_version": "signals v2 (final): route in payment_segments/SEGMENT_DIMENSIONS; _scan_latency_routes on capture_latency_ms; slice grid 15 min (x3), slice min_bucket_count 3, detector zscore z>=3, standard floors (75ms, vol 15, run 2) + within-method corroboration (>=2 methods with >=3 samples both regions rising >=2x; lone method >=3x)",
+  "model_version": "detectors unchanged (zscore production default); engine scan constants LATENCY_ROUTE_SCAN_ENABLED=True, LATENCY_SCAN_BUCKET_MULTIPLIER=3, LATENCY_SCAN_MIN_BUCKET_COUNT=3, LATENCY_SCAN_MAX_SLICE_SHARE=0.95",
+  "code": {
+    "base_git_sha": "437dac6dcedfaed7eb54eb438bdc71f94d076295",
+    "tree_note": "detection-track changes uncommitted (lead commits); files: backend/app/services/detection/series.py, engine.py; backend/tests/detection/{conftest.py,test_new_signals.py,test_persistence.py}",
+    "candidate_history": [
+      "v1 scan (no corroboration): standard-42 P 0.348 — 4 organic scan FPs (mix shift)",
+      "v2 (+corroboration): scan FPs 0 on standard-42 and quiet-42; ship",
+      "p50 vs mean slice aggregation measured: both fire at GT start 03:30 (mean 9 buckets, p50 8) — mean kept (existing metric semantics, more volume)"
+    ]
+  },
+  "commands": [
+    "python ml/experiments/detection/_lib/analyze_detection.py --scenario standard --seed 42 --json ml/experiments/detection/_lib/replay_after_c2_standard42.json",
+    "python ml/experiments/detection/_lib/analyze_detection.py --scenario quiet --seed 42 --json ml/experiments/detection/_lib/replay_after_c2_quiet42.json",
+    "python ml/experiments/detection/_lib/analyze_detection.py --scenario standard --seed 7 --json ml/experiments/detection/_lib/replay_after_c2_standard7.json"
+  ],
+  "selection": "corroboration rule selected on standard-42 measurement (mix-shift mechanism identified per-method); validated on quiet-42 (0 scan FPs) and standard-7 (route_latency caught, 1 corroborated organic latency FP admitted)",
+  "evidence": [
+    "ml/experiments/detection/_lib/probe_before.json",
+    "ml/experiments/detection/_lib/replay_after_v1.json",
+    "ml/experiments/detection/_lib/replay_after_c2_standard42.json",
+    "ml/experiments/detection/_lib/replay_after_c2_quiet42.json",
+    "ml/experiments/detection/_lib/replay_after_c2_standard7.json"
+  ]
+}

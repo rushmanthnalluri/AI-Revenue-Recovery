@@ -1,0 +1,64 @@
+{
+  "config": {
+    "seed": 42,
+    "days": 14,
+    "target_events": 25000,
+    "customers": 2000,
+    "scenario": "payday_wave_demo",
+    "incidents": [
+      {
+        "kind": "customer_insufficient_funds_wave",
+        "day_fraction": 0.6,
+        "start_hour_ist": 0.0,
+        "duration_hours": 20.0,
+        "params": {
+          "fail_boost": 0.35
+        }
+      }
+    ],
+    "end_date": null,
+    "merchant_name": "PulseRecover Demo Store"
+  },
+  "simulator_run_id": "sim_42_80b9f80b81",
+  "ground_truth": [
+    {
+      "entity_id": "inc_sim_42_80b9f80b81_00",
+      "kind": "customer_insufficient_funds_wave",
+      "start": "2026-08-20T18:30:00+00:00",
+      "end": "2026-08-21T14:30:00+00:00",
+      "recoverable": true,
+      "affected_amount_paise": 9274900
+    }
+  ],
+  "passes": 55,
+  "detection": {
+    "incidents": 0,
+    "matched_incidents": 0,
+    "matched_ground_truth": 0,
+    "precision": null,
+    "recall": 0.0,
+    "f1": null,
+    "mttd_minutes": null,
+    "per_kind_recall": {
+      "customer_insufficient_funds_wave": {
+        "matched": 0,
+        "total": 1,
+        "affected_amount_paise": 9274900,
+        "recoverable": true
+      }
+    },
+    "matched": [],
+    "unmatched": [
+      {
+        "entity_id": "inc_sim_42_80b9f80b81_00",
+        "kind": "customer_insufficient_funds_wave",
+        "start": "2026-08-20T18:30:00+00:00",
+        "end": "2026-08-21T14:30:00+00:00",
+        "affected_amount_paise": 9274900,
+        "recoverable": true
+      }
+    ],
+    "per_incident": [],
+    "false_positives": []
+  }
+}

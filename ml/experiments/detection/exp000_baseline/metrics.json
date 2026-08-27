@@ -1,0 +1,44 @@
+{
+  "dataset": "standard / seed 42 / sim_42_50f24b57d0 (anchored 2026-08-27)",
+  "source": "scripts/run_evaluation.py harness run run_4f3b346e88e74d3d91c4fba2c2caa94a, confirmed row-for-row by ml/experiments/detection/_lib/analyze_detection.py replay (identical 116 passes, 6 incidents, P/R/F1/MTTD)",
+  "detection": {
+    "passes": 116,
+    "incidents": 6,
+    "matched_incidents": 4,
+    "matched_ground_truth": 3,
+    "ground_truth_total": 6,
+    "precision": 0.666667,
+    "recall": 0.5,
+    "f1": 0.571429,
+    "mttd_minutes": 895.0,
+    "confusion": {
+      "tp_rows": 4,
+      "fp_rows": 2,
+      "gt_missed": 3,
+      "note": "row-level TP/FP as scored by the harness (incident rows vs temporal ground-truth overlap); recall is GT-episode level"
+    }
+  },
+  "per_kind_recall": {
+    "gateway_degradation": {"matched": 1, "total": 1},
+    "method_outage": {"matched": 1, "total": 1},
+    "subscription_failure_spike": {"matched": 1, "total": 1},
+    "route_latency": {"matched": 0, "total": 1},
+    "checkout_abandonment_spike": {"matched": 0, "total": 1},
+    "customer_insufficient_funds_wave": {"matched": 0, "total": 1}
+  },
+  "downstream": {
+    "opportunities_count": 655,
+    "interventions_count": 60,
+    "interventions_by_type": {"retry_payment": 55, "create_payment_link": 5},
+    "false_interventions_count": 5,
+    "unsafe_action_count": 0,
+    "recovered_revenue_paise": 1380700,
+    "diagnosis_top1_accuracy": 0.666667,
+    "diagnosis_scored_incidents": 3
+  },
+  "baseline_arm": {
+    "recovered_revenue_paise": 99025100,
+    "interventions_count": 4918,
+    "false_interventions_count": 432
+  }
+}

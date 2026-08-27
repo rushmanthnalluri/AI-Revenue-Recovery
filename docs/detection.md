@@ -24,16 +24,40 @@ per payment, not per event.
 
 ### Bucketed series
 
-Events are aggregated into a fixed grid of buckets (default 5 minutes):
+Events are aggregated into a fixed grid of buckets (default 5 minutes; the
+two sparse-signal metrics use coarser per-metric grids, see below):
 
-| Metric | Value per bucket | Degrades |
-|---|---|---|
-| `payment_success_rate` | successes / terminal outcomes | **down** |
-| `capture_latency_ms` | mean capture latency (event `payload["latency_ms"]`, else created→captured gap) | **up** |
+| Metric | Value per bucket | Grid | Degrades |
+|---|---|---|---|
+| `payment_success_rate` | successes / terminal outcomes | 5 min | **down** |
+| `capture_latency_ms` | mean capture latency (event `payload["latency_ms"]`, else created→captured gap) | 5 min | **up** |
+| `checkout_abandonment_rate` | abandoned / decidable checkout attempts created in the bucket | 30 min | **up** |
+| `insufficient_fund_share` | insufficient-funds failures / all failures | 60 min | **up** |
 
 Buckets with fewer than `min_bucket_count` (default 5) events carry no
 statistical signal and are skipped — with 2 payments in a bucket, one failure
-is a 50pp swing, not an incident.
+is a 50pp swing, not an incident. The two share metrics carry their own
+count floors (`insufficient_fund_share`: 2 failures; `checkout_abandonment_rate`:
+10 decidable attempts) applied unless the request sets `min_bucket_count`
+explicitly — that is what lets them work in the small-volume night regime the
+global floor was designed to suppress.
+
+**`checkout_abandonment_rate` is attempt-based.** Abandoned checkouts stay
+`created` and never produce terminal events, so outcome-based series are
+blind to them by construction. The engine resolves every payment *created*
+in the window against a 30-minute inactivity threshold (no terminal outcome
+within `created + 30m` = abandoned). Right-censoring is handled honestly:
+the pass's knowledge edge is the window end, so attempts whose threshold
+horizon falls beyond it are excluded from numerator AND denominator (the
+last 30 minutes of a window simply carry less signal), and no event after
+the window end is ever consulted.
+
+**`insufficient_fund_share`** is the failure *mix*, not the failure count:
+the insufficient-funds share of failed terminal outcomes per bucket
+(defensive substring match on `error_reason` — Razorpay telemetry has no
+closed enum). It exists for the sparse regime where the success rate itself
+cannot be scored: at night a bucket may hold 1–5 outcomes total, but when 3
+of them fail and all three are insufficient funds, the mix is the signal.
 
 ### Segments
 
@@ -42,6 +66,8 @@ Every payment carries segment dimensions used to *localize* a degradation:
 - `method` — `Payment.method` (`upi`, `card`, `netbanking`, ...)
 - `bank` — `Payment.meta["bank"]`
 - `gateway` — `Payment.meta["gateway"]` (default `"razorpay"`)
+- `route` — `Payment.meta["route"]` (e.g. `pg_primary`; Razorpay
+  Optimizer-style gateway route)
 
 A run can be restricted to one slice (`segment: {"method": "upi"}`), and every
 detected anomaly is automatically broken down per dimension: the engine
@@ -152,7 +178,7 @@ cost of false positives.
 {
   "window_minutes": 240,      // analysis window (default 60)
   "bucket_minutes": 5,        // bucket size (default 5)
-  "metrics": ["payment_success_rate"],   // default: both metrics
+  "metrics": ["payment_success_rate"],   // default: all four known metrics
   "detector": "zscore",       // registry name, or "all"
   "segment": {"method": "upi"},          // optional slice restriction
   "baseline_buckets": 12, "min_bucket_count": 5,
@@ -182,9 +208,13 @@ incident only when it clears **all three** floors:
 
 | floor | default | meaning |
 |---|---|---|
-| `min_absolute_deviation` | per metric: **5pp** success rate, **75 ms** latency (`null` in the request selects the default; `0` disables) | `|observed − baseline|` in metric units. Guards quiet-merchant hair-triggers: with the baseline std floored at 1% of mean, a 2–3pp wobble can exceed 3σ on a near-perfect baseline. |
-| `min_flagged_volume` | **15** events | total events across the flagged buckets. A "50% drop" built on 6 payments is not an incident. |
-| `min_flagged_run` | **2** consecutive buckets | persistence: the degradation must hold for at least 2 adjacent flagged buckets (≥ 10 min at the default grid). One bad bucket is a blip. Note: `isolation_forest` flags boundary buckets by design — pair it with `min_flagged_run: 1`. |
+| `min_absolute_deviation` | per metric: **5pp** success rate, **75 ms** latency, **20pp** abandonment share, **25pp** error share (`null` in the request selects the default; `0` disables) | `|observed − baseline|` in metric units. Guards quiet-merchant hair-triggers: with the baseline std floored at 1% of mean, a 2–3pp wobble can exceed 3σ on a near-perfect baseline. |
+| `min_flagged_volume` | **15** events; **3** failures for `insufficient_fund_share` (metric default) | total events across the flagged buckets. A "50% drop" built on 6 payments is not an incident. |
+| `min_flagged_run` | **2** consecutive buckets; **1** for `insufficient_fund_share` (metric default) | persistence: the degradation must hold for at least 2 adjacent flagged buckets (≥ 10 min at the default grid). One bad bucket is a blip. Note: `isolation_forest` flags boundary buckets by design — pair it with `min_flagged_run: 1`. |
+| `min_observed` | **0.35** abandonment share, **0.90** error share (engine constants, up-direction share metrics only) | the anomaly's worst bucket must reach the level itself: a *wave* means the mix is dominated by the signal class, not merely elevated. Measured: organic insufficient-fund clusters peak at 0.71 share (z up to 7); natural abandonment clumps at ≤ 0.2. |
+
+Per-metric floor defaults apply only when the request does not set the floor
+explicitly (`model_fields_set`); an explicit request field always wins.
 
 Fires that fail a floor are counted in the run response as
 `anomalies_filtered` (and logged with the failed floor), not persisted.
@@ -196,6 +226,33 @@ production defaults, seed 42 — see "Measured effect" below): the binding
 floors on that dataset are **persistence** and **flagged volume**; the
 absolute-deviation floor does not bind there (organic noise deviates far
 more than 5pp) and exists for the small-sample regime.
+
+## Per-route latency scan (blind-spot cover)
+
+The `route_latency` blind spot is not that a route barely moves the aggregate
+— measured on the standard dataset, merchant-wide mean capture latency jumps
+~6–10x during the injected incident. The z-score stays silent because the
+incident's early-morning buckets are sparse (1–5 captures) and the pass whose
+window starts inside them builds its leading baseline from incident buckets
+(baseline poisoning). The aggregate therefore never fires, and localization
+(which runs *after* a fire) never gets the chance to say which route it was.
+
+When a pass admits **no** merchant-wide `capture_latency_ms` incident for a
+detector, the engine re-runs that detector on per-`route` slice series
+(15-min buckets, count floor 3 — a route carries a fraction of traffic) with
+the standard floors. Scanning only when the aggregate is silent means
+fleet-wide latency incidents (gateway_degradation) never produce duplicate
+slice incidents.
+
+Slice fires face one extra admission gate, **within-method corroboration**:
+a real route degradation slows *every* method flowing over the route, while
+a method-mix shift only moves the aggregate mean. The rise must hold within
+methods — at least two methods with ≥ 3 samples in both the pre-anomaly and
+anomaly regions must each rise ≥ 2x (a lone well-sampled method must rise
+≥ 3x). Measured: the injected incident rises ≥ 7x in every method; organic
+slice fires (4 in an unguarded run) rose in at most one method and are all
+rejected by this gate. Admitted slice anomalies persist with
+`segment={"route": ...}` and `meta.segment_scan=true`.
 
 ## Cross-pass episode dedup + post-resolution suppression
 
@@ -318,12 +375,57 @@ Honest costs, also measured:
   precision 0.667, not 1.0.
 
 Recall note: the three missed injected incidents are coverage gaps, not
-floor casualties — `route_latency` (a single route barely moves merchant-wide
-latency), `checkout_abandonment_spike` (abandoned checkouts never become
-terminal outcomes, so the success-rate series is blind by construction), and
+floor casualties — `route_latency` (sparse early-morning buckets + leading-
+baseline poisoning keep the merchant-wide z-score silent even though the
+aggregate latency jumps ~6–10x — measured, see the scan section),
+`checkout_abandonment_spike` (abandoned checkouts never become terminal
+outcomes, so the success-rate series is blind by construction), and
 `customer_insufficient_funds_wave` (runs 00:00–20:00 IST; its night buckets
 carry 1–5 events and fall under `min_bucket_count`, so the signal never
 enters the scored series — verified on the persisted series snapshot).
+All three are closed by the recall attack measured below.
+
+## Measured effect of the recall attack (new signals)
+
+Before/after on the **same dataset and seed**: scenario `standard` (30 days,
+~69k payment_events, 6 injected incidents), seed 42, scheduled 12h/6h passes
+at production defaults, reproduced by
+`scripts/run_evaluation.py --scenario standard --seed 42`
+(before: run `run_4f3b346e88e74d3d91c4fba2c2caa94a`; after: run
+`run_0022000d8df942e6ac4b7299986f994a`; both anchored 2026-08-27 — absolute
+numbers shift with the calendar day of the run, the same-day delta is what is
+reproducible). Three additions, each validated on synthetic fixtures (quiet
+control + injected spike), then measured on the harness:
+
+1. **Per-route latency scan** with within-method corroboration (above).
+2. **`checkout_abandonment_rate`** — attempt-based, right-censoring-aware.
+3. **`insufficient_fund_share`** — the failure-mix signal for the sparse
+   night regime, with near-single-class admission (see exp003).
+
+| metric | before | after |
+|---|---:|---:|
+| incident rows persisted | 6 | **9** |
+| matched rows / ground truth | 4 / 3 of 6 | 7 / **6 of 6** |
+| **precision** | 0.667 | **0.778** |
+| recall | 0.500 | **1.000** |
+| F1 | 0.571 | 0.875 |
+| MTTD (min, sim time) | 895 | **585** |
+| per-kind recall | 3/6 kinds | **6/6 kinds** |
+| downstream: opportunities / interventions / false interventions | 655 / 60 / 5 | 903 / 90 / 7 |
+| recovered revenue (harness) | ₹13,807 | **₹24,529** (+77.7%) |
+| unsafe actions | 0 | 0 |
+
+The two pre-existing organic success-rate FPs (08-15, 08-22) remain — no new
+signal touched that path, and the new signals added **zero** false positives
+on this dataset (validated on the quiet scenario too: the before/after quiet
+replays produce the identical 6 pre-existing organic incidents). Newly
+surfaced ground-truth revenue at risk: route_latency ₹51,727 (not
+recoverable), checkout_abandonment ₹69,201 (recoverable),
+insufficient-funds wave ₹104,458 (recoverable).
+
+Evidence: `ml/experiments/detection/exp001..exp003` (config, metrics,
+failure analysis per signal, including the rejected tuning iterations and
+the payday-scale limitation of the error-share signal).
 
 ## Detector comparison — synthetic fixtures (preliminary)
 
@@ -363,12 +465,33 @@ Per-scenario detail (recorded at the same run):
 ## Known limitations (honest list)
 
 - Baseline poisoning: a window that starts inside an ongoing outage detects
-  nothing (accepted trade-off of baselines-first). This is what keeps the
-  20h insufficient-funds wave invisible from windows anchored inside it.
+  nothing (accepted trade-off of baselines-first). The error-share metric
+  sidesteps this for the insufficient-funds wave only in the ONE pass that
+  straddles the wave start; a same-time-yesterday baseline remains the
+  structural fix and is deliberately out of scope.
 - Sparse traffic: buckets under `min_bucket_count` are skipped; very quiet
-  merchants get no detection rather than noisy detection. Measured: the
-  wave's night buckets carry 1–5 events, so its signal never enters the
-  scored series at the default floor.
+  merchants get no detection rather than noisy detection. The two share
+  metrics carry their own lower count floors (measured above), which moves
+  the boundary but does not remove it: abandonment spikes under ~10
+  decidable creations per 30-min bucket are not scored, and the
+  `insufficient_fund_share` signal misses the wave at smaller scale —
+  measured on payday_wave_demo (25k events/14 days): the wave's only
+  near-pure hour carries 2 failures (under the 3-failure volume floor) and
+  its richer hours top out at 0.78 share, under the 0.90 admission bar that
+  organic clusters (0.71) force. Recall 0/1 there, zero false positives.
+- The `insufficient_fund_share` 0.90 bar is deliberately narrow: organic
+  daytime insufficient-fund clusters reach 0.71 share on 7 failures (z up to
+  7) — statistically *stronger* than the wave's night bucket (3 failures,
+  share 1.0, z 3.2). Only near-single-class hours are admitted; a wave whose
+  night band never produces one is missed (see
+  `ml/experiments/detection/exp003/failure_analysis.md`).
+- The route scan can admit a strong organic latency episode when it rises
+  across methods (measured once on standard/seed7: dev +907%, 1h span) —
+  corroboration kills mix shifts, not genuine organic multi-method latency
+  events.
+- Abandoned-checkout incidents surface revenue at risk but do not yet feed
+  recovery: the OpportunityBuilder covers failed payments and payment-less
+  dropped orders, not payments stuck in `created` (downstream scope).
 - Seasonality: the leading-window baseline cannot tell a daily-cycle trough
   from a degradation. The noise floors + episode dedup suppress the
   resulting incidents (measured above), but multi-hour organic swings still

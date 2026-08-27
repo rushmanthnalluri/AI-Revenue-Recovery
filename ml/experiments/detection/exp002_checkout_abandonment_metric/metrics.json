@@ -1,0 +1,22 @@
+{
+  "dataset": "standard / seed 42 / sim_42_50f24b57d0 (anchored 2026-08-27)",
+  "before": {
+    "source": "harness run run_4f3b346e88e74d3d91c4fba2c2caa94a + replay (identical)",
+    "per_kind_recall": {"checkout_abandonment_spike": "0/1 — blind by construction (no terminal events)"}
+  },
+  "after": {
+    "source": "replay ml/experiments/detection/_lib/replay_after_c2_standard42.json, confirmed by harness run run_0022000d8df942e6ac4b7299986f994a",
+    "per_kind_recall": {"checkout_abandonment_spike": "1/1 (metric checkout_abandonment_rate, dev +1069.55%, MTTD 330 min)"},
+    "abandonment_false_positives": 0
+  },
+  "signal_measurements": {
+    "baseline_stuck_share": "~0.0-0.14 per 30-min bucket (natural 4% abandonment, 1-2 stuck payments on 25-70 creations)",
+    "spike_stuck_share": "0.4-0.8 sustained 12:30-15:00Z (15-25 stuck payments per 30-min bucket)",
+    "organic_fp_mechanism_v1": "night/morning buckets with 2-7 decidable creations where 1-2 natural stuck payments read as share 0.14-1.0; killed by count >= 10 + abs >= 0.20 + observed >= 0.35 + run >= 2"
+  },
+  "validation": {
+    "quiet_42": {"abandonment_false_positives": 0},
+    "standard_7": {"abandonment_false_positives": 0, "recall": "checkout_abandonment_spike 1/1 (INR 51,185 affected)"}
+  },
+  "unit_tests": "tests/detection/test_new_signals.py: series censoring semantics (3), loader tri-state, engine quiet/spike (2), registry/API (2) — all green"
+}

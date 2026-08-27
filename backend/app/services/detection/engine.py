@@ -5,16 +5,27 @@ A pass (``run_detection``) does:
 1. Resolve the analysis window — anchored at the latest terminal event (or an
    explicit ``as_of``) so identical data yields an identical window.
 2. Build the bucketed series per metric and run the chosen detector(s).
+   Four metrics: ``payment_success_rate`` and ``capture_latency_ms`` over
+   terminal outcomes, ``checkout_abandonment_rate`` over checkout *attempts*
+   (payments stuck in ``created``; outcome-based series are blind to them),
+   and ``insufficient_fund_share`` (the insufficient-funds mix of failures,
+   built for the small-volume night regime). Sparse signals use coarser
+   per-metric bucket grids (``METRIC_BUCKET_MULTIPLIER``).
 3. Apply the incident-level noise floors (Watchdog-style): a detector fire
    becomes an incident only when the deviation is big in absolute terms
    (``min_absolute_deviation``), touches enough traffic
    (``min_flagged_volume``), and persists across enough consecutive buckets
-   (``min_flagged_run``). Fires that fail a floor are counted
-   (``anomalies_filtered``) and dropped — organic night-traffic wobble is not
-   an incident.
-4. Localize each surviving anomaly by re-scoring per-segment slices
-   (method / bank / gateway) and ranking contributors by deviation.
-5. Persist: one ``incidents`` row per (metric, detector, window, segment) —
+   (``min_flagged_run``). Small-volume metrics carry their own floor defaults
+   (applied unless the request sets the floor explicitly). Fires that fail a
+   floor are counted (``anomalies_filtered``) and dropped — organic
+   night-traffic wobble is not an incident.
+4. Blind-spot cover: when the merchant-wide latency pass admits nothing for a
+   detector, re-score per-route latency slices (``_scan_latency_routes``) —
+   a single route's latency collapse is invisible in the aggregate series
+   (sparse buckets poison the leading baseline) but stark in its own series.
+5. Localize each surviving anomaly by re-scoring per-segment slices
+   (method / bank / gateway / route) and ranking contributors by deviation.
+6. Persist: one ``incidents`` row per (metric, detector, window, segment) —
    re-running the same combination UPDATEs that row (original ``detected_at``
    preserved, evidence refreshed) instead of duplicating it. Cross-window
    re-detection of the SAME episode (overlapping scheduled passes) is merged
@@ -22,7 +33,7 @@ A pass (``run_detection``) does:
    ``dedup_cooldown_minutes``; re-detection of a signature that was resolved
    (RESOLVED/CLOSED/FALSE_POSITIVE) within ``suppress_after_resolve_minutes``
    is suppressed, not reopened.
-6. Attach ``incident_evidence``: a ``metric_series`` snapshot and the
+7. Attach ``incident_evidence``: a ``metric_series`` snapshot and the
    ``segment_breakdown`` ranking.
 
 Detection latency is computable from the persisted record: the true start
@@ -51,16 +62,23 @@ from app.services.detection.detectors import (
     get_detector,
 )
 from app.services.detection.series import (
+    ATTEMPT_BASED_METRICS,
     SEGMENT_DIMENSIONS,
     KNOWN_METRICS,
     METRIC_CAPTURE_LATENCY,
+    METRIC_CHECKOUT_ABANDONMENT,
     METRIC_DIRECTION,
+    METRIC_INSUFFICIENT_FUND_SHARE,
     METRIC_SUCCESS_RATE,
+    UNKNOWN_SEGMENT,
     Bucket,
     PaymentOutcome,
+    build_metric_series,
     build_series,
     floor_bucket,
+    is_insufficient_fund,
     latest_event_anchor,
+    load_checkout_attempts,
     load_outcomes,
     slice_outcomes,
 )
@@ -76,10 +94,77 @@ TOP_SEGMENTS_PER_DIMENSION = 3
 #: that, a detector fire is organic wobble, not an incident. Measured on the
 #: standard-scenario harness: not the binding floor there (organic noise
 #: deviates far more), it guards quiet-merchant hair-triggers.
+#: The two share-metrics get wider floors (10pp stuck-share, 25pp error-share)
+#: because small-denominator shares wobble further than rates.
 DEFAULT_MIN_ABSOLUTE_DEVIATION: dict[str, float] = {
     METRIC_SUCCESS_RATE: 0.05,
     METRIC_CAPTURE_LATENCY: 75.0,
+    METRIC_CHECKOUT_ABANDONMENT: 0.20,
+    METRIC_INSUFFICIENT_FUND_SHARE: 0.25,
 }
+
+#: Admission floor on the observed level itself (up-direction share metrics
+#: only): a *wave* means the failure mix is DOMINATED by the signal class,
+#: not merely elevated. Measured on standard/seed42 (30 days): organic
+#: insufficient-fund clusters peak at 0.71 share (daytime, 7 failures, z up
+#: to 7) while the injected wave's night bucket is 1.0 — the 0.9 bar sits in
+#: the measured gap between them; natural checkout abandonment clumps at
+#: <= 0.2 share on decidable buckets while the injected spike runs 0.4-0.8.
+METRIC_MIN_OBSERVED: dict[str, float] = {
+    METRIC_CHECKOUT_ABANDONMENT: 0.35,
+    METRIC_INSUFFICIENT_FUND_SHARE: 0.90,
+}
+
+#: Per-metric bucket-size multiplier relative to ``req.bucket_minutes``:
+#: sparse signals need coarser buckets to carry statistical content at all.
+#: Measured on the standard harness (seed 42): the abandonment spike is clean
+#: on 30-min buckets (baseline ~0.04 vs spike ~0.55), and the insufficient-
+#: funds wave's night band only becomes decidable on 60-min buckets (1-3
+#: failures per 30-min bucket cannot form a scored run).
+METRIC_BUCKET_MULTIPLIER: dict[str, int] = {
+    METRIC_CHECKOUT_ABANDONMENT: 6,  # 30-min buckets on the 5-min grid
+    METRIC_INSUFFICIENT_FUND_SHARE: 12,  # 60-min buckets on the 5-min grid
+}
+
+#: Per-metric floor defaults, applied only when the request does NOT set the
+#: floor explicitly (``model_fields_set``). The insufficient-funds wave runs
+#: at night, where buckets carry 1-3 failures: the global floors
+#: (min_bucket_count 5, min_flagged_volume 15 events) can never be met there —
+#: that IS the measured blind spot (see ml/experiments/detection/exp003).
+#: The metric therefore scores buckets with >= 2 failures and admits a
+#: single-bucket episode carrying >= 3 failures — but only when the hour is
+#: near-pure single-class (``METRIC_MIN_OBSERVED``), because measured organic
+#: daytime IF clusters reach 0.71 share on 7 failures (z up to 7): a weaker
+#: bar fires on organic noise, a stronger one misses the wave.
+METRIC_MIN_BUCKET_COUNT: dict[str, int] = {
+    METRIC_INSUFFICIENT_FUND_SHARE: 2,
+    # decidable creations per 30-min bucket: natural abandonment (a few %)
+    # only ever strands 1-2 payments in a bucket — on >= 10 decidable
+    # creations that is a <= 0.2 share, under this metric's floors.
+    METRIC_CHECKOUT_ABANDONMENT: 10,
+}
+METRIC_MIN_FLAGGED_RUN: dict[str, int] = {METRIC_INSUFFICIENT_FUND_SHARE: 1}
+METRIC_MIN_FLAGGED_VOLUME: dict[str, int] = {METRIC_INSUFFICIENT_FUND_SHARE: 3}
+
+#: Inactivity threshold for the checkout-abandonment signal: a payment created
+#: this many minutes ago without a terminal outcome is abandoned (Razorpay
+#: checkout sessions expire on this order of magnitude).
+ABANDONMENT_INACTIVITY_MINUTES = 30
+
+#: Route-localized latency scan (the route_latency blind spot): when a pass
+#: admits no merchant-wide ``capture_latency_ms`` incident for a detector,
+#: re-run that detector on per-route latency slices. Slice series use coarser
+#: buckets and a lower count floor than the aggregate (a single route carries
+#: a fraction of traffic; 5-min slice buckets at night hold 1-4 captures).
+#: The scan only runs when the aggregate is silent, so fleet-wide latency
+#: incidents (gateway_degradation) never produce duplicate slice incidents.
+LATENCY_ROUTE_SCAN_ENABLED = True
+LATENCY_SCAN_DIMENSION = "route"
+LATENCY_SCAN_BUCKET_MULTIPLIER = 3  # 15-min slice buckets on the 5-min grid
+LATENCY_SCAN_MIN_BUCKET_COUNT = 3
+#: A "slice" covering >= 95% of outcomes localizes nothing (it IS the
+#: aggregate — e.g. every payment missing the route tag); never scan it.
+LATENCY_SCAN_MAX_SLICE_SHARE = 0.95
 
 #: Statuses after which re-detection of the same signature is eligible for
 #: the post-resolution suppression window.
@@ -168,83 +253,83 @@ def run_detection(db: Session, req: DetectionRunRequest) -> DetectionRunResult:
     window_start = floor_bucket(window_start, req.bucket_minutes)
 
     outcomes = load_outcomes(db, window_start, window_end, req.segment)
-    if not outcomes:
+    if not outcomes and not any(m in ATTEMPT_BASED_METRICS for m in metrics):
         result.finished_at = utcnow()
         result.detail = "no terminal payment outcomes inside the window"
         return result
 
     for metric in metrics:
-        series = build_series(
-            outcomes,
+        bucket_minutes = req.bucket_minutes * METRIC_BUCKET_MULTIPLIER.get(metric, 1)
+        if metric in ATTEMPT_BASED_METRICS:
+            records: list = load_checkout_attempts(
+                db,
+                window_start,
+                window_end,
+                req.segment,
+                inactivity_minutes=ABANDONMENT_INACTIVITY_MINUTES,
+            )
+        else:
+            records = outcomes
+        series = build_metric_series(
+            records,
             metric=metric,
             window_start=window_start,
             window_end=window_end,
-            bucket_minutes=req.bucket_minutes,
+            bucket_minutes=bucket_minutes,
         )
+        admitted_detectors: set[str] = set()
         for detector in detectors:
             params = DetectorParams(
                 baseline_buckets=req.baseline_buckets,
                 threshold=req.threshold,
                 sensitivity=req.sensitivity,
-                min_bucket_count=req.min_bucket_count,
+                min_bucket_count=_metric_floor(
+                    req, "min_bucket_count", METRIC_MIN_BUCKET_COUNT, metric
+                ),
                 direction=METRIC_DIRECTION[metric],
-                bucket_minutes=req.bucket_minutes,
+                bucket_minutes=bucket_minutes,
             )
             anomaly = detector.detect(series, params)
             if anomaly is None:
                 continue
-            floor_reason = _floor_violation(anomaly, series, metric=metric, req=req)
-            if floor_reason is not None:
-                result.anomalies_filtered += 1
-                logger.info(
-                    "detection_floor_filtered",
-                    extra={
-                        "run_id": run_id,
-                        "metric": metric,
-                        "detector": detector.name,
-                        "reason": floor_reason,
-                    },
-                )
-                continue
-            localization = localize(
-                outcomes,
-                metric=metric,
-                anomaly=anomaly,
-                window_start=window_start,
-                window_end=window_end,
-                params=params,
-            )
-            affected, revenue_at_risk = _impact(
-                outcomes, metric, anomaly, window_end
-            )
-            report = _persist(
+            report = _admit(
                 db,
+                result,
                 run_id=run_id,
                 metric=metric,
                 detector_name=detector.name,
                 anomaly=anomaly,
                 series=series,
-                localization=localization,
+                records=records,
                 segment=req.segment or {},
                 window_start=window_start,
                 window_end=window_end,
-                bucket_minutes=req.bucket_minutes,
-                affected=affected,
-                revenue_at_risk=revenue_at_risk,
-                dry_run=req.dry_run,
+                bucket_minutes=bucket_minutes,
+                params=params,
+                req=req,
                 now=started_at,
-                dedup_cooldown_minutes=req.dedup_cooldown_minutes,
-                suppress_after_resolve_minutes=req.suppress_after_resolve_minutes,
             )
-            result.incidents.append(report)
-            if report.action == "suppressed":
-                result.anomalies_filtered += 1
-                continue
-            result.anomalies_detected += 1
-            if report.action == "created":
-                result.incidents_created.append(report.incident_id or "")
-            elif report.action == "updated":
-                result.incidents_updated.append(report.incident_id or "")
+            if report is not None:
+                admitted_detectors.add(detector.name)
+        if (
+            metric == METRIC_CAPTURE_LATENCY
+            and LATENCY_ROUTE_SCAN_ENABLED
+            and not req.segment
+        ):
+            # Blind-spot cover: the aggregate said nothing (or only fired
+            # below the floors) — drill into per-route latency slices.
+            _scan_latency_routes(
+                db,
+                result,
+                run_id=run_id,
+                outcomes=outcomes,
+                detectors=detectors,
+                skip_detectors=admitted_detectors,
+                window_start=window_start,
+                window_end=window_end,
+                req=req,
+                now=started_at,
+            )
 
     if not req.dry_run:
         db.commit()
@@ -276,6 +361,18 @@ def run_detection(db: Session, req: DetectionRunRequest) -> DetectionRunResult:
 # ---------------------------------------------------------------------------
 
 
+def _metric_floor(
+    req: DetectionRunRequest, field: str, per_metric: dict[str, int], metric: str
+) -> int:
+    """Effective floor value: an explicit request field always wins; otherwise
+    the metric's own default (when one exists) overrides the request default.
+    This is how the small-volume signals get their own floors without new
+    request surface."""
+    if field in req.model_fields_set:
+        return getattr(req, field)
+    return per_metric.get(metric, getattr(req, field))
+
+
 def _flagged_run_and_volume(
     anomaly: Anomaly, series: list[Bucket]
 ) -> tuple[int, int]:
@@ -303,22 +400,244 @@ def _floor_violation(
 ) -> str | None:
     """Return the reason a detector fire fails the incident-level noise
     floors, or None when it clears them. Floors are engine-side (detectors
-    stay pure statistics); every floor is request-configurable."""
+    stay pure statistics); every floor is request-configurable, with
+    per-metric defaults where a signal lives in the small-volume regime."""
     floor = req.min_absolute_deviation
     if floor is None:
         floor = DEFAULT_MIN_ABSOLUTE_DEVIATION[metric]
     abs_dev = abs(anomaly.observed - anomaly.baseline)
     if abs_dev < floor:
         return f"|observed-baseline| {abs_dev:.4g} < min_absolute_deviation {floor:.4g}"
+    min_observed = METRIC_MIN_OBSERVED.get(metric)
+    if min_observed is not None and anomaly.observed < min_observed:
+        return (
+            f"observed {anomaly.observed:.4g} < min_observed {min_observed:.4g} "
+            "(a wave must dominate the mix, not merely elevate it)"
+        )
+    min_volume = _metric_floor(req, "min_flagged_volume", METRIC_MIN_FLAGGED_VOLUME, metric)
+    min_run = _metric_floor(req, "min_flagged_run", METRIC_MIN_FLAGGED_RUN, metric)
     longest_run, volume = _flagged_run_and_volume(anomaly, series)
-    if volume < req.min_flagged_volume:
-        return f"flagged volume {volume} < min_flagged_volume {req.min_flagged_volume}"
-    if longest_run < req.min_flagged_run:
+    if volume < min_volume:
+        return f"flagged volume {volume} < min_flagged_volume {min_volume}"
+    if longest_run < min_run:
         return (
             f"persistence {longest_run} consecutive bucket(s) "
-            f"< min_flagged_run {req.min_flagged_run}"
+            f"< min_flagged_run {min_run}"
         )
     return None
+
+
+def _admit(
+    db: Session,
+    result: DetectionRunResult,
+    *,
+    run_id: str,
+    metric: str,
+    detector_name: str,
+    anomaly: Anomaly,
+    series: list[Bucket],
+    records: list,
+    segment: dict[str, str],
+    window_start: datetime,
+    window_end: datetime,
+    bucket_minutes: int,
+    params: DetectorParams,
+    req: DetectionRunRequest,
+    now: datetime,
+    extra_meta: dict | None = None,
+) -> IncidentReport | None:
+    """The admission gate between a detector fire and an incident: floors,
+    localization, impact, persistence. Returns the report when the fire
+    cleared the floors (created/updated/would_*/suppressed), None when a
+    floor rejected it."""
+    floor_reason = _floor_violation(anomaly, series, metric=metric, req=req)
+    if floor_reason is not None:
+        result.anomalies_filtered += 1
+        logger.info(
+            "detection_floor_filtered",
+            extra={
+                "run_id": run_id,
+                "metric": metric,
+                "detector": detector_name,
+                "reason": floor_reason,
+            },
+        )
+        return None
+    localization = localize(
+        records,
+        metric=metric,
+        anomaly=anomaly,
+        window_start=window_start,
+        window_end=window_end,
+        params=params,
+    )
+    affected, revenue_at_risk = _impact(records, metric, anomaly, window_end)
+    report = _persist(
+        db,
+        run_id=run_id,
+        metric=metric,
+        detector_name=detector_name,
+        anomaly=anomaly,
+        series=series,
+        localization=localization,
+        segment=segment,
+        window_start=window_start,
+        window_end=window_end,
+        bucket_minutes=bucket_minutes,
+        affected=affected,
+        revenue_at_risk=revenue_at_risk,
+        dry_run=req.dry_run,
+        now=now,
+        dedup_cooldown_minutes=req.dedup_cooldown_minutes,
+        suppress_after_resolve_minutes=req.suppress_after_resolve_minutes,
+        extra_meta=extra_meta,
+    )
+    result.incidents.append(report)
+    if report.action == "suppressed":
+        result.anomalies_filtered += 1
+        return report
+    result.anomalies_detected += 1
+    if report.action == "created":
+        result.incidents_created.append(report.incident_id or "")
+    elif report.action == "updated":
+        result.incidents_updated.append(report.incident_id or "")
+    return report
+
+
+def _slice_latency_corroborated(
+    slice_records: list[PaymentOutcome],
+    anomaly: Anomaly,
+    *,
+    bucket_minutes: int,
+    min_samples: int = 3,
+    min_ratio: float = 2.0,
+    lone_ratio: float = 3.0,
+) -> bool:
+    """Mix-shift guard for route latency slices: a real route degradation
+    slows every method flowing over the route; a method-mix shift only moves
+    the aggregate mean. The rise must therefore hold WITHIN methods: at least
+    two methods with >= ``min_samples`` successful captures in both the
+    pre-anomaly and the anomaly region must each rise >= ``min_ratio``; when
+    only one method qualifies, it must rise >= ``lone_ratio``. Measured on
+    standard/seed42: the injected route latency rises >= 7x in every method
+    on the route, while organic slice fires rise in at most one method (the
+    rest stay flat — that is the mix shifting, not the route degrading)."""
+    span_end = anomaly.end_ts + timedelta(minutes=bucket_minutes)
+    base: dict[str, list[float]] = {}
+    anom: dict[str, list[float]] = {}
+    for o in slice_records:
+        if not o.success or o.latency_ms is None:
+            continue
+        method = o.segments.get("method", UNKNOWN_SEGMENT)
+        if o.ts < anomaly.start_ts:
+            base.setdefault(method, []).append(o.latency_ms)
+        elif o.ts < span_end:
+            anom.setdefault(method, []).append(o.latency_ms)
+    ratios: list[float] = []
+    for method, b_vals in base.items():
+        a_vals = anom.get(method)
+        if a_vals is None or len(b_vals) < min_samples or len(a_vals) < min_samples:
+            continue
+        b_mean = sum(b_vals) / len(b_vals)
+        if b_mean <= 0:
+            continue
+        ratios.append((sum(a_vals) / len(a_vals)) / b_mean)
+    strong = [r for r in ratios if r >= min_ratio]
+    if len(strong) >= 2:
+        return True
+    return len(ratios) == 1 and ratios[0] >= lone_ratio
+
+
+def _scan_latency_routes(
+    db: Session,
+    result: DetectionRunResult,
+    *,
+    run_id: str,
+    outcomes: list[PaymentOutcome],
+    detectors: list,
+    skip_detectors: set[str],
+    window_start: datetime,
+    window_end: datetime,
+    req: DetectionRunRequest,
+    now: datetime,
+) -> None:
+    """Per-route capture-latency scan — the route_latency blind-spot cover.
+
+    Runs only when the merchant-wide latency pass admitted nothing for the
+    detector (``skip_detectors``), so fleet-wide latency incidents never
+    produce duplicate slice incidents. Each slice is scored with the same
+    detector and the standard incident floors; slice series use coarser
+    buckets and a lower bucket-count floor because one route carries a
+    fraction of traffic (measured: 5-min route slices at night hold 1-4
+    captures, 15-min slices 2-8 — see ml/experiments/detection/exp001)."""
+    metric = METRIC_CAPTURE_LATENCY
+    scan_bucket_minutes = req.bucket_minutes * LATENCY_SCAN_BUCKET_MULTIPLIER
+    routes = sorted(
+        {o.segments.get(LATENCY_SCAN_DIMENSION, UNKNOWN_SEGMENT) for o in outcomes}
+        - {UNKNOWN_SEGMENT}
+    )
+    for route in routes:
+        slice_records = [
+            o
+            for o in outcomes
+            if o.segments.get(LATENCY_SCAN_DIMENSION, UNKNOWN_SEGMENT) == route
+        ]
+        if len(slice_records) >= LATENCY_SCAN_MAX_SLICE_SHARE * len(outcomes):
+            continue  # a slice that IS the aggregate localizes nothing
+        series = build_series(
+            slice_records,
+            metric=metric,
+            window_start=window_start,
+            window_end=window_end,
+            bucket_minutes=scan_bucket_minutes,
+        )
+        for detector in detectors:
+            if detector.name in skip_detectors:
+                continue
+            params = DetectorParams(
+                baseline_buckets=req.baseline_buckets,
+                threshold=req.threshold,
+                sensitivity=req.sensitivity,
+                min_bucket_count=LATENCY_SCAN_MIN_BUCKET_COUNT,
+                direction=METRIC_DIRECTION[metric],
+                bucket_minutes=scan_bucket_minutes,
+            )
+            anomaly = detector.detect(series, params)
+            if anomaly is None:
+                continue
+            if not _slice_latency_corroborated(
+                slice_records, anomaly, bucket_minutes=scan_bucket_minutes
+            ):
+                result.anomalies_filtered += 1
+                logger.info(
+                    "detection_floor_filtered",
+                    extra={
+                        "run_id": run_id,
+                        "metric": metric,
+                        "detector": detector.name,
+                        "reason": "slice latency rise not corroborated within "
+                        "methods (mix shift, not route degradation)",
+                    },
+                )
+                continue
+            _admit(
+                db,
+                result,
+                run_id=run_id,
+                metric=metric,
+                detector_name=detector.name,
+                anomaly=anomaly,
+                series=series,
+                records=slice_records,
+                segment={LATENCY_SCAN_DIMENSION: route},
+                window_start=window_start,
+                window_end=window_end,
+                bucket_minutes=scan_bucket_minutes,
+                params=params,
+                req=req,
+                now=now,
+                extra_meta={"segment_scan": True},
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -327,7 +646,7 @@ def _floor_violation(
 
 
 def localize(
-    outcomes: list[PaymentOutcome],
+    records: list,
     *,
     metric: str,
     anomaly: Anomaly,
@@ -337,15 +656,16 @@ def localize(
 ) -> dict[str, list[dict]]:
     """Rank per-dimension segment values by how much they deviated inside the
     anomalous region. ``flagged`` means the slice deviates in the degradation
-    direction by at least half the global deviation."""
+    direction by at least half the global deviation. Works on both
+    outcome-based and attempt-based records (series dispatch by metric)."""
     direction = params.direction
     breakdown: dict[str, list[dict]] = {}
     for dimension in SEGMENT_DIMENSIONS:
         entries: list[dict] = []
-        for value, group in slice_outcomes(outcomes, dimension).items():
+        for value, group in slice_outcomes(records, dimension).items():
             if len(group) < params.min_bucket_count:
                 continue
-            series = build_series(
+            series = build_metric_series(
                 group,
                 metric=metric,
                 window_start=window_start,
@@ -382,16 +702,22 @@ def localize(
 
 
 def _impact(
-    outcomes: list[PaymentOutcome],
+    records: list,
     metric: str,
     anomaly: Anomaly,
     window_end: datetime,
 ) -> tuple[int, int]:
-    """Preliminary revenue-at-risk: failed (or abnormally slow) payments from
-    the estimated degradation start to the window end."""
-    region = [o for o in outcomes if anomaly.start_ts <= o.ts < window_end]
+    """Preliminary revenue-at-risk: the payments the incident plausibly put
+    at risk, from the estimated degradation start to the window end —
+    failed (success rate), abnormally slow (latency), abandoned checkouts
+    (abandonment rate), or insufficient-funds failures (error share)."""
+    region = [o for o in records if anomaly.start_ts <= o.ts < window_end]
     if metric == METRIC_CAPTURE_LATENCY:
         affected = [o for o in region if o.success and o.latency_ms is not None and o.latency_ms > anomaly.baseline]
+    elif metric == METRIC_CHECKOUT_ABANDONMENT:
+        affected = [o for o in region if o.abandoned]
+    elif metric == METRIC_INSUFFICIENT_FUND_SHARE:
+        affected = [o for o in region if not o.success and is_insufficient_fund(o.error_reason)]
     else:
         affected = [o for o in region if not o.success]
     return len(affected), sum(o.amount_paise for o in affected)
@@ -510,6 +836,7 @@ def _persist(
     now: datetime,
     dedup_cooldown_minutes: int | None,
     suppress_after_resolve_minutes: int | None,
+    extra_meta: dict | None = None,
 ) -> IncidentReport:
     fingerprint = _segment_fingerprint(segment)
     candidates = [
@@ -605,6 +932,8 @@ def _persist(
         "run_id": run_id,
         "last_confirmed_at": now.isoformat(),
     }
+    if extra_meta:
+        meta.update(extra_meta)
     if merged and match is not None:
         # widen the episode span, never narrow it: the earliest estimated
         # start and the latest evidence end describe the whole episode

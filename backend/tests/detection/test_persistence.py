@@ -159,7 +159,13 @@ def test_localization_flags_degraded_segment_globally(
     inc = db_session.get(Incident, view["incident_id"])
     breakdown = next(e for e in inc.evidence if e.evidence_type == "segment_breakdown")
     dims = breakdown.payload["dimensions"]
-    assert set(dims) == {"method", "bank", "gateway"}
+    assert set(dims) == {"method", "bank", "gateway", "route"}
+
+    # the fixtures carry no route tag: one "unknown" slice covering all
+    # traffic (it mirrors the global drop, so its own flag follows the global
+    # deviation — the segment-specific flags are asserted on method/bank)
+    routes = {r["value"]: r for r in dims["route"]}
+    assert set(routes) == {"unknown"}
 
     methods = {m["value"]: m for m in dims["method"]}
     assert set(methods) == {"card", "upi"}

@@ -1,0 +1,30 @@
+{
+  "experiment_id": "exp000_baseline",
+  "track": "detection-recall",
+  "date_utc": "2026-08-27",
+  "title": "Pre-change baseline: floors+dedup detection on the standard scenario",
+  "hypothesis": "Reference point (no candidate signal): reproduce the documented floors+dedup numbers before attacking the three coverage gaps.",
+  "dataset": {
+    "scenario": "standard",
+    "seed": 42,
+    "simulator_run_id": "sim_42_50f24b57d0",
+    "days": 30,
+    "target_events": 65000,
+    "customers": 3000,
+    "anchor": "simulator window ends today 00:00 UTC (run day 2026-08-27); absolute numbers shift with the calendar day of the run",
+    "ground_truth_incidents": 6
+  },
+  "feature_version": "metrics v1: payment_success_rate, capture_latency_ms (KNOWN_METRICS, 5-min buckets)",
+  "model_version": "detectors: zscore (production default in harness request); floors min_absolute_deviation {sr:0.05, lat:75ms}, min_flagged_volume 15, min_flagged_run 2; dedup_cooldown 360m; suppress_after_resolve 720m",
+  "code": {
+    "git_sha": "437dac6dcedfaed7eb54eb438bdc71f94d076295",
+    "tree_note": "working tree carries concurrent uncommitted diagnosis-track changes (app/services/diagnosis/*); detection code untouched at this sha",
+    "detection_schedule": "harness: 116 passes, 12h lookback window, 6h step, DetectionRunRequest defaults (zscore, baseline_buckets 8, min_bucket_count 5)"
+  },
+  "commands": [
+    "cd backend && .venv/Scripts/python scripts/run_evaluation.py --scenario standard --seed 42 --name detection-baseline:before-new-signals",
+    "python ml/experiments/detection/_lib/analyze_detection.py --scenario standard --seed 42 --probe --json ml/experiments/detection/_lib/probe_before.json"
+  ],
+  "evaluation_run_id": "run_4f3b346e88e74d3d91c4fba2c2caa94a",
+  "selection": "n/a (baseline reference)"
+}

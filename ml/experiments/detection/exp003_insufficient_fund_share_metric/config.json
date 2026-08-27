@@ -1,0 +1,53 @@
+{
+  "experiment_id": "exp003_insufficient_fund_share_metric",
+  "track": "detection-recall",
+  "date_utc": "2026-08-27",
+  "title": "insufficient_fund_share — small-volume error-share signal for the funds wave",
+  "hypothesis": "customer_insufficient_funds_wave is missed because its night buckets carry 1-5 events (under min_bucket_count) and every 12h pass except one starts inside the 20h wave (baseline poisoning). The insufficient-fund SHARE of failures is visible in the sparse regime: the mix moves (measured ~0.21 baseline to 0.5-0.88) even when the success rate is unreadable.",
+  "dataset": {
+    "scenario": "standard",
+    "seed": 42,
+    "simulator_run_id": "sim_42_50f24b57d0",
+    "days": 30,
+    "target_events": 65000,
+    "customers": 3000,
+    "anchor": "2026-08-27",
+    "ground_truth": "customer_insufficient_funds_wave 2026-08-16T18:30Z .. 08-17T14:30Z (00:00-20:00 IST), fail_boost +0.30 on card/upi with 90% forced insufficient_fund, affected INR 104,458 (recoverable=True)",
+    "validation_datasets": ["quiet/seed42 (sim_42_c2262ae772)", "standard/seed7 (sim_7_909aa7dd5e)", "payday_wave_demo/seed42 (sim_42_80b9f80b81)"]
+  },
+  "metric_definition": {
+    "name": "insufficient_fund_share",
+    "bucket_value": "insufficient-fund failures / all failed terminal outcomes in the bucket (defensive substring match on error_reason)",
+    "bucket_grid": "60 min (12x the 5-min request grid) — measured necessary: 30-min night buckets hold 0-3 failures and cannot form scored runs",
+    "direction": "up",
+    "floors": "min_bucket_count 2 failures (metric default), min_flagged_volume 3 failures (metric default), min_flagged_run 1 (metric default), min_absolute_deviation 0.25, min_observed 0.90, z >= 3, baseline_buckets 8 (global default)",
+    "why_min_observed_0.9": "measured organic daytime IF clusters reach 0.71 share on 7 failures (z up to 7) — statistically STRONGER than the wave's night bucket (f=3, share 1.0, z 3.2); only a near-single-class hour separates them on this dataset"
+  },
+  "code": {
+    "base_git_sha": "437dac6dcedfaed7eb54eb438bdc71f94d076295",
+    "tree_note": "uncommitted detection-track changes (lead commits)",
+    "candidate_history": [
+      "v1 (run 1, vol 3, abs 0.25, no min_observed): wave caught, but 5 organic FPs on standard-42 (shares 0.28-0.45), P 0.348 overall",
+      "v2 (+ min_observed 0.6): wave caught, 2 organic FPs remain (shares 0.71), P 0.636 — below the 0.65 gate",
+      "v3 (4-bucket baseline + run 2): organic FPs killed but wave LOST (only one night bucket reaches z >= 3; no 2-bucket run exists) — R 0.833",
+      "C2 FINAL (run 1 + min_observed 0.9): wave caught, 0 organic FPs on standard-42/quiet-42/standard-7, P 0.778 overall"
+    ]
+  },
+  "commands": [
+    "python ml/experiments/detection/_lib/analyze_detection.py --scenario standard --seed 42 --json ml/experiments/detection/_lib/replay_after_c2_standard42.json",
+    "python ml/experiments/detection/_lib/analyze_detection.py --scenario quiet --seed 42 --json ml/experiments/detection/_lib/replay_after_c2_quiet42.json",
+    "python ml/experiments/detection/_lib/analyze_detection.py --scenario payday_wave_demo --seed 42 --json ml/experiments/detection/_lib/replay_after_c2_payday42.json",
+    "python ml/experiments/detection/_lib/analyze_detection.py --scenario standard --seed 7 --json ml/experiments/detection/_lib/replay_after_c2_standard7.json"
+  ],
+  "selection": "C2 selected on standard-42 + quiet-42 (precision gate >= 0.65, zero new FPs); validated on standard-7 (wave caught, no IF-share FPs) and payday_wave_demo (wave MISSED — scale limitation, no FP; kept because it costs no precision and catches the standard-scale wave)",
+  "evidence": [
+    "ml/experiments/detection/_lib/probe_before.json",
+    "ml/experiments/detection/_lib/replay_after_v1.json",
+    "ml/experiments/detection/_lib/replay_after_v2.json",
+    "ml/experiments/detection/_lib/replay_after_v3.json",
+    "ml/experiments/detection/_lib/replay_after_c2_standard42.json",
+    "ml/experiments/detection/_lib/replay_after_c2_quiet42.json",
+    "ml/experiments/detection/_lib/replay_after_c2_payday42.json",
+    "ml/experiments/detection/_lib/replay_after_c2_standard7.json"
+  ]
+}
