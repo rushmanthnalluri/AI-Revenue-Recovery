@@ -41,8 +41,10 @@ export function MetricStrip({ items, className }: MetricStripProps) {
     >
       {items.map((item) => (
         <div key={item.key} className="bg-surface px-4 py-3.5">
-          <dt className="flex items-center gap-2 text-xs text-text-3">
-            <span className="truncate">{item.label}</span>
+          <dt className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-text-3">
+            <span className="truncate" title={item.label}>
+              {item.label}
+            </span>
             {item.badge}
           </dt>
           {item.loading ? (

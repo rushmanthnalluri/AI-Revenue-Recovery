@@ -108,12 +108,12 @@ export function EvaluationRunsTable({
                 <StatusPill status={run.status} pulse={run.status === "running"} />
               </TableCell>
               <TableCell className="text-right">
-                <span className="font-mono text-xs tabular-nums text-text-3">
+                <span className="whitespace-nowrap font-mono text-xs tabular-nums text-text-3">
                   {formatDateTime(run.started_at)}
                 </span>
               </TableCell>
               <TableCell className="text-right">
-                <span className="font-mono text-xs tabular-nums text-text-3">
+                <span className="whitespace-nowrap font-mono text-xs tabular-nums text-text-3">
                   {durationLabel(run)}
                 </span>
               </TableCell>

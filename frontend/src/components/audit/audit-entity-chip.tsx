@@ -18,11 +18,11 @@ interface AuditEntityChipProps {
 export function AuditEntityChip({ entityType, entityId, className }: AuditEntityChipProps) {
   const chip = (
     <>
-      <span className="text-text-3">{entityType}</span>
-      <span aria-hidden className="text-text-3">
+      <span className="shrink-0 text-text-3">{entityType}</span>
+      <span aria-hidden className="shrink-0 text-text-3">
         ·
       </span>
-      <span className="text-text-2">{entityId}</span>
+      <span className="min-w-0 truncate text-text-2">{entityId}</span>
     </>
   );
 

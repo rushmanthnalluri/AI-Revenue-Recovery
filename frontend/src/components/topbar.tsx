@@ -3,6 +3,7 @@
 import * as React from "react";
 
 import { LiveStatusPill, type HealthQuery } from "@/components/live-status-pill";
+import { MobileNav } from "@/components/mobile-nav";
 import { Badge } from "@/components/ui/badge";
 
 /**
@@ -18,6 +19,7 @@ export function Topbar({ health }: { health: HealthQuery }) {
   return (
     <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-4 border-b border-border bg-bg/80 px-4 backdrop-blur-[18px] md:pl-8">
       <div className="flex items-center gap-3">
+        <MobileNav />
         {/* Mobile wordmark (sidebar hidden below md) */}
         <span className="text-[13.5px] font-semibold tracking-tight text-text md:hidden">
           PulseRecover

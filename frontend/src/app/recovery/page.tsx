@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import * as React from "react";
 
 import { RecoveryPlannerView } from "@/components/recovery/recovery-view";
 
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function RecoveryPage() {
-  return <RecoveryPlannerView />;
+  return (
+    <React.Suspense fallback={null}>
+      <RecoveryPlannerView />
+    </React.Suspense>
+  );
 }

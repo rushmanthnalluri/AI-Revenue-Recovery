@@ -14,7 +14,7 @@ import {
 import { LiveStatusPill, type HealthQuery } from "@/components/live-status-pill";
 import { cn } from "@/lib/utils";
 
-const NAV_ITEMS = [
+export const NAV_ITEMS = [
   { href: "/", label: "Command Center", icon: LayoutDashboard },
   { href: "/incidents", label: "Incidents", icon: Siren },
   { href: "/recovery", label: "Recovery", icon: RotateCcw },
@@ -22,7 +22,7 @@ const NAV_ITEMS = [
   { href: "/evaluation", label: "Evaluation Lab", icon: FlaskConical },
 ] as const;
 
-function isActive(pathname: string, href: string): boolean {
+export function isNavActive(pathname: string, href: string): boolean {
   if (href === "/") return pathname === "/";
   return pathname === href || pathname.startsWith(`${href}/`);
 }
@@ -63,7 +63,7 @@ export function Sidebar({ health }: { health: HealthQuery }) {
         </p>
         <div className="space-y-0.5">
           {NAV_ITEMS.map((item) => {
-            const active = isActive(pathname, item.href);
+            const active = isNavActive(pathname, item.href);
             return (
               <Link
                 key={item.href}

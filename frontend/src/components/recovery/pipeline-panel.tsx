@@ -166,7 +166,7 @@ export function PipelinePanel() {
         title="Recovery pipeline"
         description="Every opportunity end to end. Status is projected from the latest recovery action — webhook reconciliation updates actions directly."
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Select
               aria-label="Filter by status"
               value={status}

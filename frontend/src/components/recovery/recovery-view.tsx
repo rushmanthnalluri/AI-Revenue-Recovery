@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
@@ -17,14 +18,33 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "approvals", label: "Approval center" },
 ];
 
+function tabFromParam(value: string | null): Tab {
+  return value === "approvals" ? "approvals" : "pipeline";
+}
+
 /**
  * Recovery console — pipeline of policy-gated opportunities plus the human
  * Approval Center. AI proposes, the deterministic policy engine decides, a
- * human handles the edge cases.
+ * human handles the edge cases. The active tab lives in the `?tab=` search
+ * param so the Approval Center is deep-linkable and survives refreshes.
  */
 export function RecoveryPlannerView() {
-  const [tab, setTab] = React.useState<Tab>("pipeline");
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const tab = tabFromParam(searchParams.get("tab"));
   const tabRefs = React.useRef<(HTMLButtonElement | null)[]>([]);
+
+  const setTab = React.useCallback(
+    (next: Tab) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (next === "pipeline") params.delete("tab");
+      else params.set("tab", next);
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
 
   // Same key as the ApprovalsPanel queue — one shared fetch feeds the badge.
   const pending = useQuery({

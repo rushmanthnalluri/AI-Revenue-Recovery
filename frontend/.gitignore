@@ -32,3 +32,6 @@ next-env.d.ts
 /test-results/
 /playwright-report/
 /e2e/.tmp/
+
+# design review scratch captures
+/.design-review/

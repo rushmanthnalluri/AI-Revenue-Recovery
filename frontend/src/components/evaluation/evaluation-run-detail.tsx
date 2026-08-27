@@ -39,11 +39,11 @@ function HeaderFacts({ run }: { run: EvaluationRunDetail }) {
   return (
     <dl className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3">
       {facts.map(([label, value]) => (
-        <div key={label}>
+        <div key={label} className="min-w-0">
           <dt className="font-mono text-[10px] uppercase tracking-[0.09em] text-text-3">
             {label}
           </dt>
-          <dd className="mt-0.5 font-mono text-xs tabular-nums text-text-2">{value}</dd>
+          <dd className="mt-0.5 break-words font-mono text-xs tabular-nums text-text-2">{value}</dd>
         </div>
       ))}
     </dl>

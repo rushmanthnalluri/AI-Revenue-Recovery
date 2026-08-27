@@ -2,8 +2,17 @@ import * as React from "react";
 import { TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { ApiError, toApiError } from "@/lib/api";
+import { API_BASE_URL, ApiError, toApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
+
+/** host:port of the configured API, for honest "where to start it" copy. */
+function apiHost(): string {
+  try {
+    return new URL(API_BASE_URL).host;
+  } catch {
+    return API_BASE_URL;
+  }
+}
 
 interface ErrorPanelProps {
   error: unknown;
@@ -19,7 +28,7 @@ function describe(err: ApiError): { headline: string; detail: string } {
       detail:
         err.code === "timeout"
           ? "The API did not respond within 10 seconds."
-          : "The PulseRecover API is not responding. Start the backend (uvicorn on :8000) and retry.",
+          : `The PulseRecover API is not responding. Start the backend (uvicorn on ${apiHost()}) and retry.`,
     };
   }
   if (err.status === 401) {

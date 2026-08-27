@@ -237,7 +237,7 @@ export function IncidentDetailView({ incidentId }: { incidentId: string }) {
       </header>
 
       {/* stat band */}
-      <MetricStrip items={statBand(incident)} className="lg:grid-cols-5" />
+      <MetricStrip items={statBand(incident)} className="min-[1440px]:grid-cols-5" />
 
       {/* metric timeline */}
       <SectionCard
