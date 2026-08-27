@@ -1,0 +1,228 @@
+{
+  "dataset": "backend\\artifacts\\prod_frames_v1.csv",
+  "artifact": "ml\\experiments\\diagnosis\\exp03_calibration_candidates\\artifacts\\diagnosis_random_forest_v20260827T123306Z-609981e3.joblib",
+  "model_version": "v20260827T123306Z-609981e3",
+  "val": {
+    "n": 51,
+    "errors": 11,
+    "error_rate": 0.2157,
+    "by_true_class": {
+      "abandonment_spike": {
+        "support": 5,
+        "errors": 5,
+        "top_confusions": {
+          "gateway_degradation": 3,
+          "method_outage": 1,
+          "no_fault": 1
+        }
+      },
+      "bank_downtime": {
+        "support": 1,
+        "errors": 0,
+        "top_confusions": {}
+      },
+      "customer_insufficient_funds_wave": {
+        "support": 5,
+        "errors": 2,
+        "top_confusions": {
+          "method_outage": 1,
+          "no_fault": 1
+        }
+      },
+      "gateway_degradation": {
+        "support": 6,
+        "errors": 2,
+        "top_confusions": {
+          "subscription_failure_spike": 1,
+          "no_fault": 1
+        }
+      },
+      "method_outage": {
+        "support": 10,
+        "errors": 0,
+        "top_confusions": {}
+      },
+      "no_fault": {
+        "support": 20,
+        "errors": 0,
+        "top_confusions": {}
+      },
+      "route_latency": {
+        "support": 3,
+        "errors": 1,
+        "top_confusions": {
+          "no_fault": 1
+        }
+      },
+      "subscription_failure_spike": {
+        "support": 1,
+        "errors": 1,
+        "top_confusions": {
+          "customer_insufficient_funds_wave": 1
+        }
+      }
+    },
+    "by_scenario_error_rate": {
+      "count": {
+        "payday_wave_demo": 9,
+        "standard": 7,
+        "storm": 23,
+        "upi_outage_demo": 12
+      },
+      "mean": {
+        "payday_wave_demo": 1.0,
+        "standard": 0.5714,
+        "storm": 0.6522,
+        "upi_outage_demo": 1.0
+      }
+    },
+    "by_detection_metric_error_rate": {
+      "count": {
+        "capture_latency_ms": 27,
+        "payment_success_rate": 24
+      },
+      "mean": {
+        "capture_latency_ms": 0.8148,
+        "payment_success_rate": 0.75
+      }
+    },
+    "multi_overlap": {
+      "rows": 11,
+      "error_rate": 0.7273
+    },
+    "overconfident_wrong": {
+      "rows": 1,
+      "examples": [
+        {
+          "block": "val",
+          "scenario": "standard",
+          "true": "customer_insufficient_funds_wave",
+          "pred": "method_outage",
+          "confidence": 0.877805,
+          "detection_metric": "payment_success_rate"
+        }
+      ]
+    },
+    "confidence_quantiles_correct": {
+      "0.1": 0.3845,
+      "0.5": 0.5734,
+      "0.9": 0.8797
+    },
+    "confidence_quantiles_wrong": {
+      "0.1": 0.2609,
+      "0.5": 0.3685,
+      "0.9": 0.5816
+    }
+  },
+  "test": {
+    "n": 53,
+    "errors": 21,
+    "error_rate": 0.3962,
+    "by_true_class": {
+      "abandonment_spike": {
+        "support": 4,
+        "errors": 4,
+        "top_confusions": {
+          "method_outage": 2,
+          "route_latency": 1,
+          "no_fault": 1
+        }
+      },
+      "customer_insufficient_funds_wave": {
+        "support": 9,
+        "errors": 4,
+        "top_confusions": {
+          "no_fault": 2,
+          "gateway_degradation": 1,
+          "method_outage": 1
+        }
+      },
+      "gateway_degradation": {
+        "support": 4,
+        "errors": 0,
+        "top_confusions": {}
+      },
+      "method_outage": {
+        "support": 12,
+        "errors": 5,
+        "top_confusions": {
+          "no_fault": 3,
+          "customer_insufficient_funds_wave": 1,
+          "gateway_degradation": 1
+        }
+      },
+      "no_fault": {
+        "support": 15,
+        "errors": 0,
+        "top_confusions": {}
+      },
+      "route_latency": {
+        "support": 2,
+        "errors": 1,
+        "top_confusions": {
+          "no_fault": 1
+        }
+      },
+      "subscription_failure_spike": {
+        "support": 7,
+        "errors": 7,
+        "top_confusions": {
+          "gateway_degradation": 2,
+          "customer_insufficient_funds_wave": 2,
+          "no_fault": 2
+        }
+      }
+    },
+    "by_scenario_error_rate": {
+      "count": {
+        "payday_wave_demo": 11,
+        "standard": 12,
+        "storm": 20,
+        "upi_outage_demo": 10
+      },
+      "mean": {
+        "payday_wave_demo": 0.9091,
+        "standard": 0.3333,
+        "storm": 0.5,
+        "upi_outage_demo": 0.8
+      }
+    },
+    "by_detection_metric_error_rate": {
+      "count": {
+        "capture_latency_ms": 26,
+        "payment_success_rate": 27
+      },
+      "mean": {
+        "capture_latency_ms": 0.6154,
+        "payment_success_rate": 0.5926
+      }
+    },
+    "multi_overlap": {
+      "rows": 16,
+      "error_rate": 0.9375
+    },
+    "overconfident_wrong": {
+      "rows": 1,
+      "examples": [
+        {
+          "block": "test",
+          "scenario": "storm",
+          "true": "subscription_failure_spike",
+          "pred": "no_fault",
+          "confidence": 0.860708,
+          "detection_metric": "payment_success_rate"
+        }
+      ]
+    },
+    "confidence_quantiles_correct": {
+      "0.1": 0.3751,
+      "0.5": 0.6638,
+      "0.9": 0.8784
+    },
+    "confidence_quantiles_wrong": {
+      "0.1": 0.2498,
+      "0.5": 0.4532,
+      "0.9": 0.818
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "artifact": "diagnosis_random_forest+isotonic_v20260827T162752Z-1781945e.joblib",
+  "algo": "random_forest",
+  "calibration": "isotonic",
+  "candidate": "random_forest+isotonic",
+  "model_version": "v20260827T162752Z-1781945e",
+  "trained_at": "2026-08-27T16:27:52.113848+00:00",
+  "dataset": "dual_frame_v3: prod_frames_v2 (506) + sim_features (2050), per-source temporal split",
+  "val_macro_f1": 0.7612,
+  "test_macro_f1": 0.5431,
+  "test_top1_accuracy": 0.6863,
+  "test_top3_accuracy": 0.8529,
+  "test_ece": 0.1536,
+  "test_brier": 0.4789,
+  "test_safe_auto_lane_coverage": 0.2194
+}

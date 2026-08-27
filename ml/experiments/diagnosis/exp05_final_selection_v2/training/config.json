@@ -1,0 +1,68 @@
+{
+  "script": "backend/scripts/train_models.py",
+  "argv": [
+    "scripts/train_models.py",
+    "--input",
+    "artifacts/prod_frames_v2.csv",
+    "--seed",
+    "42",
+    "--skip-db",
+    "--artifacts-dir",
+    "../ml/experiments/diagnosis/exp05_final_selection_v2/artifacts",
+    "--experiment-dir",
+    "../ml/experiments/diagnosis/exp05_final_selection_v2/training"
+  ],
+  "run_at_utc": "2026-08-27T12:55:33.078708+00:00",
+  "git_sha": "437dac6",
+  "dataset": {
+    "input": "artifacts\\prod_frames_v2.csv",
+    "rows": 506,
+    "sha256": "c8d812bb1e81053807561463af1d4b5d78e3e59e22750f7a33db9fd6f502b56d",
+    "label_distribution": {
+      "no_fault": 191,
+      "method_outage": 103,
+      "customer_insufficient_funds_wave": 70,
+      "gateway_degradation": 47,
+      "subscription_failure_spike": 45,
+      "abandonment_spike": 22,
+      "route_latency": 19,
+      "bank_downtime": 9
+    }
+  },
+  "feature_version": "aa36be6f",
+  "feature_count": 58,
+  "model_version": "v20260827T125532Z-b20a153f",
+  "seed": 42,
+  "train_frac": 0.6,
+  "val_frac": 0.2,
+  "calibrations": [
+    "none",
+    "sigmoid",
+    "isotonic"
+  ],
+  "selection_rule": "validation block only: max safe_auto_lane_coverage (ties at 2dp) -> max macro-F1 (ties at 3dp) -> min ECE -> earliest candidate order (LR>RF>GB, raw>sigmoid>isotonic)",
+  "split": {
+    "policy": "temporal contiguous blocks sorted by window_end; no shuffling",
+    "train_frac": 0.6,
+    "val_frac": 0.2,
+    "counts": {
+      "train": 303,
+      "val": 101,
+      "test": 102
+    },
+    "ranges": {
+      "train": {
+        "start": "2026-05-03 00:10:00+00:00",
+        "end": "2026-07-10 05:05:00+00:00"
+      },
+      "val": {
+        "start": "2026-07-10 06:05:00+00:00",
+        "end": "2026-07-31 20:05:00+00:00"
+      },
+      "test": {
+        "start": "2026-07-31 20:05:00+00:00",
+        "end": "2026-08-24 11:05:00+00:00"
+      }
+    }
+  }
+}

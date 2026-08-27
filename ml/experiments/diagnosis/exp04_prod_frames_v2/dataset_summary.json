@@ -1,0 +1,34 @@
+{
+  "dataset_version": "prod_frames_v2",
+  "composition": {
+    "prod_frames_v1": {
+      "rows": 259,
+      "sha256": "752057c987e2aa66b5c9b226b4b4c6eb3b2730211992d10af9ae65636eec865f"
+    },
+    "prod_frames_v2_shard2": {
+      "rows": 247,
+      "sha256": "22569a52156612ba05ab6e0e53cb3ff86a6fc59ca43c016f6d2341be629a95db"
+    }
+  },
+  "rows": 506,
+  "seeds": "5000-5143 (144 simulator seeds; two build shards, one base-end anchor each \u2014 anchors in the shards' config.json)",
+  "label_distribution": {
+    "abandonment_spike": 22,
+    "bank_downtime": 9,
+    "customer_insufficient_funds_wave": 70,
+    "gateway_degradation": 47,
+    "method_outage": 103,
+    "no_fault": 191,
+    "route_latency": 19,
+    "subscription_failure_spike": 45
+  },
+  "no_fault_share": 0.3775,
+  "per_scenario_rows": {
+    "payday_wave_demo": 122,
+    "standard": 99,
+    "storm": 195,
+    "upi_outage_demo": 90
+  },
+  "multi_overlap_rows": 136,
+  "sha256": "c8d812bb1e81053807561463af1d4b5d78e3e59e22750f7a33db9fd6f502b56d"
+}

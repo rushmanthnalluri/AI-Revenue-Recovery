@@ -1,0 +1,36 @@
+{
+  "experiment": "exp06_dual_frame_v3",
+  "script": "ml\\experiments\\diagnosis\\exp06_dual_frame_v3\\run_v3.py",
+  "run_at_utc": "2026-08-27T16:03:57.208959+00:00",
+  "git_sha": "437dac6",
+  "dataset": {
+    "version": "dual_frame_v3",
+    "rows": 2556,
+    "sources": {
+      "prod_detection_window": {
+        "path": "backend/artifacts/prod_frames_v2.csv",
+        "rows": 506,
+        "sha256": "c8d812bb1e81053807561463af1d4b5d78e3e59e22750f7a33db9fd6f502b56d",
+        "split": {
+          "train": 303,
+          "val": 101,
+          "test": 102
+        }
+      },
+      "exact_span_frame": {
+        "path": "backend/artifacts/sim_features.csv",
+        "rows": 2050,
+        "sha256": "b1e6796bde8ce6ef2fc29cba25b364dcb1260c93db169540dc1e060f3fcf1b2a",
+        "split": {
+          "train": 1230,
+          "val": 410,
+          "test": 410
+        }
+      }
+    },
+    "split_policy": "per-source temporal 0.6/0.2/0.2 (exp05/\u00a78 test blocks preserved exactly)"
+  },
+  "seed": 42,
+  "selection_rule": "validation block only: max safe_auto_lane_coverage (ties at 2dp) -> max macro-F1 (ties at 3dp) -> min ECE -> earliest candidate order (LR>RF>GB, raw>sigmoid>isotonic)",
+  "model_version": "v20260827T160357Z-1781945e"
+}

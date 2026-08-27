@@ -10,18 +10,26 @@ from app.models import Experiment, ModelPrediction
 from app.services.diagnosis.taxonomy import CAUSES
 from app.services.diagnosis.training import (
     ALGO_ORDER,
+    CALIBRATION_MODES,
     ACTIVE_POINTER,
+    candidate_name,
     load_active_artifact,
     persist_test_predictions,
     persist_training_run,
     validate_frame,
 )
 
+EXPECTED_CANDIDATES = {
+    candidate_name(algo, calibration)
+    for algo in ALGO_ORDER
+    for calibration in CALIBRATION_MODES
+}
+
 
 def test_all_algos_evaluated(tiny_trained):
     _, result = tiny_trained
-    assert set(result.algo_results) == set(ALGO_ORDER)
-    assert result.best_algo in ALGO_ORDER
+    assert set(result.algo_results) == EXPECTED_CANDIDATES
+    assert result.best_algo in EXPECTED_CANDIDATES
     assert result.model_version.startswith("v")
     for algo, r in result.algo_results.items():
         for split in ("val_metrics", "test_metrics"):
@@ -35,6 +43,19 @@ def test_all_algos_evaluated(tiny_trained):
             assert 0.0 <= m["top1_accuracy"] <= 1.0
             assert 0.0 <= m["top3_accuracy"] <= 1.0
             assert m["top3_accuracy"] >= m["top1_accuracy"] - 1e-9
+            assert 0.0 <= m["macro_fpr"] <= 1.0
+            assert 0.0 <= m["ece"] <= 1.0
+            assert 0.0 <= m["brier"] <= 2.0
+            business = m["business"]
+            for component in ("auto_coverage", "unsafe_coverage", "false_fire_rate"):
+                if business[component] is not None:
+                    assert 0.0 <= business[component] <= 1.0
+            if business["safe_auto_lane_coverage"] is not None:
+                assert -1.0 <= business["safe_auto_lane_coverage"] <= 1.0
+                auto, unsafe = business["auto_coverage"], business["unsafe_coverage"]
+                assert business["safe_auto_lane_coverage"] == pytest.approx(
+                    round(auto - unsafe, 4), abs=1e-9
+                )
             cm = m["confusion_matrix"]
             assert len(cm["matrix"]) == len(CAUSES)
             assert all(len(row) == len(CAUSES) for row in cm["matrix"])
@@ -78,7 +99,8 @@ def test_persist_training_run(db_session, tiny_trained):
     assert exp.status == "completed"
     assert exp.results["model_version"] == result.model_version
     assert exp.results["best_algo"] == result.best_algo
-    assert set(exp.results["algos"]) == set(ALGO_ORDER)
+    assert set(exp.results["algos"]) == EXPECTED_CANDIDATES
+    assert exp.config["selection_rule"]
     assert exp.config["split"]["counts"]["test"] == n
 
     rows = db_session.query(ModelPrediction).filter_by(model_version=result.model_version).all()

@@ -1,0 +1,136 @@
+{
+  "experiment": "exp01_prod_frames_dataset",
+  "script": "ml\\experiments\\diagnosis\\exp01_prod_frames_dataset\\build_dataset.py",
+  "dataset_version": "prod_frames_v1",
+  "labeling_rule_version": "prodframe-label-v1",
+  "git_sha": "437dac6",
+  "started_utc": "2026-08-27T12:19:19.716379+00:00",
+  "finished_utc": "2026-08-27T12:29:50.085029+00:00",
+  "base_end_anchor_utc": "2026-08-27T00:00:00+00:00",
+  "seeds": {
+    "start": 5000,
+    "count": 72,
+    "list": [
+      5000,
+      5001,
+      5002,
+      5003,
+      5004,
+      5005,
+      5006,
+      5007,
+      5008,
+      5009,
+      5010,
+      5011,
+      5012,
+      5013,
+      5014,
+      5015,
+      5016,
+      5017,
+      5018,
+      5019,
+      5020,
+      5021,
+      5022,
+      5023,
+      5024,
+      5025,
+      5026,
+      5027,
+      5028,
+      5029,
+      5030,
+      5031,
+      5032,
+      5033,
+      5034,
+      5035,
+      5036,
+      5037,
+      5038,
+      5039,
+      5040,
+      5041,
+      5042,
+      5043,
+      5044,
+      5045,
+      5046,
+      5047,
+      5048,
+      5049,
+      5050,
+      5051,
+      5052,
+      5053,
+      5054,
+      5055,
+      5056,
+      5057,
+      5058,
+      5059,
+      5060,
+      5061,
+      5062,
+      5063,
+      5064,
+      5065,
+      5066,
+      5067,
+      5068,
+      5069,
+      5070,
+      5071
+    ]
+  },
+  "scenario_cycle": [
+    "standard",
+    "storm",
+    "upi_outage_demo",
+    "payday_wave_demo"
+  ],
+  "scale_cycle_days_events": [
+    [
+      15,
+      30000
+    ],
+    [
+      10,
+      20000
+    ],
+    [
+      2,
+      60000
+    ],
+    [
+      5,
+      40000
+    ],
+    [
+      2,
+      30000
+    ],
+    [
+      7,
+      25000
+    ]
+  ],
+  "customers": 1500,
+  "detection": {
+    "step_minutes": 360,
+    "window_minutes": 720,
+    "request_defaults": "DetectionRunRequest defaults (zscore, 5min buckets, noise floors 0.05/75ms, min_flagged_volume 15, min_flagged_run 2, dedup_cooldown 360, suppress_after_resolve 720) \u2014 production config, detection engine UNMODIFIED"
+  },
+  "jitter": {
+    "namespace": "prodframe-jitter:{seed}",
+    "fail_boost": "x U(0.4, 1.3) clamped [0.08, 0.95]",
+    "latency_multiplier": "x U(0.7, 1.5) floored 1.0",
+    "abandon_boost": "x U(0.5, 1.4) clamped [0.1, 0.9]",
+    "day_fraction": "+ U(-0.08, 0.08) clamped [0.05, 0.95]",
+    "start_hour_ist": "+ U(-2, 2) mod 24",
+    "stagger_hours_per_seed": 37
+  },
+  "output_csv": "backend\\artifacts\\prod_frames_v1.csv"
+}

@@ -29,7 +29,7 @@ def test_classify_end_to_end_bank_downtime(db_session, make_incident, make_windo
     assert diag.id.startswith("dia_")
     assert diag.version == 1
     assert diag.predicted_cause == "bank_downtime"
-    assert diag.model_name == f"diagnosis-{result.best_algo}"
+    assert diag.model_name == f"diagnosis-{result.best.algo}"  # base algo of the selected candidate
     assert diag.model_version == result.model_version
     assert 0.0 < diag.confidence <= 1.0
     assert set(diag.features) == set(FEATURE_NAMES)

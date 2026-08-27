@@ -1,0 +1,16 @@
+{
+  "artifact": "diagnosis_logistic_regression_v20260827T161320Z-1781945e.joblib",
+  "algo": "logistic_regression",
+  "calibration": "none",
+  "candidate": "logistic_regression",
+  "model_version": "v20260827T161320Z-1781945e",
+  "trained_at": "2026-08-27T16:13:20.983668+00:00",
+  "dataset": "dual_frame_v3: prod_frames_v2 (506) + sim_features (2050), per-source temporal split",
+  "val_macro_f1": 0.735,
+  "test_macro_f1": 0.4984,
+  "test_top1_accuracy": 0.6471,
+  "test_top3_accuracy": 0.8725,
+  "test_ece": 0.0966,
+  "test_brier": 0.5251,
+  "test_safe_auto_lane_coverage": 0.0778
+}

@@ -5,33 +5,48 @@ Run from backend/:
     # Standalone today: mini synthetic generator mirrors the simulator taxonomy
     python scripts/train_models.py --synthetic --windows-per-class 200
 
-    # Later wave: full simulator output (precomputed feature rows)
-    python scripts/train_models.py --input path/to/features.csv
-    python scripts/train_models.py --input path/to/features.parquet
+    # Simulator output (precomputed feature rows), e.g. the production-frame
+    # dataset built by ml/experiments/diagnosis/exp01_prod_frames_dataset:
+    python scripts/train_models.py --input artifacts/prod_frames_v1.csv \
+        --experiment-dir ../ml/experiments/diagnosis/exp03_calibration_candidates
 
-What it does: temporal train/val/test split (no leakage) -> fit logistic
-regression (baseline), random forest, gradient boosting -> select on
-validation macro-F1 -> report once on the held-out test block -> joblib
-artifact + active pointer in backend/artifacts/ -> experiment + test-set
-predictions persisted to the database (unless --skip-db).
+What it does: temporal train/val/test split (no leakage) -> fit every
+(algorithm x calibration) candidate — logistic regression (baseline), random
+forest, gradient boosting, each raw and CalibratedClassifierCV(sigmoid |
+isotonic) with TIME-AWARE calibration CV — -> select on the pre-registered
+validation rule (training.SELECTION_RULE: safe auto-lane coverage, macro-F1,
+ECE) -> report once on the held-out test block -> joblib artifact + active
+pointer in backend/artifacts/ -> experiment + test-set predictions persisted
+to the database (unless --skip-db).
 
 Input frame contract (CSV/parquet): one row per incident window; columns =
 the diagnosis FEATURE_NAMES + ``label`` (taxonomy value) + ``window_end``
 (sortable timestamp; drives the temporal split) + optional window metadata.
+
+``--experiment-dir`` writes a reproduction-grade record: config.json (full
+CLI config, dataset version incl. sha256, feature version, git sha, selection
+rule), metrics.json (every candidate's full val+test metric set), and
+confusion_matrix.csv (selected candidate, test block).
 """
 
 import argparse
+import hashlib
+import json
 import logging
+import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # backend/
 
 import pandas as pd
 
+from app.services.diagnosis.features import FEATURE_NAMES
 from app.services.diagnosis.synthetic import SyntheticConfig, generate_dataset
 from app.services.diagnosis.training import (
-    ALGO_ORDER,
+    CALIBRATION_MODES,
+    SELECTION_RULE,
     load_active_artifact,
     persist_test_predictions,
     persist_training_run,
@@ -42,6 +57,10 @@ from app.services.diagnosis.training import (
 DEFAULT_ARTIFACTS_DIR = Path(__file__).resolve().parents[1] / "artifacts"
 
 logger = logging.getLogger("train_models")
+
+#: Feature-contract version: content digest of the 58-feature names, so
+#: experiment records pin the exact contract the numbers were produced under.
+FEATURE_VERSION = hashlib.sha256(",".join(FEATURE_NAMES).encode()).hexdigest()[:8]
 
 
 def load_frame(path: Path) -> pd.DataFrame:
@@ -65,6 +84,80 @@ def load_frame(path: Path) -> pd.DataFrame:
     return df
 
 
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _git_sha() -> str:
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).resolve().parents[2],
+            timeout=10,
+        )
+        return out.stdout.strip() or "unknown"
+    except Exception:  # git unavailable — record honestly
+        return "unknown"
+
+
+def write_experiment_record(
+    experiment_dir: Path,
+    *,
+    args: argparse.Namespace,
+    dataset_desc: str,
+    dataset_version: dict,
+    result,
+) -> None:
+    """Write config.json / metrics.json / confusion_matrix.csv for the run."""
+    experiment_dir.mkdir(parents=True, exist_ok=True)
+    config = {
+        "script": "backend/scripts/train_models.py",
+        "argv": sys.argv,
+        "run_at_utc": datetime.now(timezone.utc).isoformat(),
+        "git_sha": _git_sha(),
+        "dataset": dataset_version,
+        "feature_version": FEATURE_VERSION,
+        "feature_count": len(FEATURE_NAMES),
+        "model_version": result.model_version,
+        "seed": args.seed,
+        "train_frac": args.train_frac,
+        "val_frac": args.val_frac,
+        "calibrations": list(args.calibrations),
+        "selection_rule": SELECTION_RULE,
+        "split": result.split,
+    }
+    (experiment_dir / "config.json").write_text(
+        json.dumps(config, indent=2) + "\n", encoding="utf-8"
+    )
+    metrics = {
+        "dataset_desc": dataset_desc,
+        "model_version": result.model_version,
+        "selected_candidate": result.best_algo,
+        "selection_rule": SELECTION_RULE,
+        "candidates": {
+            name: {"val": r.val_metrics, "test": r.test_metrics}
+            for name, r in result.algo_results.items()
+        },
+    }
+    (experiment_dir / "metrics.json").write_text(
+        json.dumps(metrics, indent=2) + "\n", encoding="utf-8"
+    )
+    cm = result.best.test_metrics["confusion_matrix"]
+    lines = ["true\\predicted," + ",".join(cm["labels"])]
+    for label, row in zip(cm["labels"], cm["matrix"]):
+        lines.append(label + "," + ",".join(str(v) for v in row))
+    (experiment_dir / "confusion_matrix.csv").write_text(
+        "\n".join(lines) + "\n", encoding="utf-8"
+    )
+    logger.info("wrote experiment record to %s", experiment_dir)
+
+
 def print_summary(result, dataset_desc: str) -> None:
     print(f"\nDataset: {dataset_desc}")
     split = result.split
@@ -72,18 +165,25 @@ def print_summary(result, dataset_desc: str) -> None:
         "Temporal split (by window_end, no shuffle): "
         f"train={split['counts']['train']} val={split['counts']['val']} test={split['counts']['test']}"
     )
-    header = f"{'algo':<22} {'val F1':>7} {'val top1':>8} | {'test F1':>7} {'test top1':>9} {'test top3':>9}"
+    header = (
+        f"{'candidate':<32} {'val F1':>7} {'val safe':>8} {'val ECE':>7} | "
+        f"{'test F1':>7} {'test top1':>9} {'test top3':>9} {'test safe':>9} {'test ECE':>8}"
+    )
     print("\n" + header + "\n" + "-" * len(header))
-    for algo in ALGO_ORDER:
-        r = result.algo_results[algo]
-        marker = "  <- selected" if algo == result.best_algo else ""
+    for name, r in result.algo_results.items():
+        marker = "  <- selected" if name == result.best_algo else ""
+        v_safe = r.val_metrics["business"]["safe_auto_lane_coverage"]
+        t_safe = r.test_metrics["business"]["safe_auto_lane_coverage"]
         print(
-            f"{algo:<22} {r.val_metrics['macro_f1']:>7.4f} {r.val_metrics['top1_accuracy']:>8.4f} | "
+            f"{name:<32} {r.val_metrics['macro_f1']:>7.4f} "
+            f"{v_safe if v_safe is not None else float('nan'):>8.4f} {r.val_metrics['ece']:>7.4f} | "
             f"{r.test_metrics['macro_f1']:>7.4f} {r.test_metrics['top1_accuracy']:>9.4f} "
-            f"{r.test_metrics['top3_accuracy']:>9.4f}{marker}"
+            f"{r.test_metrics['top3_accuracy']:>9.4f} "
+            f"{t_safe if t_safe is not None else float('nan'):>9.4f} {r.test_metrics['ece']:>8.4f}{marker}"
         )
     best = result.best.test_metrics
     print(f"\nmodel_version: {result.model_version}")
+    print(f"selection rule: {SELECTION_RULE}")
     print(f"selected model per-class test metrics ({result.best_algo}):")
     for label, m in best["per_class"].items():
         print(
@@ -105,17 +205,44 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--train-frac", type=float, default=0.6)
     p.add_argument("--val-frac", type=float, default=0.2)
+    p.add_argument(
+        "--calibrations",
+        type=lambda s: tuple(s.split(",")),
+        default=CALIBRATION_MODES,
+        help="comma-separated subset of none,sigmoid,isotonic (default: all three)",
+    )
     p.add_argument("--artifacts-dir", type=Path, default=DEFAULT_ARTIFACTS_DIR)
     p.add_argument("--emit-csv", type=Path, default=None, help="also write the training frame here")
     p.add_argument("--skip-db", action="store_true", help="do not persist experiment/predictions to the DB")
+    p.add_argument(
+        "--experiment-dir",
+        type=Path,
+        default=None,
+        help="write config.json / metrics.json / confusion_matrix.csv here",
+    )
     args = p.parse_args()
 
+    dataset_version: dict
     if args.input:
         df = load_frame(args.input)
+        dataset_version = {
+            "input": str(args.input),
+            "rows": len(df),
+            "sha256": _file_sha256(args.input),
+            "label_distribution": {
+                str(k): int(v) for k, v in df["label"].value_counts().items()
+            },
+        }
         dataset_desc = f"input:{args.input} rows={len(df)}"
     else:
         cfg = SyntheticConfig(windows_per_class=args.windows_per_class, seed=args.seed)
         df = generate_dataset(cfg)
+        dataset_version = {
+            "synthetic_mini": True,
+            "windows_per_class": args.windows_per_class,
+            "rows": len(df),
+            "seed": args.seed,
+        }
         dataset_desc = (
             f"synthetic-mini windows_per_class={args.windows_per_class} seed={args.seed} rows={len(df)}"
         )
@@ -126,8 +253,23 @@ def main() -> None:
         df.to_csv(args.emit_csv, index=False)
         logger.info("wrote training frame to %s", args.emit_csv)
 
-    result = train_and_compare(df, seed=args.seed, train_frac=args.train_frac, val_frac=args.val_frac)
+    result = train_and_compare(
+        df,
+        seed=args.seed,
+        train_frac=args.train_frac,
+        val_frac=args.val_frac,
+        calibrations=args.calibrations,
+    )
     artifact_path = save_artifacts(result, args.artifacts_dir, dataset_desc)
+
+    if args.experiment_dir:
+        write_experiment_record(
+            args.experiment_dir,
+            args=args,
+            dataset_desc=dataset_desc,
+            dataset_version=dataset_version,
+            result=result,
+        )
 
     if not args.skip_db:
         # Standalone-today convenience: ensure tables exist in the default

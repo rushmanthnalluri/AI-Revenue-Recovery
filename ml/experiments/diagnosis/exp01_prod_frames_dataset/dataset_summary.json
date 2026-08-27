@@ -1,0 +1,673 @@
+{
+  "dataset_version": "prod_frames_v1",
+  "labeling_rule_version": "prodframe-label-v1",
+  "rows": 259,
+  "label_distribution": {
+    "abandonment_spike": 15,
+    "bank_downtime": 4,
+    "customer_insufficient_funds_wave": 35,
+    "gateway_degradation": 24,
+    "method_outage": 55,
+    "no_fault": 95,
+    "route_latency": 8,
+    "subscription_failure_spike": 23
+  },
+  "no_fault_share": 0.3668,
+  "per_scenario_rows": {
+    "payday_wave_demo": 58,
+    "standard": 49,
+    "storm": 103,
+    "upi_outage_demo": 49
+  },
+  "multi_overlap_rows": 70,
+  "seed_stats": [
+    {
+      "seed": 5000,
+      "scenario": "standard",
+      "days": 15,
+      "target_events": 30000,
+      "detection_passes": 59,
+      "anomalies_filtered": 51,
+      "incidents_persisted": 3
+    },
+    {
+      "seed": 5001,
+      "scenario": "storm",
+      "days": 10,
+      "target_events": 20000,
+      "detection_passes": 39,
+      "anomalies_filtered": 22,
+      "incidents_persisted": 2
+    },
+    {
+      "seed": 5002,
+      "scenario": "upi_outage_demo",
+      "days": 2,
+      "target_events": 60000,
+      "detection_passes": 7,
+      "anomalies_filtered": 5,
+      "incidents_persisted": 3
+    },
+    {
+      "seed": 5003,
+      "scenario": "payday_wave_demo",
+      "days": 5,
+      "target_events": 40000,
+      "detection_passes": 19,
+      "anomalies_filtered": 20,
+      "incidents_persisted": 3
+    },
+    {
+      "seed": 5004,
+      "scenario": "standard",
+      "days": 2,
+      "target_events": 30000,
+      "detection_passes": 7,
+      "anomalies_filtered": 3,
+      "incidents_persisted": 3
+    },
+    {
+      "seed": 5005,
+      "scenario": "storm",
+      "days": 7,
+      "target_events": 25000,
+      "detection_passes": 27,
+      "anomalies_filtered": 29,
+      "incidents_persisted": 9
+    },
+    {
+      "seed": 5006,
+      "scenario": "upi_outage_demo",
+      "days": 15,
+      "target_events": 30000,
+      "detection_passes": 59,
+      "anomalies_filtered": 39,
+      "incidents_persisted": 4
+    },
+    {
+      "seed": 5007,
+      "scenario": "payday_wave_demo",
+      "days": 10,
+      "target_events": 20000,
+      "detection_passes": 39,
+      "anomalies_filtered": 30,
+      "incidents_persisted": 2
+    },
+    {
+      "seed": 5008,
+      "scenario": "standard",
+      "days": 2,
+      "target_events": 60000,
+      "detection_passes": 7,
+      "anomalies_filtered": 3,
+      "incidents_persisted": 2
+    },
+    {
+      "seed": 5009,
+      "scenario": "storm",
+      "days": 5,
+      "target_events": 40000,
+      "detection_passes": 19,
+      "anomalies_filtered": 14,
+      "incidents_persisted": 6
+    },
+    {
+      "seed": 5010,
+      "scenario": "upi_outage_demo",
+      "days": 2,
+      "target_events": 30000,
+      "detection_passes": 7,
+      "anomalies_filtered": 7,
+      "incidents_persisted": 1
+    },
+    {
+      "seed": 5011,
+      "scenario": "payday_wave_demo",
+      "days": 7,
+      "target_events": 25000,
+      "detection_passes": 27,
+      "anomalies_filtered": 25,
+      "incidents_persisted": 1
+    },
+    {
+      "seed": 5012,
+      "scenario": "standard",
+      "days": 15,
+      "target_events": 30000,
+      "detection_passes": 59,
+      "anomalies_filtered": 39,
+      "incidents_persisted": 2
+    },
+    {
+      "seed": 5013,
+      "scenario": "storm",
+      "days": 10,
+      "target_events": 20000,
+      "detection_passes": 39,
+      "anomalies_filtered": 15,
+      "incidents_persisted": 4
+    },
+    {
+      "seed": 5014,
+      "scenario": "upi_outage_demo",
+      "days": 2,
+      "target_events": 60000,
+      "detection_passes": 7,
+      "anomalies_filtered": 4,
+      "incidents_persisted": 2
+    },
+    {
+      "seed": 5015,
+      "scenario": "payday_wave_demo",
+      "days": 5,
+      "target_events": 40000,
+      "detection_passes": 19,
+      "anomalies_filtered": 19,
+      "incidents_persisted": 6
+    },
+    {
+      "seed": 5016,
+      "scenario": "standard",
+      "days": 2,
+      "target_events": 30000,
+      "detection_passes": 7,
+      "anomalies_filtered": 3,
+      "incidents_persisted": 3
+    },
+    {
+      "seed": 5017,
+      "scenario": "storm",
+      "days": 7,
+      "target_events": 25000,
+      "detection_passes": 27,
+      "anomalies_filtered": 26,
+      "incidents_persisted": 7
+    },
+    {
+      "seed": 5018,
+      "scenario": "upi_outage_demo",
+      "days": 15,
+      "target_events": 30000,
+      "detection_passes": 59,
+      "anomalies_filtered": 36,
+      "incidents_persisted": 4
+    },
+    {
+      "seed": 5019,
+      "scenario": "payday_wave_demo",
+      "days": 10,
+      "target_events": 20000,
+      "detection_passes": 39,
+      "anomalies_filtered": 27,
+      "incidents_persisted": 3
+    },
+    {
+      "seed": 5020,
+      "scenario": "standard",
+      "days": 2,
+      "target_events": 60000,
+      "detection_passes": 7,
+      "anomalies_filtered": 4,
+      "incidents_persisted": 3
+    },
+    {
+      "seed": 5021,
+      "scenario": "storm",
+      "days": 5,
+      "target_events": 40000,
+      "detection_passes": 19,
+      "anomalies_filtered": 19,
+      "incidents_persisted": 7
+    },
+    {
+      "seed": 5022,
+      "scenario": "upi_outage_demo",
+      "days": 2,
+      "target_events": 30000,
+      "detection_passes": 7,
+      "anomalies_filtered": 7,
+      "incidents_persisted": 3
+    },
+    {
+      "seed": 5023,
+      "scenario": "payday_wave_demo",
+      "days": 7,
+      "target_events": 25000,
+      "detection_passes": 27,
+      "anomalies_filtered": 25,
+      "incidents_persisted": 2
+    },
+    {
+      "seed": 5024,
+      "scenario": "standard",
+      "days": 15,
+      "target_events": 30000,
+      "detection_passes": 59,
+      "anomalies_filtered": 35,
+      "incidents_persisted": 2
+    },
+    {
+      "seed": 5025,
+      "scenario": "storm",
+      "days": 10,
+      "target_events": 20000,
+      "detection_passes": 39,
+      "anomalies_filtered": 23,
+      "incidents_persisted": 4
+    },
+    {
+      "seed": 5026,
+      "scenario": "upi_outage_demo",
+      "days": 2,
+      "target_events": 60000,
+      "detection_passes": 7,
+      "anomalies_filtered": 6,
+      "incidents_persisted": 4
+    },
+    {
+      "seed": 5027,
+      "scenario": "payday_wave_demo",
+      "days": 5,
+      "target_events": 40000,
+      "detection_passes": 19,
+      "anomalies_filtered": 20,
+      "incidents_persisted": 3
+    },
+    {
+      "seed": 5028,
+      "scenario": "standard",
+      "days": 2,
+      "target_events": 30000,
+      "detection_passes": 7,
+      "anomalies_filtered": 2,
+      "incidents_persisted": 2
+    },
+    {
+      "seed": 5029,
+      "scenario": "storm",
+      "days": 7,
+      "target_events": 25000,
+      "detection_passes": 27,
+      "anomalies_filtered": 21,
+      "incidents_persisted": 7
+    },
+    {
+      "seed": 5030,
+      "scenario": "upi_outage_demo",
+      "days": 15,
+      "target_events": 30000,
+      "detection_passes": 59,
+      "anomalies_filtered": 37,
+      "incidents_persisted": 3
+    },
+    {
+      "seed": 5031,
+      "scenario": "payday_wave_demo",
+      "days": 10,
+      "target_events": 20000,
+      "detection_passes": 39,
+      "anomalies_filtered": 31,
+      "incidents_persisted": 1
+    },
+    {
+      "seed": 5032,
+      "scenario": "standard",
+      "days": 2,
+      "target_events": 60000,
+      "detection_passes": 7,
+      "anomalies_filtered": 3,
+      "incidents_persisted": 2
+    },
+    {
+      "seed": 5033,
+      "scenario": "storm",
+      "days": 5,
+      "target_events": 40000,
+      "detection_passes": 19,
+      "anomalies_filtered": 13,
+      "incidents_persisted": 8
+    },
+    {
+      "seed": 5034,
+      "scenario": "upi_outage_demo",
+      "days": 2,
+      "target_events": 30000,
+      "detection_passes": 7,
+      "anomalies_filtered": 6,
+      "incidents_persisted": 3
+    },
+    {
+      "seed": 5035,
+      "scenario": "payday_wave_demo",
+      "days": 7,
+      "target_events": 25000,
+      "detection_passes": 27,
+      "anomalies_filtered": 17,
+      "incidents_persisted": 5
+    },
+    {
+      "seed": 5036,
+      "scenario": "standard",
+      "days": 15,
+      "target_events": 30000,
+      "detection_passes": 58,
+      "anomalies_filtered": 44,
+      "incidents_persisted": 5
+    },
+    {
+      "seed": 5037,
+      "scenario": "storm",
+      "days": 10,
+      "target_events": 20000,
+      "detection_passes": 39,
+      "anomalies_filtered": 23,
+      "incidents_persisted": 2
+    },
+    {
+      "seed": 5038,
+      "scenario": "upi_outage_demo",
+      "days": 2,
+      "target_events": 60000,
+      "detection_passes": 7,
+      "anomalies_filtered": 6,
+      "incidents_persisted": 3
+    },
+    {
+      "seed": 5039,
+      "scenario": "payday_wave_demo",
+      "days": 5,
+      "target_events": 40000,
+      "detection_passes": 19,
+      "anomalies_filtered": 22,
+      "incidents_persisted": 4
+    },
+    {
+      "seed": 5040,
+      "scenario": "standard",
+      "days": 2,
+      "target_events": 30000,
+      "detection_passes": 7,
+      "anomalies_filtered": 3,
+      "incidents_persisted": 2
+    },
+    {
+      "seed": 5041,
+      "scenario": "storm",
+      "days": 7,
+      "target_events": 25000,
+      "detection_passes": 27,
+      "anomalies_filtered": 20,
+      "incidents_persisted": 7
+    },
+    {
+      "seed": 5042,
+      "scenario": "upi_outage_demo",
+      "days": 15,
+      "target_events": 30000,
+      "detection_passes": 59,
+      "anomalies_filtered": 36,
+      "incidents_persisted": 4
+    },
+    {
+      "seed": 5043,
+      "scenario": "payday_wave_demo",
+      "days": 10,
+      "target_events": 20000,
+      "detection_passes": 39,
+      "anomalies_filtered": 28,
+      "incidents_persisted": 0
+    },
+    {
+      "seed": 5044,
+      "scenario": "standard",
+      "days": 2,
+      "target_events": 60000,
+      "detection_passes": 7,
+      "anomalies_filtered": 3,
+      "incidents_persisted": 2
+    },
+    {
+      "seed": 5045,
+      "scenario": "storm",
+      "days": 5,
+      "target_events": 40000,
+      "detection_passes": 19,
+      "anomalies_filtered": 15,
+      "incidents_persisted": 6
+    },
+    {
+      "seed": 5046,
+      "scenario": "upi_outage_demo",
+      "days": 2,
+      "target_events": 30000,
+      "detection_passes": 7,
+      "anomalies_filtered": 5,
+      "incidents_persisted": 3
+    },
+    {
+      "seed": 5047,
+      "scenario": "payday_wave_demo",
+      "days": 7,
+      "target_events": 25000,
+      "detection_passes": 27,
+      "anomalies_filtered": 27,
+      "incidents_persisted": 4
+    },
+    {
+      "seed": 5048,
+      "scenario": "standard",
+      "days": 15,
+      "target_events": 30000,
+      "detection_passes": 59,
+      "anomalies_filtered": 32,
+      "incidents_persisted": 4
+    },
+    {
+      "seed": 5049,
+      "scenario": "storm",
+      "days": 10,
+      "target_events": 20000,
+      "detection_passes": 39,
+      "anomalies_filtered": 24,
+      "incidents_persisted": 5
+    },
+    {
+      "seed": 5050,
+      "scenario": "upi_outage_demo",
+      "days": 2,
+      "target_events": 60000,
+      "detection_passes": 7,
+      "anomalies_filtered": 4,
+      "incidents_persisted": 2
+    },
+    {
+      "seed": 5051,
+      "scenario": "payday_wave_demo",
+      "days": 5,
+      "target_events": 40000,
+      "detection_passes": 19,
+      "anomalies_filtered": 20,
+      "incidents_persisted": 3
+    },
+    {
+      "seed": 5052,
+      "scenario": "standard",
+      "days": 2,
+      "target_events": 30000,
+      "detection_passes": 7,
+      "anomalies_filtered": 3,
+      "incidents_persisted": 3
+    },
+    {
+      "seed": 5053,
+      "scenario": "storm",
+      "days": 7,
+      "target_events": 25000,
+      "detection_passes": 27,
+      "anomalies_filtered": 19,
+      "incidents_persisted": 7
+    },
+    {
+      "seed": 5054,
+      "scenario": "upi_outage_demo",
+      "days": 15,
+      "target_events": 30000,
+      "detection_passes": 57,
+      "anomalies_filtered": 43,
+      "incidents_persisted": 1
+    },
+    {
+      "seed": 5055,
+      "scenario": "payday_wave_demo",
+      "days": 10,
+      "target_events": 20000,
+      "detection_passes": 39,
+      "anomalies_filtered": 22,
+      "incidents_persisted": 3
+    },
+    {
+      "seed": 5056,
+      "scenario": "standard",
+      "days": 2,
+      "target_events": 60000,
+      "detection_passes": 7,
+      "anomalies_filtered": 4,
+      "incidents_persisted": 2
+    },
+    {
+      "seed": 5057,
+      "scenario": "storm",
+      "days": 5,
+      "target_events": 40000,
+      "detection_passes": 19,
+      "anomalies_filtered": 17,
+      "incidents_persisted": 8
+    },
+    {
+      "seed": 5058,
+      "scenario": "upi_outage_demo",
+      "days": 2,
+      "target_events": 30000,
+      "detection_passes": 7,
+      "anomalies_filtered": 8,
+      "incidents_persisted": 2
+    },
+    {
+      "seed": 5059,
+      "scenario": "payday_wave_demo",
+      "days": 7,
+      "target_events": 25000,
+      "detection_passes": 27,
+      "anomalies_filtered": 23,
+      "incidents_persisted": 6
+    },
+    {
+      "seed": 5060,
+      "scenario": "standard",
+      "days": 15,
+      "target_events": 30000,
+      "detection_passes": 59,
+      "anomalies_filtered": 38,
+      "incidents_persisted": 3
+    },
+    {
+      "seed": 5061,
+      "scenario": "storm",
+      "days": 10,
+      "target_events": 20000,
+      "detection_passes": 39,
+      "anomalies_filtered": 24,
+      "incidents_persisted": 1
+    },
+    {
+      "seed": 5062,
+      "scenario": "upi_outage_demo",
+      "days": 2,
+      "target_events": 60000,
+      "detection_passes": 7,
+      "anomalies_filtered": 6,
+      "incidents_persisted": 2
+    },
+    {
+      "seed": 5063,
+      "scenario": "payday_wave_demo",
+      "days": 5,
+      "target_events": 40000,
+      "detection_passes": 19,
+      "anomalies_filtered": 16,
+      "incidents_persisted": 6
+    },
+    {
+      "seed": 5064,
+      "scenario": "standard",
+      "days": 2,
+      "target_events": 30000,
+      "detection_passes": 7,
+      "anomalies_filtered": 5,
+      "incidents_persisted": 3
+    },
+    {
+      "seed": 5065,
+      "scenario": "storm",
+      "days": 7,
+      "target_events": 25000,
+      "detection_passes": 27,
+      "anomalies_filtered": 18,
+      "incidents_persisted": 7
+    },
+    {
+      "seed": 5066,
+      "scenario": "upi_outage_demo",
+      "days": 15,
+      "target_events": 30000,
+      "detection_passes": 59,
+      "anomalies_filtered": 35,
+      "incidents_persisted": 3
+    },
+    {
+      "seed": 5067,
+      "scenario": "payday_wave_demo",
+      "days": 10,
+      "target_events": 20000,
+      "detection_passes": 39,
+      "anomalies_filtered": 21,
+      "incidents_persisted": 3
+    },
+    {
+      "seed": 5068,
+      "scenario": "standard",
+      "days": 2,
+      "target_events": 60000,
+      "detection_passes": 7,
+      "anomalies_filtered": 2,
+      "incidents_persisted": 3
+    },
+    {
+      "seed": 5069,
+      "scenario": "storm",
+      "days": 5,
+      "target_events": 40000,
+      "detection_passes": 19,
+      "anomalies_filtered": 16,
+      "incidents_persisted": 6
+    },
+    {
+      "seed": 5070,
+      "scenario": "upi_outage_demo",
+      "days": 2,
+      "target_events": 30000,
+      "detection_passes": 7,
+      "anomalies_filtered": 7,
+      "incidents_persisted": 2
+    },
+    {
+      "seed": 5071,
+      "scenario": "payday_wave_demo",
+      "days": 7,
+      "target_events": 25000,
+      "detection_passes": 27,
+      "anomalies_filtered": 31,
+      "incidents_persisted": 3
+    }
+  ]
+}

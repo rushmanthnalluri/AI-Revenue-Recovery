@@ -1,0 +1,133 @@
+{
+  "experiment": "exp04_prod_frames_v2 (shard 2 of 2)",
+  "script": "ml/experiments/diagnosis/exp01_prod_frames_dataset/build_dataset.py",
+  "argv": [
+    "--seed-start",
+    "5072",
+    "--n-seeds",
+    "72",
+    "--out",
+    "backend/artifacts/prod_frames_v2_shard2.csv",
+    "--dataset-version",
+    "prod_frames_v2_shard2",
+    "--record-dir",
+    "ml/experiments/diagnosis/exp04_prod_frames_v2"
+  ],
+  "dataset_version": "prod_frames_v2_shard2",
+  "labeling_rule_version": "prodframe-label-v1",
+  "git_sha": "437dac6",
+  "seeds": {
+    "start": 5072,
+    "count": 72,
+    "list": [
+      5072,
+      5073,
+      5074,
+      5075,
+      5076,
+      5077,
+      5078,
+      5079,
+      5080,
+      5081,
+      5082,
+      5083,
+      5084,
+      5085,
+      5086,
+      5087,
+      5088,
+      5089,
+      5090,
+      5091,
+      5092,
+      5093,
+      5094,
+      5095,
+      5096,
+      5097,
+      5098,
+      5099,
+      5100,
+      5101,
+      5102,
+      5103,
+      5104,
+      5105,
+      5106,
+      5107,
+      5108,
+      5109,
+      5110,
+      5111,
+      5112,
+      5113,
+      5114,
+      5115,
+      5116,
+      5117,
+      5118,
+      5119,
+      5120,
+      5121,
+      5122,
+      5123,
+      5124,
+      5125,
+      5126,
+      5127,
+      5128,
+      5129,
+      5130,
+      5131,
+      5132,
+      5133,
+      5134,
+      5135,
+      5136,
+      5137,
+      5138,
+      5139,
+      5140,
+      5141,
+      5142,
+      5143
+    ]
+  },
+  "scenario_cycle": [
+    "standard",
+    "storm",
+    "upi_outage_demo",
+    "payday_wave_demo"
+  ],
+  "scale_cycle_days_events": [
+    [
+      15,
+      30000
+    ],
+    [
+      10,
+      20000
+    ],
+    [
+      2,
+      60000
+    ],
+    [
+      5,
+      40000
+    ],
+    [
+      2,
+      30000
+    ],
+    [
+      7,
+      25000
+    ]
+  ],
+  "customers": 1500,
+  "detection": "production defaults (see exp01 config.json); engine unmodified",
+  "jitter": "same as exp01 config.json (prodframe-jitter:{seed}); stagger 37h x shard-local idx; shard base-end anchor recorded in build_shard2.log run date",
+  "output_csv": "backend/artifacts/prod_frames_v2_shard2.csv"
+}

@@ -1,0 +1,6 @@
+{
+  "experiment": "exp04_prod_frames_v2",
+  "script": "ml\\experiments\\diagnosis\\exp04_prod_frames_v2\\merge_v2.py",
+  "git_sha": "437dac6",
+  "rationale": "5000-5143 (144 simulator seeds; two build shards, one base-end anchor each \u2014 anchors in the shards' config.json)"
+}

@@ -1,0 +1,9 @@
+true\predicted,gateway_degradation,route_latency,method_outage,bank_downtime,abandonment_spike,subscription_failure_spike,customer_insufficient_funds_wave,no_fault
+gateway_degradation,50,0,2,0,0,0,0,0
+route_latency,0,27,0,2,2,1,1,2
+method_outage,0,0,60,0,0,0,0,7
+bank_downtime,0,5,3,0,0,0,0,8
+abandonment_spike,0,1,2,0,30,0,0,1
+subscription_failure_spike,6,0,0,0,3,13,11,2
+customer_insufficient_funds_wave,1,0,3,0,1,0,53,7
+no_fault,0,0,0,1,0,1,0,206

@@ -1,0 +1,24 @@
+{
+  "dataset_version": "prod_frames_v2_shard2",
+  "labeling_rule_version": "prodframe-label-v1",
+  "rows": 247,
+  "label_distribution": {
+    "abandonment_spike": 7,
+    "bank_downtime": 5,
+    "customer_insufficient_funds_wave": 35,
+    "gateway_degradation": 23,
+    "method_outage": 48,
+    "no_fault": 96,
+    "route_latency": 11,
+    "subscription_failure_spike": 22
+  },
+  "no_fault_share": 0.3887,
+  "per_scenario_rows": {
+    "payday_wave_demo": 64,
+    "standard": 50,
+    "storm": 92,
+    "upi_outage_demo": 41
+  },
+  "multi_overlap_rows": 66,
+  "note": "recomputed from the CSV after the build's record-writer crashed on a relative-path bug (fixed); per-seed stats are in build_shard2.log"
+}

@@ -253,3 +253,116 @@ End-to-end scoring of detection-window diagnoses vs ground truth is in
 docs/evaluation.md §2 (top-1 0.60 / top-3 0.80 on the diluted 12h windows
 the scheduled passes produce — the gap vs exact spans is window dilution,
 and motivates a window re-scoping triage step).
+
+## 9. Production-frame retraining + calibration (outcome: old artifact kept)
+
+> §8's artifact REMAINS the active pointer — this section documents the
+> production-frame measurement, the candidate loop, and why no challenger
+> shipped. The §8 model was trained on exact
+> incident spans (+ random frames); production serves the DILUTED 12h
+> detection windows. This section closes that train/serve skew and adds
+> calibration measurement. Full records: `ml/experiments/diagnosis/`
+> (exp01 dataset, exp02 baselines, exp03 v1 candidates, exp04 v2 scale-up,
+> exp05 final selection, exp06 dual-frame + ship verdict; README.md is the
+> index). Exact-span table above kept for
+> continuity; §9 numbers are the ones that describe production.
+
+**Dataset** (`backend/artifacts/prod_frames_v2.csv`, version `prod_frames_v2`,
+sha256 `c8d812bb…f502b56d`): **506 rows, one per PERSISTED detection
+incident**, collected by running the UNMODIFIED detection engine on the
+production schedule (pass every 6h, 12h lookback, production floors) over
+144 simulator seeds (5000–5143, standard/storm/upi_outage_demo/
+payday_wave_demo x the §8 density cycle, severity+placement jitter, 37h
+stagger). Labels: ground-truth overlap of the detected anomaly span, rule
+`prodframe-label-v1` (largest overlap wins multi-incident frames; no overlap
+→ `no_fault` — detection false positives only, 37.8% of rows; the new
+admission floors are why this is not the §8's 44% sampled-quiet class).
+Leakage audit, imbalance analysis, and the 58-feature assumption review:
+`exp01/leakage_audit.md`. Split: temporal by `window_end`, 303/101/102.
+
+**Business metric (financial-safety property, pre-registered).** Strategy
+confidence = diagnosis confidence x action-fit (<= 0.98), auto-execute floor
+0.85 — so a diagnosis confidence >= 0.85 is a necessary condition for the
+auto lane. Auto-recoverable classes = timeout/soft-decline dominant:
+`gateway_degradation`, `method_outage`, `bank_downtime` (derivation in
+`taxonomy.py::AUTO_RECOVERABLE_CAUSES`).
+
+```
+auto_coverage   = P(conf >= 0.85 | true class auto-recoverable)
+unsafe_coverage = P(conf >= 0.85 | true class NOT auto-recoverable)
+safe_auto_lane_coverage = auto_coverage - unsafe_coverage     in [-1, 1]
+```
+
+**Baselines first (same v2 test block, n=102):** heuristic — macro-F1 0.1830,
+top-1 0.3922, safe 0.0 (confidence capped <= 0.7 by design, so it can never
+enter the auto lane: perfectly safe, covers nothing). §8 artifact
+(`logistic_regression v20260826T234303Z-c5434878`, loaded by filename) —
+macro-F1 0.4375, top-1 0.5686, ECE 0.2683, safe **0.0055**: it crosses the
+auto-execute floor on **52.8%** of non-auto-recoverable incidents and
+false-fires 18.1% of them — its confidence is uncalibrated exactly where
+confidence costs money.
+
+**Candidates (LR/RF/GB x {raw, sigmoid, isotonic}, time-aware calibration
+CV; selection on VALIDATION by the pre-registered rule: max safe auto-lane
+coverage, ties → macro-F1 → ECE → simplicity):**
+
+| candidate | val safe | val macro-F1 | val ECE | test macro-F1 | test top-1 | test top-3 | test safe | test ECE |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| logistic_regression | 0.2090 | 0.5846 | 0.1569 | 0.5589 | 0.6961 | 0.8922 | -0.0611 | 0.1701 |
+| logistic_regression+sigmoid | 0.0000 | 0.4487 | 0.2292 | 0.4206 | 0.5882 | 0.9020 | 0.0000 | 0.1784 |
+| logistic_regression+isotonic | 0.0000 | 0.5119 | 0.1004 | 0.4948 | 0.6569 | 0.8725 | 0.0000 | 0.1094 |
+| **random_forest (selected, val rule)** | **0.3342** | 0.5733 | 0.2225 | 0.5793 | **0.7647** | **0.9314** | 0.1889 | 0.2007 |
+| random_forest+sigmoid | 0.0000 | 0.5274 | 0.1445 | 0.5477 | 0.7255 | 0.9020 | 0.0000 | 0.0818 |
+| random_forest+isotonic | 0.0436 | **0.6095** | 0.0983 | 0.5499 | 0.7353 | 0.8824 | **0.1917** | 0.1098 |
+| gradient_boosting | -0.0062 | 0.5627 | 0.1465 | 0.5089 | 0.6765 | 0.9216 | 0.1361 | 0.2475 |
+| gradient_boosting+sigmoid | 0.0000 | 0.5425 | 0.1940 | 0.4860 | 0.6863 | 0.8333 | 0.0000 | 0.1239 |
+| gradient_boosting+isotonic | -0.0432 | 0.5721 | 0.1245 | 0.4646 | 0.6765 | 0.8922 | -0.0806 | 0.0675 |
+
+(Dataset `prod_frames_v2`, 506 rows / seeds 5000–5143 / sim presets above;
+test block n=102, used once. `*+sigmoid` collapsed to safe 0.0 — Platt
+scaling on ~100-row time-aware folds pulls every confidence under 0.85;
+documented in exp05/failure_analysis.md.)
+
+**Deployment outcome: NO-SHIP — the old artifact remains active, and the
+evidence for why is the valuable part.** The v2 winner
+(`random_forest v20260827T125532Z-b20a153f`) beat the old artifact on every
+prod-frame test metric (macro-F1 0.5793 vs 0.4375, top-1 0.7647 vs 0.5686,
+ECE 0.2007 vs 0.2683, safe 0.1889 vs 0.0055, unsafe 0.111 vs 0.528,
+false-fire 0.014 vs 0.181) and was deployed — then the demo suite caught
+what the prod-frame-only dataset had missed: production ALSO serves tight
+ad-hoc windows (the demo's 180/240-min frames, API investigations), and the
+v2 model, trained only on 12h windows, hedges a slam-dunk 1.5h gateway
+degradation in a 180-min window to 0.239 (old artifact: 1.000), sinking the
+strategy confidence below the auto-execute floor (demo scenario D).
+Deployment rolled back the same day.
+
+A dual-frame v3 (2556 rows = 506 prod windows + 2050 exact-span frames,
+per-source temporal split so both held-out blocks stay exact; exp06) was
+then trained and all 9 candidates were scored on three frames: the prod
+gate, the exact-span continuity set, and both demo operating points
+(scenario A needs >= 0.867 diagnosis confidence, scenario D >= 0.944 — the
+demo configs are tuned to the old model's operating points, measured in
+`exp06/candidate_frames.json`). **No candidate satisfies all constraints**:
+`random_forest+isotonic` comes closest — prod gate PASS with the best safe
+of the loop (0.2194; unsafe 0.5139 vs old 0.5278; false-fire 0.0278;
+exact-span top-1 0.9049 BEATING the old artifact's 0.8780 at ECE 0.0618 vs
+0.0510) and demo A PASS (0.941) — but misses demo D's bar at 0.910;
+`gradient_boosting` clears both demos (0.977/0.998) but its prod-frame
+unsafe side (0.7083) is worse than the old artifact's; the old artifact
+itself fails the prod-frame gate it sets (unsafe 0.528, false-fire 0.181 —
+now measured and on record). Per the deploy rule, the old artifact
+(`logistic_regression v20260826T234303Z-c5434878`) stays active. Follow-up
+scoped as exp07: ad-hoc tight-frame augmentation with the density cycle
+extended to demo A's 70k events/day (v2/v3 top out at 30k/day — a measured
+OOD driver of the demo-A hedging). Full constraint map:
+`ml/experiments/diagnosis/exp06_dual_frame_v3/SHIP_VERDICT.md`.
+
+**Scale honesty.** v1 (259 rows / 72 seeds, exp03) flipped the val→test
+business ranking at n≈52 — too small to decide on; the dataset was doubled
+before any deploy decision (exp04). Rare classes remain thin
+(`bank_downtime` 9 rows total): their per-class numbers are indicative.
+Shard-2 of `prod_frames_v2` was built while the detection track's new
+metrics were landing (seeds >= ~5122 may include `checkout_abandonment_rate`
+/ `insufficient_fund_share` incidents; ~14% of rows) — disclosed in
+`exp04_prod_frames_v2/`; a rebuild on the stabilized detection engine is
+folded into the exp07 recommendation.

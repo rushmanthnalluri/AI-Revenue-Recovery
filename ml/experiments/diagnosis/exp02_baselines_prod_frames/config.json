@@ -1,0 +1,17 @@
+{
+  "experiment": "exp02_baselines_prod_frames",
+  "script": "ml\\experiments\\diagnosis\\exp02_baselines_prod_frames\\run_baselines.py",
+  "git_sha": "437dac6",
+  "run_at_utc": "2026-08-27T12:32:08.045809+00:00",
+  "baselines": {
+    "current_artifact": {
+      "file": "diagnosis_logistic_regression_v20260826T234303Z-c5434878.joblib",
+      "model": "logistic_regression v20260826T234303Z-c5434878",
+      "trained_on": "input:artifacts\\sim_features.csv rows=2050",
+      "note": "loaded by explicit filename, not the active pointer"
+    },
+    "heuristic": {
+      "model": "diagnosis-heuristic heuristic-1"
+    }
+  }
+}
