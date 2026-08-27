@@ -24,9 +24,12 @@ from typing import Any, Callable
 from app.logging import get_logger
 from app.ports import ActionType, EvidenceBundle, Hypothesis, InvestigationReport
 from app.services.agent.report import (
+    AUTO_EXECUTE_CONFIDENCE_FLOOR,
     ESCALATION_CONFIDENCE_THRESHOLD,
     HEURISTIC_REASONER_VERSION,
     LLM_REASONER_VERSION,
+    NON_AUTO_CONFIDENCE_CAP,
+    THIN_EVIDENCE_WINDOW_FLOOR,
     AiInference,
     AlternativeHypothesis,
     InvestigationOutput,
@@ -41,6 +44,7 @@ from app.services.agent.validation import (
     extract_json,
     validate_llm_payload,
 )
+from app.services.diagnosis.taxonomy import AUTO_RECOVERABLE_CAUSES
 
 log = get_logger(__name__)
 
@@ -68,6 +72,7 @@ _RATIONALE_BY_ACTION = {
     ActionType.CREATE_PAYMENT_LINK: "customer-intent/funds failure class — a fresh payment link lets the customer complete when ready",
     ActionType.NOTIFY_CUSTOMER: "permanent/unknown failure class — the instrument itself must be updated; a retry would waste attempt budget",
     ActionType.ESCALATE_HUMAN: "evidence is insufficient or confidence is below the escalation threshold — a human should review before any automation",
+    ActionType.NO_ACTION: "diagnosis indicates no actionable fault — the anomaly is consistent with noise, so no recovery action is warranted; monitor only",
 }
 
 
@@ -113,6 +118,42 @@ def _revenue_implications(revenue: ToolResult) -> RevenueImplications:
     )
 
 
+def _evidence_confidence(
+    diagnosis: dict[str, Any] | None,
+    stats: dict[str, Any],
+    revenue: dict[str, Any],
+    candidates: list[dict[str, Any]],
+) -> float:
+    """Deterministic evidence-calibrated confidence: diagnosis confidence
+    adjusted by evidence sufficiency. No randomness, no wall-clock. Shared by
+    both reasoners — the LLM path caps the model's self-reported confidence at
+    this ceiling (a model may be less confident than the evidence, never more,
+    once it approaches the auto-execute floor)."""
+    conf = float(diagnosis["confidence"]) if diagnosis else 0.30
+    failed = stats["window"]["failed"]
+    if failed >= 10:
+        conf += 0.10
+    elif failed == 0:
+        conf -= 0.20
+    if revenue["observed_loss"]["low_confidence"]:
+        conf -= 0.10
+    if not candidates:
+        conf -= 0.10
+    return round(min(0.95, max(0.05, conf)), 4)
+
+
+def _gate_confidence(confidence: float, diagnosis: dict[str, Any] | None) -> float:
+    """Confidence passed to the policy preview. For diagnosis classes outside
+    AUTO_RECOVERABLE_CAUSES the agent must never preview an auto-execute lane
+    (the ML track measured the diagnosis artifact crossing the 0.85 floor on
+    52.8% of non-auto-recoverable production frames), so the gate input is
+    capped strictly below the floor."""
+    label = (diagnosis or {}).get("label")
+    if diagnosis and label not in AUTO_RECOVERABLE_CAUSES and label != "no_fault":
+        return min(confidence, NON_AUTO_CONFIDENCE_CAP)
+    return confidence
+
+
 def _action_from_policy_preview(
     preview: ToolResult,
     *,
@@ -120,6 +161,16 @@ def _action_from_policy_preview(
     expected_recovery_paise: int | None,
 ) -> RecommendedAction:
     d = preview.data
+    outcome = d["policy"]["outcome"]
+    reasons = d["policy"]["reasons"]
+    # The rationale must never be a bare "retry it": the live gate outcome is
+    # attached by the system, in text, right next to the proposal.
+    policy_note = f" Policy preview: {outcome}"
+    if reasons:
+        policy_note += f" — {reasons[0]}"
+    policy_note += "."
+    if outcome not in rationale:
+        rationale = rationale.rstrip() + policy_note
     return RecommendedAction(
         action_type=d["action_type"],
         rationale=rationale,
@@ -128,6 +179,7 @@ def _action_from_policy_preview(
         payment_id=d.get("payment_id"),
         opportunity_id=d.get("opportunity_id"),
         expected_recovery_paise=expected_recovery_paise,
+        confidence=d.get("confidence"),
         policy_preview=PolicyOutcomeView(**d["policy"]),
     )
 
@@ -267,10 +319,30 @@ class HeuristicReasoner:
             )
 
         f_customer: str | None = None
-        top_customer = next((c.get("customer_id") for c in cand_list if c.get("customer_id")), None)
-        if top_customer:
-            history = self._tools.call("get_customer_history", {"customer_id": top_customer})
+        # Check the opt-out flag of the customers behind the top candidates
+        # BEFORE a target is chosen: recommending an action on an opted-out
+        # customer headlines a recommendation the gate hard-blocks
+        # (never_auto_execute.customer_opted_out). Lazy: stop at the first
+        # eligible candidate; bounded at 3 reads total.
+        customer_opted_out: dict[str, bool] = {}
+        eligible_target: dict[str, Any] | None = None
+        for cand in sorted(cand_list, key=lambda c: c["amount_paise"], reverse=True):
+            if eligible_target is not None:
+                break
+            cid = cand.get("customer_id")
+            if not cid:
+                # no customer to check — eligible as far as we can tell
+                eligible_target = cand
+                break
+            if cid in customer_opted_out:
+                if not customer_opted_out[cid]:
+                    eligible_target = cand
+                continue
+            if len(customer_opted_out) >= 3:
+                break
+            history = self._tools.call("get_customer_history", {"customer_id": cid})
             hd = history.data
+            customer_opted_out[cid] = bool(hd["opted_out"])
             f_customer = add_fact(
                 (
                     f"Customer {hd['customer_id']}: {hd['total_payments']} payments, "
@@ -286,6 +358,9 @@ class HeuristicReasoner:
                     "opted_out": hd["opted_out"],
                 },
             )
+            if not customer_opted_out[cid] and eligible_target is None:
+                eligible_target = cand
+                break
 
         # -- inferences -------------------------------------------------------
         inferences: list[AiInference] = []
@@ -351,6 +426,11 @@ class HeuristicReasoner:
             )
         if w["total"] == 0:
             uncertainties.append("No payments observed in the incident window; evidence is thin.")
+        elif w["total"] < THIN_EVIDENCE_WINDOW_FLOOR:
+            uncertainties.append(
+                f"Only {w['total']} payment(s) observed in the incident window; "
+                "the evidence window is thin — treat conclusions as tentative."
+            )
         if rev_d["observed_loss"]["point_paise"] is not None:
             inferences.append(
                 AiInference(
@@ -369,58 +449,80 @@ class HeuristicReasoner:
         # -- recommendation -----------------------------------------------------
         confidence = self._confidence(diagnosis, stats.data, rev_d, cand_list)
         escalated, escalation_reasons = self._escalation(
-            confidence, diagnosis=diagnosis, stats=stats.data
+            confidence, diagnosis=diagnosis, stats=stats.data, candidates=cand_list
         )
+        label = (diagnosis or {}).get("label")
+        no_fault = label == "no_fault"
 
-        actions: list[RecommendedAction] = []
-        if not escalated and cand_list:
-            target = max(cand_list, key=lambda c: c["amount_paise"])
-            dominant = dist_d.get("dominant_failure_class") or "unknown"
-            action_type = _ACTION_BY_FAILURE_CLASS.get(dominant, ActionType.NOTIFY_CUSTOMER)
-            preview = self._tools.call(
-                "propose_recovery_strategy",
-                {
-                    "action_type": action_type.value,
-                    "payment_id": target.get("payment_id"),
-                    "opportunity_id": target.get("opportunity_id"),
-                    "confidence": confidence,
-                },
+        if diagnosis is not None and float(diagnosis["confidence"]) < AUTO_EXECUTE_CONFIDENCE_FLOOR:
+            uncertainties.append(
+                f"Diagnosis confidence {round(float(diagnosis['confidence']), 4)} is below the "
+                f"{AUTO_EXECUTE_CONFIDENCE_FLOOR} auto-execute floor — any automation takes the "
+                "human-approval lane."
             )
+        gate_confidence = _gate_confidence(confidence, diagnosis)
+        if gate_confidence < confidence:
+            uncertainties.append(
+                f"Diagnosis class '{label}' is not auto-recoverable; a recovery proposal here "
+                f"requires human approval regardless of model confidence (gate confidence capped "
+                f"at {gate_confidence})."
+            )
+        if no_fault:
+            uncertainties.append(
+                "Detection fired but the diagnosis reports no actionable fault; "
+                "treat the anomaly as noise unless a human disagrees."
+            )
+        skipped_opted_out = sum(
+            1 for c in cand_list if customer_opted_out.get(c.get("customer_id") or "")
+        )
+        if skipped_opted_out:
+            uncertainties.append(
+                f"Skipped {skipped_opted_out} recovery candidate(s) whose customers opted out of contact."
+            )
+
+        def _preview(action_type: ActionType, rationale: str, conf: float,
+                     target: dict[str, Any] | None = None) -> RecommendedAction:
+            args: dict[str, Any] = {"action_type": action_type.value, "confidence": conf}
+            if target is not None:
+                args["payment_id"] = target.get("payment_id")
+                args["opportunity_id"] = target.get("opportunity_id")
+            preview = self._tools.call("propose_recovery_strategy", args)
             expected = None
             eff = rev_d.get("expected_recovery_by_strategy", {}).get(action_type.value)
-            if eff:
+            if eff and target is not None:
                 expected = eff["point_paise"]
+            return _action_from_policy_preview(
+                preview, rationale=rationale, expected_recovery_paise=expected
+            )
+
+        def _escalate_action() -> RecommendedAction:
+            return _preview(
+                ActionType.ESCALATE_HUMAN,
+                _RATIONALE_BY_ACTION[ActionType.ESCALATE_HUMAN],
+                confidence,
+            )
+
+        actions: list[RecommendedAction] = []
+        if escalated:
+            actions.append(_escalate_action())
+        elif no_fault:
             actions.append(
-                _action_from_policy_preview(
-                    preview,
-                    rationale=_RATIONALE_BY_ACTION[action_type],
-                    expected_recovery_paise=expected,
-                )
+                _preview(ActionType.NO_ACTION, _RATIONALE_BY_ACTION[ActionType.NO_ACTION], confidence)
             )
         else:
-            preview = self._tools.call(
-                "propose_recovery_strategy",
-                {"action_type": ActionType.ESCALATE_HUMAN.value, "confidence": confidence},
-            )
-            actions.append(
-                _action_from_policy_preview(
-                    preview,
-                    rationale=_RATIONALE_BY_ACTION[ActionType.ESCALATE_HUMAN],
-                    expected_recovery_paise=None,
+            target = eligible_target
+            if target is None:
+                escalated = True
+                escalation_reasons.append(
+                    "the top recovery candidates belong to opted-out customers"
                 )
-            )
-        if escalated and actions[0].action_type != ActionType.ESCALATE_HUMAN.value:
-            escalate_preview = self._tools.call(
-                "propose_recovery_strategy",
-                {"action_type": ActionType.ESCALATE_HUMAN.value, "confidence": confidence},
-            )
-            actions.append(
-                _action_from_policy_preview(
-                    escalate_preview,
-                    rationale="investigation escalated: " + "; ".join(escalation_reasons),
-                    expected_recovery_paise=None,
+                actions.append(_escalate_action())
+            else:
+                dominant = dist_d.get("dominant_failure_class") or "unknown"
+                action_type = _ACTION_BY_FAILURE_CLASS.get(dominant, ActionType.NOTIFY_CUSTOMER)
+                actions.append(
+                    _preview(action_type, _RATIONALE_BY_ACTION[action_type], gate_confidence, target)
                 )
-            )
 
         what_happened = (
             f"Detection fired on '{inc_d['metric']}' ({inc_d['severity']}): "
@@ -469,19 +571,8 @@ class HeuristicReasoner:
         revenue: dict[str, Any],
         candidates: list[dict[str, Any]],
     ) -> float:
-        """Deterministic report confidence: diagnosis confidence adjusted by
-        evidence sufficiency. No randomness, no wall-clock."""
-        conf = float(diagnosis["confidence"]) if diagnosis else 0.30
-        failed = stats["window"]["failed"]
-        if failed >= 10:
-            conf += 0.10
-        elif failed == 0:
-            conf -= 0.20
-        if revenue["observed_loss"]["low_confidence"]:
-            conf -= 0.10
-        if not candidates:
-            conf -= 0.10
-        return round(min(0.95, max(0.05, conf)), 4)
+        """Deterministic report confidence — see ``_evidence_confidence``."""
+        return _evidence_confidence(diagnosis, stats, revenue, candidates)
 
     def _escalation(
         self,
@@ -489,12 +580,15 @@ class HeuristicReasoner:
         *,
         diagnosis: dict[str, Any] | None,
         stats: dict[str, Any],
+        candidates: list[dict[str, Any]],
     ) -> tuple[bool, list[str]]:
         reasons: list[str] = []
         if diagnosis is None:
             reasons.append("no diagnosis available")
         if stats["window"]["total"] == 0:
             reasons.append("no payments in the incident window — evidence insufficient")
+        if not candidates:
+            reasons.append("no recovery candidates in scope")
         if confidence < self._threshold:
             reasons.append(
                 f"confidence {confidence} below escalation threshold {self._threshold}"
@@ -732,21 +826,83 @@ class LlmReasoner:
 
         degraded_reasons = list(result.degraded_reasons)
 
+        # An inference whose supporting facts were all stripped is an
+        # unsupported claim: drop it rather than report it uncited.
+        supported = [i for i in inferences if i.supporting_fact_ids]
+        if len(supported) < len(inferences):
+            degraded_reasons.append(
+                f"dropped {len(inferences) - len(supported)} inference(s) with no surviving "
+                "supporting facts"
+            )
+            inferences = [
+                i.model_copy(update={"id": f"i{k}"}) for k, i in enumerate(supported, start=1)
+            ]
+
+        def _ensure_tool(name: str) -> ToolResult:
+            nonlocal run_calls, tools_called
+            call = next((c for c in run_calls if c.name == name), None)
+            if call is None:
+                call = self._tools.call(name)
+                run_calls = self._tools.calls[start_idx:]
+                tools_called = [c.name for c in run_calls]
+            return call
+
         # Revenue implications come from the tool, not the model. If the model
         # never asked, the system asks on its behalf.
-        revenue_call = next(
-            (c for c in run_calls if c.name == "get_revenue_at_risk"), None
-        )
-        if revenue_call is None:
-            revenue_call = self._tools.call("get_revenue_at_risk")
-            run_calls = self._tools.calls[start_idx:]
-            tools_called = [c.name for c in run_calls]
+        revenue_call = _ensure_tool("get_revenue_at_risk")
         revenue_implications = _revenue_implications(revenue_call)
 
+        # Evidence calibration weighs the same signals the heuristic reasoner
+        # uses; the system fetches them when the model did not.
+        stats_call = _ensure_tool("get_payment_stats")
+        candidates_call = _ensure_tool("get_recovery_candidates")
+        window_total = stats_call.data["window"]["total"]
+        cand_list = candidates_call.data["candidates"]
+
+        diagnosis_ctx = (evidence.context or {}).get("diagnosis")
+        diagnosis_label = (diagnosis_ctx or {}).get("label")
+
+        # Evidence-calibrated confidence ceiling: once the model's self-report
+        # reaches the auto-execute floor, it may not exceed what the
+        # deterministic formula supports on the same evidence.
+        confidence = draft.confidence
+        evidence_ceiling = _evidence_confidence(
+            diagnosis_ctx, stats_call.data, revenue_call.data, cand_list
+        )
+        if confidence >= AUTO_EXECUTE_CONFIDENCE_FLOOR and evidence_ceiling < confidence:
+            degraded_reasons.append(
+                f"model confidence {confidence} exceeded the evidence-calibrated ceiling "
+                f"{evidence_ceiling}; capped to the calibrated value"
+            )
+            confidence = evidence_ceiling
+
+        uncertainties = list(draft.uncertainties)
+        if 0 < window_total < THIN_EVIDENCE_WINDOW_FLOOR and not any(
+            "thin" in u.lower() for u in uncertainties
+        ):
+            uncertainties.append(
+                f"Only {window_total} payment(s) observed in the incident window; "
+                "the evidence window is thin — treat conclusions as tentative."
+            )
+        if diagnosis_ctx is not None and float(diagnosis_ctx["confidence"]) < AUTO_EXECUTE_CONFIDENCE_FLOOR:
+            uncertainties.append(
+                f"Diagnosis confidence {round(float(diagnosis_ctx['confidence']), 4)} is below the "
+                f"{AUTO_EXECUTE_CONFIDENCE_FLOOR} auto-execute floor — any automation takes the "
+                "human-approval lane."
+            )
+        gate_confidence = _gate_confidence(confidence, diagnosis_ctx)
+        if gate_confidence < confidence:
+            uncertainties.append(
+                f"Diagnosis class '{diagnosis_label}' is not auto-recoverable; a recovery proposal "
+                f"here requires human approval regardless of model confidence (gate confidence "
+                f"capped at {gate_confidence})."
+            )
+
         # The recommended next step's amount and policy outcome are attached by
-        # the SYSTEM via a real policy evaluation — never from the model.
-        next_step: RecommendedAction | None = None
-        actions: list[RecommendedAction] = []
+        # the SYSTEM via a real policy evaluation — never from the model. A
+        # BLOCKED proposal is never presented as a recommendation: it is
+        # dropped, flagged, and the headline falls back to escalation.
+        model_action: RecommendedAction | None = None
         if draft.recommended_next_step is not None:
             step = draft.recommended_next_step
             try:
@@ -756,31 +912,87 @@ class LlmReasoner:
                         "action_type": step.action_type,
                         "payment_id": step.payment_id,
                         "opportunity_id": step.opportunity_id,
-                        "confidence": draft.confidence,
+                        "confidence": gate_confidence,
                     },
                 )
-                run_calls = self._tools.calls[start_idx:]
-                tools_called = [c.name for c in run_calls]
-                eff = revenue_call.data.get("expected_recovery_by_strategy", {}).get(
-                    preview.data["action_type"]
-                )
-                next_step = _action_from_policy_preview(
-                    preview,
-                    rationale=step.rationale,
-                    expected_recovery_paise=eff["point_paise"] if eff else None,
-                )
-                actions.append(next_step)
+                if preview.data["policy"]["outcome"] == "BLOCKED":
+                    degraded_reasons.append(
+                        f"recommended action {preview.data['action_type']!r} is BLOCKED by policy "
+                        f"({', '.join(preview.data['policy']['rules_matched'])}); dropped and "
+                        "replaced with escalate_human"
+                    )
+                else:
+                    eff = revenue_call.data.get("expected_recovery_by_strategy", {}).get(
+                        preview.data["action_type"]
+                    )
+                    model_action = _action_from_policy_preview(
+                        preview,
+                        rationale=step.rationale,
+                        expected_recovery_paise=eff["point_paise"] if eff else None,
+                    )
             except ToolError as exc:
                 degraded_reasons.append(f"recommended action could not be policy-previewed: {exc}")
 
-        escalated = draft.confidence < self._threshold or not facts
+        # System-side escalation floor — independent of the model's self-report.
         escalation_reasons: list[str] = []
-        if draft.confidence < self._threshold:
+        if confidence < self._threshold:
             escalation_reasons.append(
-                f"confidence {draft.confidence} below escalation threshold {self._threshold}"
+                f"confidence {confidence} below escalation threshold {self._threshold}"
             )
         if not facts:
             escalation_reasons.append("no verifiable observed facts survived validation")
+        if diagnosis_ctx is None:
+            escalation_reasons.append("no diagnosis available")
+        if window_total == 0:
+            escalation_reasons.append("no payments in the incident window — evidence insufficient")
+        if not cand_list and model_action is None:
+            escalation_reasons.append("no recovery candidates in scope")
+        if model_action is not None and model_action.action_type == ActionType.ESCALATE_HUMAN.value:
+            escalation_reasons.append("the reasoner itself recommended human escalation")
+        escalated = bool(escalation_reasons)
+
+        def _safe_headline(action_type: ActionType) -> RecommendedAction:
+            preview = self._tools.call(
+                "propose_recovery_strategy",
+                {"action_type": action_type.value, "confidence": confidence},
+            )
+            return _action_from_policy_preview(
+                preview,
+                rationale=_RATIONALE_BY_ACTION[action_type],
+                expected_recovery_paise=None,
+            )
+
+        next_step: RecommendedAction | None = None
+        secondary: RecommendedAction | None = None
+        if escalated:
+            if model_action is not None and model_action.action_type == ActionType.ESCALATE_HUMAN.value:
+                next_step = model_action
+            else:
+                next_step = _safe_headline(ActionType.ESCALATE_HUMAN)
+                secondary = model_action  # kept visible, but never headlined
+        elif diagnosis_label == "no_fault":
+            if model_action is not None and model_action.action_type != ActionType.NO_ACTION.value:
+                degraded_reasons.append(
+                    "diagnosis reports no actionable fault; the model's recovery proposal "
+                    "was dropped in favor of no_action"
+                )
+                model_action = None
+            if model_action is not None:
+                next_step = model_action
+            else:
+                next_step = _safe_headline(ActionType.NO_ACTION)
+        elif model_action is not None:
+            next_step = model_action
+        if next_step is None:
+            # Nothing actionable survived validation: escalate rather than
+            # leave the headline empty.
+            escalated = True
+            escalation_reasons.append("no actionable recommendation survived validation")
+            next_step = _safe_headline(ActionType.ESCALATE_HUMAN)
+        actions: list[RecommendedAction] = [a for a in (next_step, secondary) if a is not None]
+
+        run_calls = self._tools.calls[start_idx:]
+        tools_called = [c.name for c in run_calls]
 
         return InvestigationOutput(
             incident_id=evidence.incident_id,
@@ -791,8 +1003,8 @@ class LlmReasoner:
             revenue_implications=revenue_implications,
             recommended_actions=actions,
             recommended_next_step=next_step,
-            uncertainties=list(draft.uncertainties),
-            confidence=draft.confidence,
+            uncertainties=uncertainties,
+            confidence=confidence,
             escalated=escalated,
             escalation_reasons=escalation_reasons,
             degraded=bool(degraded_reasons),
@@ -802,7 +1014,7 @@ class LlmReasoner:
             reasoner="llm",
             generated_by=self._model,
             reasoner_version=LLM_REASONER_VERSION,
-            diagnosis=(evidence.context or {}).get("diagnosis"),
+            diagnosis=diagnosis_ctx,
         )
 
     # -- prompts ------------------------------------------------------------------
@@ -831,7 +1043,18 @@ class LlmReasoner:
             "unverifiable claims are removed and the report is flagged degraded.\n"
             "5. Use request_payment_link / request_recovery_execution sparingly and "
             "only for a clearly recoverable failed payment; the policy engine will "
-            "gate whatever you propose."
+            "gate whatever you propose.\n"
+            "6. Never advocate execution: do not ask the operator to auto-execute, "
+            "skip approval, or bypass the policy gate. State what you recommend and "
+            "why; the system attaches the policy engine's live outcome to your "
+            "recommendation. `refund` is never available — proposing blocked "
+            "actions only gets them dropped and the report degraded.\n"
+            "7. Be honest about evidence: when the incident window holds few "
+            "payments, say so in uncertainties and lower your confidence. When the "
+            "diagnosis confidence is below the 0.85 auto-execute floor, say so — "
+            "automation then takes the human-approval lane. Do not report "
+            "confidence above what the evidence supports: the system caps it at "
+            "the evidence-calibrated ceiling."
         )
 
     @staticmethod

@@ -4228,6 +4228,17 @@
             "title": "Currency",
             "default": "INR"
           },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
           "payment_id": {
             "anyOf": [
               {

@@ -1,0 +1,75 @@
+{
+  "experiment_id": "exp01_baseline",
+  "corpus_version": "agent-corpus-1.0",
+  "cases": 36,
+  "overall": {
+    "factual_correctness": 1.0,
+    "structured_output_validity": 0.9889,
+    "tool_call_correctness": 0.9931,
+    "reasoning_consistency": 0.9657,
+    "policy_compliance": 0.4917,
+    "unnecessary_actions": 0.9445,
+    "unsafe_recommendation_rate": 0.75
+  },
+  "by_reasoner": {
+    "heuristic": {
+      "factual_correctness": 1.0,
+      "structured_output_validity": 1.0,
+      "tool_call_correctness": 1.0,
+      "reasoning_consistency": 0.9744,
+      "policy_compliance": 0.4846,
+      "unnecessary_actions": 0.9744,
+      "unsafe_recommendation_rate": 0.6923
+    },
+    "llm": {
+      "factual_correctness": 1.0,
+      "structured_output_validity": 0.9826,
+      "tool_call_correctness": 0.9891,
+      "reasoning_consistency": 0.9609,
+      "policy_compliance": 0.4957,
+      "unnecessary_actions": 0.9275,
+      "unsafe_recommendation_rate": 0.7826
+    }
+  },
+  "by_group": {
+    "adversarial": {
+      "factual_correctness": 1.0,
+      "structured_output_validity": 1.0,
+      "tool_call_correctness": 0.975,
+      "reasoning_consistency": 0.9433,
+      "policy_compliance": 0.51,
+      "unnecessary_actions": 0.9667,
+      "unsafe_recommendation_rate": 0.8
+    },
+    "edge": {
+      "factual_correctness": 1.0,
+      "structured_output_validity": 0.9833,
+      "tool_call_correctness": 1.0,
+      "reasoning_consistency": 0.9444,
+      "policy_compliance": 0.5083,
+      "unnecessary_actions": 0.8889,
+      "unsafe_recommendation_rate": 0.75
+    },
+    "standard": {
+      "factual_correctness": 1.0,
+      "structured_output_validity": 0.9857,
+      "tool_call_correctness": 1.0,
+      "reasoning_consistency": 1.0,
+      "policy_compliance": 0.4643,
+      "unnecessary_actions": 0.9762,
+      "unsafe_recommendation_rate": 0.7143
+    }
+  },
+  "expectation_pass_rate": 0.7391,
+  "expectation_checks": {
+    "passed": 17,
+    "total": 23
+  },
+  "safety": {
+    "gateway_mutations": 0,
+    "recovery_actions_created": 2,
+    "blocked_requests": 2
+  },
+  "rerun_identical_all": true,
+  "rerun_not_applicable": 1
+}

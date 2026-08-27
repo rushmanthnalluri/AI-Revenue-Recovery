@@ -194,7 +194,7 @@ class AgentTools:
             ("get_incident", "Incident row: status, severity, metric, deviation, window, revenue_at_risk, latest diagnosis.", no_args),
             ("get_payment_stats", "Payment counts/amounts and failure rates in the incident window vs the baseline window.", no_args),
             ("get_failure_distribution", "Failed payments in the incident window grouped by error source, reason, method, and failure class.", no_args),
-            ("get_customer_history", "Payment history and opt-out flag for one customer id.", {
+            ("get_customer_history", "Payment history and opt-out flag for one customer id. Call at most once per investigation, for the customer behind your chosen recovery target.", {
                 "type": "object",
                 "properties": {"customer_id": {"type": "string"}},
                 "required": ["customer_id"],
@@ -202,7 +202,7 @@ class AgentTools:
             }),
             ("get_revenue_at_risk", "Counterfactual revenue-at-risk analysis (observed loss, recoverable, expected recovery per strategy, actual recovered).", no_args),
             ("get_recovery_candidates", "Recovery opportunities for this incident (existing rows, or derived from failed payments when none exist).", no_args),
-            ("propose_recovery_strategy", "Dry-run: evaluate a candidate action through the deterministic policy engine. No row is created, nothing executes.", strategy_args),
+            ("propose_recovery_strategy", "Dry-run: evaluate a candidate action through the deterministic policy engine. No row is created, nothing executes. Call at most once, for your single recommended_next_step — the system attaches its outcome to your report.", strategy_args),
             ("request_payment_link", "Create a PROPOSED create_payment_link recovery action for a failed payment and evaluate it through policy. The amount comes from the original payment. Never executes.", target_args),
             ("request_recovery_execution", "Create a PROPOSED recovery action of the given type and evaluate it through policy. The amount comes from the original payment. Never executes.", strategy_args),
         ]

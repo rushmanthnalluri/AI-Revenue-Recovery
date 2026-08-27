@@ -58,6 +58,7 @@ class RecommendedActionView(BaseModel):
     rationale: str
     amount_paise: int | None = None
     currency: str = "INR"
+    confidence: float | None = None
     payment_id: str | None = None
     opportunity_id: str | None = None
     expected_recovery_paise: int | None = None

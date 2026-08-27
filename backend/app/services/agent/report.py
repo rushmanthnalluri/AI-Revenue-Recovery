@@ -20,8 +20,23 @@ from pydantic import BaseModel, ConfigDict, Field
 #: Below this report confidence the investigation is escalated to a human.
 ESCALATION_CONFIDENCE_THRESHOLD = 0.5
 
-HEURISTIC_REASONER_VERSION = "heuristic-1.0"
-LLM_REASONER_VERSION = "llm-1.0"
+#: The policy engine's auto-execute confidence floor (policies/default.yaml
+#: auto_execute.min_confidence). Mirrored here so the agent layer can (a) flag
+#: sub-floor diagnoses and (b) never preview an auto-execute lane for a
+#: diagnosis class the taxonomy marks non-auto-recoverable.
+AUTO_EXECUTE_CONFIDENCE_FLOOR = 0.85
+
+#: Gate-input confidence cap for diagnosis classes outside
+#: ``AUTO_RECOVERABLE_CAUSES``: strictly below the auto-execute floor, so the
+#: policy preview can never come back ALLOWED for those classes.
+NON_AUTO_CONFIDENCE_CAP = 0.84
+
+#: An incident window with fewer payments than this is "thin evidence" and
+#: must carry an explicit uncertainty.
+THIN_EVIDENCE_WINDOW_FLOOR = 10
+
+HEURISTIC_REASONER_VERSION = "heuristic-1.1"
+LLM_REASONER_VERSION = "llm-1.1"
 
 
 class ObservedFact(BaseModel):
@@ -78,6 +93,11 @@ class RecommendedAction(BaseModel):
     payment_id: str | None = None
     opportunity_id: str | None = None
     expected_recovery_paise: int | None = None
+    # The confidence the SYSTEM actually passed to the policy engine for this
+    # preview. Recorded so the attached policy outcome is machine-reproducible:
+    # re-evaluating the same target with this confidence must yield the same
+    # outcome. Never taken from model text.
+    confidence: float | None = None
     policy_preview: PolicyOutcomeView | None = None
 
 
@@ -129,9 +149,12 @@ class InvestigationOutput(BaseModel):
 
 
 __all__ = [
+    "AUTO_EXECUTE_CONFIDENCE_FLOOR",
     "ESCALATION_CONFIDENCE_THRESHOLD",
     "HEURISTIC_REASONER_VERSION",
     "LLM_REASONER_VERSION",
+    "NON_AUTO_CONFIDENCE_CAP",
+    "THIN_EVIDENCE_WINDOW_FLOOR",
     "AiInference",
     "AlternativeHypothesis",
     "InvestigationOutput",

@@ -85,7 +85,22 @@ MONEY_TEXT_RE = re.compile(
 #: Bare integers with 7+ digits inside free text are treated as paise claims.
 BARE_LARGE_INT_RE = re.compile(r"\b(\d{7,})\b")
 
+#: Execution-advocacy language. The reasoner is advisory: it may recommend an
+#: action, but it may not tell the operator to execute it, skip approval, or
+#: bypass the policy gate. Such language is excised like invented money. The
+#: "auto-execute" alternative requires an imperative object so descriptive
+#: text about the policy floor ("below the auto-execute floor of 0.85") is
+#: NOT flagged.
+ADVOCACY_RE = re.compile(
+    r"auto-?execut\w*\s+(?:this|it|the|these|those|now|immediately|all|every|without|with\s+no)"
+    r"|execute immediately|execute (?:this|it) now"
+    r"|without (?:any )?(?:human )?approval|no approval (?:is )?(?:needed|required)"
+    r"|skip(?:ping)? (?:the )?approval|bypass(?:ing)? (?:the )?(?:policy|gate|approval)",
+    re.IGNORECASE,
+)
+
 _STRIPPED_PLACEHOLDER = "[unverified figure removed]"
+_ADVOCACY_PLACEHOLDER = "[execution advocacy removed — the policy engine decides execution]"
 
 _UNIT_TO_PAISE = {
     None: 100,  # bare "Rs X" is rupees
@@ -213,6 +228,22 @@ def validate_llm_payload(
 
     stripped: list[dict[str, Any]] = []
 
+    # -- execution-advocacy language: excise in place (advisory-only contract).
+    def sanitize_advocacy(text: str, location: str) -> str:
+        def _sub(m: re.Match) -> str:
+            stripped.append(
+                {
+                    "location": location,
+                    "excerpt": m.group(0),
+                    "reason": "execution-advocacy language (the reasoner is advisory; the policy engine decides execution)",
+                }
+            )
+            return _ADVOCACY_PLACEHOLDER
+
+        return ADVOCACY_RE.sub(_sub, text)
+
+    draft.what_happened = sanitize_advocacy(draft.what_happened, "what_happened")
+
     # -- free-text money claims in the summary/uncertainties: excise in place.
     def sanitize_text(text: str, location: str) -> str:
         out = text
@@ -286,6 +317,7 @@ def validate_llm_payload(
     #    (amount, policy outcome) is attached by the system afterwards.
     if draft.recommended_next_step is not None:
         step = draft.recommended_next_step
+        step.rationale = sanitize_advocacy(step.rationale, "recommended_next_step.rationale")
         text_hits = [(s, p) for s, p in _text_amounts_paise(step.rationale) if p not in tool_numbers]
         if text_hits:
             for span, _ in text_hits:
@@ -306,6 +338,7 @@ def validate_llm_payload(
 
 
 __all__ = [
+    "ADVOCACY_RE",
     "BARE_LARGE_INT_RE",
     "MONEY_KEY_RE",
     "MONEY_TEXT_RE",

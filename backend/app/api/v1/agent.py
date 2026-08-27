@@ -38,6 +38,7 @@ def _action_view(a) -> RecommendedActionView:
         payment_id=a.payment_id,
         opportunity_id=a.opportunity_id,
         expected_recovery_paise=a.expected_recovery_paise,
+        confidence=a.confidence,
         policy_preview=PolicyOutcomePreview(**a.policy_preview.model_dump())
         if a.policy_preview
         else None,
