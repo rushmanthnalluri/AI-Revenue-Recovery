@@ -13,6 +13,7 @@ headline results.
 | [security-architecture.md](security-architecture.md) | Trust boundaries (LLM / gateway / webhook), authN-Z posture, secrets handling, financial-action safety controls, AI-specific threat mitigations, accepted residual risks |
 | [security-testing.md](security-testing.md) | Adversarial break-it engagement: 15-vector attack matrix + secret-leakage sweep (method → result → proof test), vulnerabilities found and fixed, accepted risks, residual recommendations (`backend/tests/security/`) |
 | [claim-matrix.md](claim-matrix.md) | Evidence audit: every quantitative/normative claim in the docs mapped to its source (run id / test / doc), with reproducibility, currency, and corrections log |
+| [release-readiness.md](release-readiness.md) | **FREEZE DOCUMENT**: final architecture, final metrics, reproducibility statement, known limitations, security findings, demo/deployment verification, release checklist |
 | [demo.md](demo.md) | The 5 deterministic demo scenarios: exact commands, verbatim expected outputs, and the proof suite that re-runs them |
 | [demo-script.md](demo-script.md) | The 5-minute live hiring-panel runbook for the compose stack: minute-by-minute clicks/API calls, rehearsed numbers, failure beats, fallbacks, pre-flight checklist |
 | [evaluation.md](evaluation.md) | Evaluation methodology and reproduced results: baseline-vs-PulseRecover harness, metric definitions, detection/diagnosis/recovery numbers, honest limitations, reproduction commands |
