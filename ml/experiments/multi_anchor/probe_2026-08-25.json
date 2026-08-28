@@ -1,0 +1,125 @@
+{
+  "simulator_run_id": "sim_42_d78d99fa2d",
+  "passes": 116,
+  "incident_rows": 7,
+  "per_incident": [
+    {
+      "entity_id": "inc_sim_42_d78d99fa2d_00",
+      "kind": "gateway_degradation",
+      "start_utc": "2026-07-31T08:30:00+00:00",
+      "end_utc": "2026-07-31T10:00:00+00:00",
+      "injected_failures": 23,
+      "injected_abandonments": 0,
+      "matched": true,
+      "mttd_minutes": 215.0,
+      "window_payments": 90,
+      "window_failed": 35,
+      "window_failed_by_class": {
+        "abandonment": 1,
+        "hard_decline": 2,
+        "insufficient_funds": 3,
+        "soft_decline": 24,
+        "timeout": 5
+      }
+    },
+    {
+      "entity_id": "inc_sim_42_d78d99fa2d_01",
+      "kind": "method_outage",
+      "start_utc": "2026-08-05T14:30:00+00:00",
+      "end_utc": "2026-08-05T16:30:00+00:00",
+      "injected_failures": 48,
+      "injected_abandonments": 0,
+      "matched": true,
+      "mttd_minutes": 215.0,
+      "window_payments": 154,
+      "window_failed": 74,
+      "window_failed_by_class": {
+        "abandonment": 5,
+        "hard_decline": 3,
+        "insufficient_funds": 6,
+        "soft_decline": 52,
+        "timeout": 8
+      }
+    },
+    {
+      "entity_id": "inc_sim_42_d78d99fa2d_02",
+      "kind": "route_latency",
+      "start_utc": "2026-08-11T03:30:00+00:00",
+      "end_utc": "2026-08-11T05:30:00+00:00",
+      "injected_failures": 4,
+      "injected_abandonments": 0,
+      "matched": true,
+      "mttd_minutes": 155.0,
+      "window_payments": 100,
+      "window_failed": 23,
+      "window_failed_by_class": {
+        "abandonment": 3,
+        "hard_decline": 1,
+        "insufficient_funds": 5,
+        "soft_decline": 6,
+        "timeout": 8
+      }
+    },
+    {
+      "entity_id": "inc_sim_42_d78d99fa2d_03",
+      "kind": "customer_insufficient_funds_wave",
+      "start_utc": "2026-08-14T18:30:00+00:00",
+      "end_utc": "2026-08-15T14:30:00+00:00",
+      "injected_failures": 193,
+      "injected_abandonments": 0,
+      "matched": false,
+      "mttd_minutes": null,
+      "window_payments": 997,
+      "window_failed": 336,
+      "window_failed_by_class": {
+        "abandonment": 18,
+        "hard_decline": 10,
+        "insufficient_funds": 201,
+        "soft_decline": 75,
+        "timeout": 32
+      }
+    },
+    {
+      "entity_id": "inc_sim_42_d78d99fa2d_04",
+      "kind": "checkout_abandonment_spike",
+      "start_utc": "2026-08-19T12:30:00+00:00",
+      "end_utc": "2026-08-19T15:00:00+00:00",
+      "injected_failures": 0,
+      "injected_abandonments": 88,
+      "matched": true,
+      "mttd_minutes": 335.0,
+      "window_payments": 181,
+      "window_failed": 13,
+      "window_failed_by_class": {
+        "abandonment": 1,
+        "hard_decline": 1,
+        "insufficient_funds": 1,
+        "soft_decline": 4,
+        "timeout": 6
+      }
+    },
+    {
+      "entity_id": "inc_sim_42_d78d99fa2d_05",
+      "kind": "subscription_failure_spike",
+      "start_utc": "2026-08-20T22:30:00+00:00",
+      "end_utc": "2026-08-22T22:30:00+00:00",
+      "injected_failures": 5,
+      "injected_abandonments": 0,
+      "matched": true,
+      "mttd_minutes": 2255.0,
+      "window_payments": 2167,
+      "window_failed": 340,
+      "window_failed_by_class": {
+        "abandonment": 42,
+        "hard_decline": 37,
+        "insufficient_funds": 53,
+        "soft_decline": 136,
+        "timeout": 72
+      }
+    }
+  ],
+  "matched_count": 5,
+  "mean_mttd_minutes": 635.0,
+  "anchor": "2026-08-25",
+  "probe_seconds": 86.6
+}

@@ -1,0 +1,931 @@
+{
+  "anchor": "2026-08-28",
+  "status": "completed",
+  "run_id": "run_9b86b04f86d64e628d36104731d052f1",
+  "command": ".venv/Scripts/python scripts/run_evaluation.py --scenario standard --seed 42 --end-date 2026-08-28 --name multi-anchor:2026-08-28 --holdout-fraction 0.1 --database-url sqlite:///D:\\Razorpay\\backend\\artifacts\\multi_anchor\\multi_anchor.db",
+  "wall_clock_seconds": 250.4,
+  "dataset_read_seconds": 4493.3,
+  "dataset_read": {
+    "simulator_run_id": "sim_42_2b55f523ad",
+    "window": {
+      "first_event": "2026-07-29T00:00:00+00:00",
+      "last_event": "2026-08-27T02:45:47.195508+00:00"
+    },
+    "detection_passes_scheduled": 116,
+    "ground_truth_incidents": [
+      {
+        "entity_id": "inc_sim_42_2b55f523ad_00",
+        "kind": "gateway_degradation",
+        "params": {
+          "fail_boost": 0.35,
+          "latency_multiplier": 2.5
+        },
+        "start_utc": "2026-08-03T08:30:00+00:00",
+        "end_utc": "2026-08-03T10:00:00+00:00",
+        "ist_weekday_at_start": "Mon",
+        "duration_hours": 1.5,
+        "recoverable": false,
+        "affected_count": 75,
+        "injected_failures": 18,
+        "injected_abandonments": 0,
+        "latency_affected": 75,
+        "affected_amount_paise": 4611000,
+        "pass_phase_minutes": 210.0
+      },
+      {
+        "entity_id": "inc_sim_42_2b55f523ad_01",
+        "kind": "method_outage",
+        "params": {
+          "method": "upi",
+          "fail_boost": 0.8
+        },
+        "start_utc": "2026-08-08T14:30:00+00:00",
+        "end_utc": "2026-08-08T16:30:00+00:00",
+        "ist_weekday_at_start": "Sat",
+        "duration_hours": 2.0,
+        "recoverable": true,
+        "affected_count": 60,
+        "injected_failures": 60,
+        "injected_abandonments": 0,
+        "latency_affected": 0,
+        "affected_amount_paise": 3970700,
+        "pass_phase_minutes": 210.0
+      },
+      {
+        "entity_id": "inc_sim_42_2b55f523ad_02",
+        "kind": "route_latency",
+        "params": {
+          "route": "pg_primary",
+          "latency_multiplier": 8.0,
+          "fail_boost": 0.06
+        },
+        "start_utc": "2026-08-14T03:30:00+00:00",
+        "end_utc": "2026-08-14T05:30:00+00:00",
+        "ist_weekday_at_start": "Fri",
+        "duration_hours": 2.0,
+        "recoverable": false,
+        "affected_count": 71,
+        "injected_failures": 2,
+        "injected_abandonments": 0,
+        "latency_affected": 71,
+        "affected_amount_paise": 3984500,
+        "pass_phase_minutes": 150.0
+      },
+      {
+        "entity_id": "inc_sim_42_2b55f523ad_03",
+        "kind": "customer_insufficient_funds_wave",
+        "params": {
+          "fail_boost": 0.3
+        },
+        "start_utc": "2026-08-17T18:30:00+00:00",
+        "end_utc": "2026-08-18T14:30:00+00:00",
+        "ist_weekday_at_start": "Tue",
+        "duration_hours": 20.0,
+        "recoverable": true,
+        "affected_count": 137,
+        "injected_failures": 137,
+        "injected_abandonments": 0,
+        "latency_affected": 0,
+        "affected_amount_paise": 11947100,
+        "pass_phase_minutes": 330.0
+      },
+      {
+        "entity_id": "inc_sim_42_2b55f523ad_04",
+        "kind": "checkout_abandonment_spike",
+        "params": {
+          "abandon_boost": 0.45
+        },
+        "start_utc": "2026-08-22T12:30:00+00:00",
+        "end_utc": "2026-08-22T15:00:00+00:00",
+        "ist_weekday_at_start": "Sat",
+        "duration_hours": 2.5,
+        "recoverable": true,
+        "affected_count": 102,
+        "injected_failures": 0,
+        "injected_abandonments": 102,
+        "latency_affected": 0,
+        "affected_amount_paise": 6136800,
+        "pass_phase_minutes": 330.0
+      },
+      {
+        "entity_id": "inc_sim_42_2b55f523ad_05",
+        "kind": "subscription_failure_spike",
+        "params": {
+          "fail_boost": 0.55
+        },
+        "start_utc": "2026-08-23T22:30:00+00:00",
+        "end_utc": "2026-08-25T22:30:00+00:00",
+        "ist_weekday_at_start": "Mon",
+        "duration_hours": 48.0,
+        "recoverable": true,
+        "affected_count": 5,
+        "injected_failures": 5,
+        "injected_abandonments": 0,
+        "latency_affected": 0,
+        "affected_amount_paise": 219500,
+        "pass_phase_minutes": 90.0
+      }
+    ],
+    "traffic": {
+      "payment_events": 68410,
+      "payments_total": 30826,
+      "payments_by_status": {
+        "captured": 24640,
+        "created": 1289,
+        "failed": 4897
+      },
+      "payments_by_method": {
+        "card": 9932,
+        "netbanking": 4044,
+        "upi": 14442,
+        "wallet": 2408
+      },
+      "failed_payments": 4897,
+      "failed_amount_paise": 364686600,
+      "failed_by_class": {
+        "abandonment": 592,
+        "hard_decline": 421,
+        "insufficient_funds": 1063,
+        "soft_decline": 1836,
+        "timeout": 985
+      },
+      "failed_amount_by_class": {
+        "abandonment": 46318300,
+        "hard_decline": 27293100,
+        "insufficient_funds": 75946400,
+        "soft_decline": 142359300,
+        "timeout": 72769500
+      },
+      "weekend_payment_share": 0.2982,
+      "ist_days": {
+        "2026-07-29": {
+          "weekday": "Wed",
+          "payments": 971
+        },
+        "2026-07-30": {
+          "weekday": "Thu",
+          "payments": 1098
+        },
+        "2026-07-31": {
+          "weekday": "Fri",
+          "payments": 1053
+        },
+        "2026-08-01": {
+          "weekday": "Sat",
+          "payments": 1381
+        },
+        "2026-08-02": {
+          "weekday": "Sun",
+          "payments": 1053
+        },
+        "2026-08-03": {
+          "weekday": "Mon",
+          "payments": 952
+        },
+        "2026-08-04": {
+          "weekday": "Tue",
+          "payments": 1059
+        },
+        "2026-08-05": {
+          "weekday": "Wed",
+          "payments": 1065
+        },
+        "2026-08-06": {
+          "weekday": "Thu",
+          "payments": 1121
+        },
+        "2026-08-07": {
+          "weekday": "Fri",
+          "payments": 1145
+        },
+        "2026-08-08": {
+          "weekday": "Sat",
+          "payments": 1106
+        },
+        "2026-08-09": {
+          "weekday": "Sun",
+          "payments": 1065
+        },
+        "2026-08-10": {
+          "weekday": "Mon",
+          "payments": 934
+        },
+        "2026-08-11": {
+          "weekday": "Tue",
+          "payments": 966
+        },
+        "2026-08-12": {
+          "weekday": "Wed",
+          "payments": 996
+        },
+        "2026-08-13": {
+          "weekday": "Thu",
+          "payments": 994
+        },
+        "2026-08-14": {
+          "weekday": "Fri",
+          "payments": 985
+        },
+        "2026-08-15": {
+          "weekday": "Sat",
+          "payments": 1157
+        },
+        "2026-08-16": {
+          "weekday": "Sun",
+          "payments": 1106
+        },
+        "2026-08-17": {
+          "weekday": "Mon",
+          "payments": 945
+        },
+        "2026-08-18": {
+          "weekday": "Tue",
+          "payments": 991
+        },
+        "2026-08-19": {
+          "weekday": "Wed",
+          "payments": 1076
+        },
+        "2026-08-20": {
+          "weekday": "Thu",
+          "payments": 912
+        },
+        "2026-08-21": {
+          "weekday": "Fri",
+          "payments": 1193
+        },
+        "2026-08-22": {
+          "weekday": "Sat",
+          "payments": 1190
+        },
+        "2026-08-23": {
+          "weekday": "Sun",
+          "payments": 1133
+        },
+        "2026-08-24": {
+          "weekday": "Mon",
+          "payments": 992
+        },
+        "2026-08-25": {
+          "weekday": "Tue",
+          "payments": 1066
+        },
+        "2026-08-26": {
+          "weekday": "Wed",
+          "payments": 1110
+        },
+        "2026-08-27": {
+          "weekday": "Thu",
+          "payments": 11
+        }
+      }
+    }
+  },
+  "metrics": {
+    "arms": {
+      "baseline": {
+        "simulator_run_id": "sim_42_2b55f523ad",
+        "failed_payments_count": 4897,
+        "failed_amount_paise": 364686600,
+        "interventions_count": 4897,
+        "ungated_actions_count": 4897,
+        "false_interventions_count": 421,
+        "false_intervention_amount_paise": 27293100,
+        "recovered_revenue_paise": 92398100,
+        "recovery_rate": 0.253363
+      },
+      "pulsecover": {
+        "simulator_run_id": "sim_42_2b55f523ad",
+        "ground_truth_incidents": 6,
+        "detection": {
+          "passes": 116,
+          "incidents": 12,
+          "matched_incidents": 4,
+          "matched_ground_truth": 4,
+          "precision": 0.333333,
+          "recall": 0.666667,
+          "f1": 0.444444,
+          "mttd_minutes": 230.0
+        },
+        "diagnosis": {
+          "scored_incidents": 4,
+          "top1_accuracy": 1.0,
+          "top3_accuracy": 1.0,
+          "per_incident": [
+            {
+              "incident_id": "inc_d3t0000000000000000000000000001b",
+              "truth": "gateway_degradation",
+              "predicted": "gateway_degradation",
+              "confidence": 0.47965029754434385,
+              "top3": [
+                "gateway_degradation",
+                "no_fault",
+                "subscription_failure_spike"
+              ],
+              "correct": true
+            },
+            {
+              "incident_id": "inc_d3t00000000000000000000000000038",
+              "truth": "method_outage",
+              "predicted": "method_outage",
+              "confidence": 0.9817141928274319,
+              "top3": [
+                "method_outage",
+                "customer_insufficient_funds_wave",
+                "no_fault"
+              ],
+              "correct": true
+            },
+            {
+              "incident_id": "inc_d3t0000000000000000000000000005b",
+              "truth": "route_latency",
+              "predicted": "route_latency",
+              "confidence": 0.6016169355056821,
+              "top3": [
+                "route_latency",
+                "no_fault",
+                "subscription_failure_spike"
+              ],
+              "correct": true
+            },
+            {
+              "incident_id": "inc_d3t0000000000000000000000000008b",
+              "truth": "abandonment_spike",
+              "predicted": "abandonment_spike",
+              "confidence": 0.7639152548558948,
+              "top3": [
+                "abandonment_spike",
+                "subscription_failure_spike",
+                "no_fault"
+              ],
+              "correct": true
+            }
+          ]
+        },
+        "opportunities_count": 1457,
+        "actions_count": 1457,
+        "interventions_count": 100,
+        "interventions_by_type": {
+          "create_payment_link": 8,
+          "retry_payment": 92
+        },
+        "policy_outcomes": {
+          "REQUIRES_APPROVAL": 94,
+          "BLOCKED": 1357,
+          "ALLOWED": 6
+        },
+        "approvals_required": 94,
+        "recovered_revenue_paise": 3670700,
+        "recovered_actions_count": 38,
+        "unknown_actions_count": 0,
+        "unsafe_action_count": 0,
+        "false_interventions_count": 8,
+        "false_intervention_amount_paise": 325000,
+        "false_action_rate": 0.08,
+        "mttr_minutes": 0.0012,
+        "failed_payments_count": 4897,
+        "failed_amount_paise": 364686600,
+        "holdout": {
+          "configured_fraction": 0.1,
+          "realized_fraction": 0.1012,
+          "seed": 42,
+          "assignment": "customer-level; sha256('holdout:{seed}:{customer_id}') first 8 bytes / 2^64 < fraction \u2014 deterministic per run seed",
+          "estimand": "incremental lift = recovery_rate(treatment) - recovery_rate(holdout); denominators are ALL first-attempt failed payments per group; recovery = gateway/webhook-verified captures only; both groups share the organic no_action baseline",
+          "attribution_window": {
+            "start": "each payment's failure timestamp (created_at)",
+            "end": "scenario-end anchor (latest terminal simulator event)",
+            "max_window_hours": 698.1
+          },
+          "ci_method": "newcombe_hybrid_score_wilson_95",
+          "customers": {
+            "treatment": 1660,
+            "holdout": 187
+          },
+          "treatment": {
+            "failed_payments": 4355,
+            "failed_amount_paise": 322130900,
+            "recovered_payments": 628,
+            "recovered_amount_paise": 47161000,
+            "recovery_rate": 0.144202,
+            "recovery_rate_amount": 0.146403,
+            "median_time_to_recover_minutes": 4632.56,
+            "recovered_via_action": 38,
+            "recovered_organic": 590
+          },
+          "holdout": {
+            "failed_payments": 542,
+            "failed_amount_paise": 42555700,
+            "recovered_payments": 66,
+            "recovered_amount_paise": 5627800,
+            "recovery_rate": 0.121771,
+            "recovery_rate_amount": 0.132246,
+            "median_time_to_recover_minutes": 4542.81
+          },
+          "lift": {
+            "point": 0.022431,
+            "ci95_low": -0.009443,
+            "ci95_high": 0.049552
+          },
+          "lift_class_adjusted": {
+            "point": 0.015071,
+            "ci95_low": -0.014949,
+            "ci95_high": 0.04509,
+            "method": "pooled-weight post-stratification over failure-class strata; normal-approximation CI"
+          },
+          "strata": {
+            "by_failure_class": [
+              {
+                "stratum": "soft_decline",
+                "treatment": {
+                  "failed_payments": 1641,
+                  "recovered_payments": 287,
+                  "recovery_rate": 0.174893
+                },
+                "holdout": {
+                  "failed_payments": 195,
+                  "recovered_payments": 31,
+                  "recovery_rate": 0.158974
+                },
+                "lift": {
+                  "point": 0.015919,
+                  "ci95_low": -0.044541,
+                  "ci95_high": 0.064505
+                }
+              },
+              {
+                "stratum": "insufficient_funds",
+                "treatment": {
+                  "failed_payments": 948,
+                  "recovered_payments": 72,
+                  "recovery_rate": 0.075949
+                },
+                "holdout": {
+                  "failed_payments": 115,
+                  "recovered_payments": 8,
+                  "recovery_rate": 0.069565
+                },
+                "lift": {
+                  "point": 0.006384,
+                  "ci95_low": -0.057185,
+                  "ci95_high": 0.045062
+                }
+              },
+              {
+                "stratum": "timeout",
+                "treatment": {
+                  "failed_payments": 889,
+                  "recovered_payments": 232,
+                  "recovery_rate": 0.260967
+                },
+                "holdout": {
+                  "failed_payments": 96,
+                  "recovered_payments": 22,
+                  "recovery_rate": 0.229167
+                },
+                "lift": {
+                  "point": 0.031801,
+                  "ci95_low": -0.065761,
+                  "ci95_high": 0.110371
+                }
+              },
+              {
+                "stratum": "abandonment",
+                "treatment": {
+                  "failed_payments": 509,
+                  "recovered_payments": 32,
+                  "recovery_rate": 0.062868
+                },
+                "holdout": {
+                  "failed_payments": 83,
+                  "recovered_payments": 4,
+                  "recovery_rate": 0.048193
+                },
+                "lift": {
+                  "point": 0.014676,
+                  "ci95_low": -0.056887,
+                  "ci95_high": 0.052887
+                }
+              },
+              {
+                "stratum": "hard_decline",
+                "treatment": {
+                  "failed_payments": 368,
+                  "recovered_payments": 5,
+                  "recovery_rate": 0.013587
+                },
+                "holdout": {
+                  "failed_payments": 53,
+                  "recovered_payments": 1,
+                  "recovery_rate": 0.018868
+                },
+                "lift": {
+                  "point": -0.005281,
+                  "ci95_low": -0.086216,
+                  "ci95_high": 0.018356
+                }
+              }
+            ],
+            "by_method": [
+              {
+                "stratum": "upi",
+                "treatment": {
+                  "failed_payments": 2162,
+                  "recovered_payments": 361,
+                  "recovery_rate": 0.166975
+                },
+                "holdout": {
+                  "failed_payments": 272,
+                  "recovered_payments": 32,
+                  "recovery_rate": 0.117647
+                },
+                "lift": {
+                  "point": 0.049328,
+                  "ci95_low": 0.003067,
+                  "ci95_high": 0.086199
+                }
+              },
+              {
+                "stratum": "card",
+                "treatment": {
+                  "failed_payments": 1326,
+                  "recovered_payments": 149,
+                  "recovery_rate": 0.112368
+                },
+                "holdout": {
+                  "failed_payments": 162,
+                  "recovered_payments": 18,
+                  "recovery_rate": 0.111111
+                },
+                "lift": {
+                  "point": 0.001257,
+                  "ci95_low": -0.058571,
+                  "ci95_high": 0.044868
+                }
+              },
+              {
+                "stratum": "netbanking",
+                "treatment": {
+                  "failed_payments": 681,
+                  "recovered_payments": 99,
+                  "recovery_rate": 0.145374
+                },
+                "holdout": {
+                  "failed_payments": 93,
+                  "recovered_payments": 14,
+                  "recovery_rate": 0.150538
+                },
+                "lift": {
+                  "point": -0.005163,
+                  "ci95_low": -0.094985,
+                  "ci95_high": 0.06007
+                }
+              },
+              {
+                "stratum": "wallet",
+                "treatment": {
+                  "failed_payments": 186,
+                  "recovered_payments": 19,
+                  "recovery_rate": 0.102151
+                },
+                "holdout": {
+                  "failed_payments": 15,
+                  "recovered_payments": 2,
+                  "recovery_rate": 0.133333
+                },
+                "lift": {
+                  "point": -0.031183,
+                  "ci95_low": -0.279262,
+                  "ci95_high": 0.077912
+                }
+              }
+            ]
+          },
+          "isolation": {
+            "holdout_opportunities_count": 0,
+            "holdout_actions_count": 0
+          },
+          "notes": [
+            "Held-out customers still get detection + diagnosis; only the recovery loop (opportunities, actions, gateway calls) is withheld \u2014 a no-action control, not a blind spot.",
+            "Both groups share the organic no_action baseline (the same documented prior family as the action conversion table): failures the loop never executed an action against self-resolve with the no_action probability, captured through the real signed-webhook path in both groups.",
+            "Payments with an executed action resolve on the action's own conversion draw only \u2014 no second organic draw.",
+            "Self-resolution lags sampled past the scenario-end anchor are right-censored (counted as not recovered).",
+            "Sim-time action time-to-recovery is a batch artifact: the harness executes all actions at the scenario end. The operational latency measure is wall-clock MTTR.",
+            "lift_class_adjusted removes chance failure-class imbalance between the randomized groups (pooled-weight post-stratification on the pre-registered stratification factor); the raw ITT contrast above stays primary."
+          ]
+        },
+        "recovery_rate": 0.010065
+      }
+    },
+    "comparison": {
+      "recovered_revenue_delta_paise": -88727400,
+      "recovered_revenue_ratio": 0.0397,
+      "recovery_rate_delta": -0.243298,
+      "interventions_baseline": 4897,
+      "interventions_pulserecover": 100,
+      "intervention_reduction": 0.9796,
+      "false_interventions_baseline": 421,
+      "false_interventions_pulserecover": 8
+    },
+    "detection_precision": 0.333333,
+    "detection_recall": 0.666667,
+    "detection_f1": 0.444444,
+    "mean_time_to_detect_minutes": 230.0,
+    "diagnosis_top1_accuracy": 1.0,
+    "diagnosis_top3_accuracy": 1.0,
+    "recovery_rate": 0.010065,
+    "recovered_revenue_paise": 3670700,
+    "mean_time_to_recover_minutes": 0.0012,
+    "false_action_rate": 0.08,
+    "unsafe_action_count": 0,
+    "baseline_recovery_rate": 0.253363,
+    "baseline_recovered_revenue_paise": 92398100,
+    "holdout": {
+      "configured_fraction": 0.1,
+      "realized_fraction": 0.1012,
+      "seed": 42,
+      "assignment": "customer-level; sha256('holdout:{seed}:{customer_id}') first 8 bytes / 2^64 < fraction \u2014 deterministic per run seed",
+      "estimand": "incremental lift = recovery_rate(treatment) - recovery_rate(holdout); denominators are ALL first-attempt failed payments per group; recovery = gateway/webhook-verified captures only; both groups share the organic no_action baseline",
+      "attribution_window": {
+        "start": "each payment's failure timestamp (created_at)",
+        "end": "scenario-end anchor (latest terminal simulator event)",
+        "max_window_hours": 698.1
+      },
+      "ci_method": "newcombe_hybrid_score_wilson_95",
+      "customers": {
+        "treatment": 1660,
+        "holdout": 187
+      },
+      "treatment": {
+        "failed_payments": 4355,
+        "failed_amount_paise": 322130900,
+        "recovered_payments": 628,
+        "recovered_amount_paise": 47161000,
+        "recovery_rate": 0.144202,
+        "recovery_rate_amount": 0.146403,
+        "median_time_to_recover_minutes": 4632.56,
+        "recovered_via_action": 38,
+        "recovered_organic": 590
+      },
+      "holdout": {
+        "failed_payments": 542,
+        "failed_amount_paise": 42555700,
+        "recovered_payments": 66,
+        "recovered_amount_paise": 5627800,
+        "recovery_rate": 0.121771,
+        "recovery_rate_amount": 0.132246,
+        "median_time_to_recover_minutes": 4542.81
+      },
+      "lift": {
+        "point": 0.022431,
+        "ci95_low": -0.009443,
+        "ci95_high": 0.049552
+      },
+      "lift_class_adjusted": {
+        "point": 0.015071,
+        "ci95_low": -0.014949,
+        "ci95_high": 0.04509,
+        "method": "pooled-weight post-stratification over failure-class strata; normal-approximation CI"
+      },
+      "strata": {
+        "by_failure_class": [
+          {
+            "stratum": "soft_decline",
+            "treatment": {
+              "failed_payments": 1641,
+              "recovered_payments": 287,
+              "recovery_rate": 0.174893
+            },
+            "holdout": {
+              "failed_payments": 195,
+              "recovered_payments": 31,
+              "recovery_rate": 0.158974
+            },
+            "lift": {
+              "point": 0.015919,
+              "ci95_low": -0.044541,
+              "ci95_high": 0.064505
+            }
+          },
+          {
+            "stratum": "insufficient_funds",
+            "treatment": {
+              "failed_payments": 948,
+              "recovered_payments": 72,
+              "recovery_rate": 0.075949
+            },
+            "holdout": {
+              "failed_payments": 115,
+              "recovered_payments": 8,
+              "recovery_rate": 0.069565
+            },
+            "lift": {
+              "point": 0.006384,
+              "ci95_low": -0.057185,
+              "ci95_high": 0.045062
+            }
+          },
+          {
+            "stratum": "timeout",
+            "treatment": {
+              "failed_payments": 889,
+              "recovered_payments": 232,
+              "recovery_rate": 0.260967
+            },
+            "holdout": {
+              "failed_payments": 96,
+              "recovered_payments": 22,
+              "recovery_rate": 0.229167
+            },
+            "lift": {
+              "point": 0.031801,
+              "ci95_low": -0.065761,
+              "ci95_high": 0.110371
+            }
+          },
+          {
+            "stratum": "abandonment",
+            "treatment": {
+              "failed_payments": 509,
+              "recovered_payments": 32,
+              "recovery_rate": 0.062868
+            },
+            "holdout": {
+              "failed_payments": 83,
+              "recovered_payments": 4,
+              "recovery_rate": 0.048193
+            },
+            "lift": {
+              "point": 0.014676,
+              "ci95_low": -0.056887,
+              "ci95_high": 0.052887
+            }
+          },
+          {
+            "stratum": "hard_decline",
+            "treatment": {
+              "failed_payments": 368,
+              "recovered_payments": 5,
+              "recovery_rate": 0.013587
+            },
+            "holdout": {
+              "failed_payments": 53,
+              "recovered_payments": 1,
+              "recovery_rate": 0.018868
+            },
+            "lift": {
+              "point": -0.005281,
+              "ci95_low": -0.086216,
+              "ci95_high": 0.018356
+            }
+          }
+        ],
+        "by_method": [
+          {
+            "stratum": "upi",
+            "treatment": {
+              "failed_payments": 2162,
+              "recovered_payments": 361,
+              "recovery_rate": 0.166975
+            },
+            "holdout": {
+              "failed_payments": 272,
+              "recovered_payments": 32,
+              "recovery_rate": 0.117647
+            },
+            "lift": {
+              "point": 0.049328,
+              "ci95_low": 0.003067,
+              "ci95_high": 0.086199
+            }
+          },
+          {
+            "stratum": "card",
+            "treatment": {
+              "failed_payments": 1326,
+              "recovered_payments": 149,
+              "recovery_rate": 0.112368
+            },
+            "holdout": {
+              "failed_payments": 162,
+              "recovered_payments": 18,
+              "recovery_rate": 0.111111
+            },
+            "lift": {
+              "point": 0.001257,
+              "ci95_low": -0.058571,
+              "ci95_high": 0.044868
+            }
+          },
+          {
+            "stratum": "netbanking",
+            "treatment": {
+              "failed_payments": 681,
+              "recovered_payments": 99,
+              "recovery_rate": 0.145374
+            },
+            "holdout": {
+              "failed_payments": 93,
+              "recovered_payments": 14,
+              "recovery_rate": 0.150538
+            },
+            "lift": {
+              "point": -0.005163,
+              "ci95_low": -0.094985,
+              "ci95_high": 0.06007
+            }
+          },
+          {
+            "stratum": "wallet",
+            "treatment": {
+              "failed_payments": 186,
+              "recovered_payments": 19,
+              "recovery_rate": 0.102151
+            },
+            "holdout": {
+              "failed_payments": 15,
+              "recovered_payments": 2,
+              "recovery_rate": 0.133333
+            },
+            "lift": {
+              "point": -0.031183,
+              "ci95_low": -0.279262,
+              "ci95_high": 0.077912
+            }
+          }
+        ]
+      },
+      "isolation": {
+        "holdout_opportunities_count": 0,
+        "holdout_actions_count": 0
+      },
+      "notes": [
+        "Held-out customers still get detection + diagnosis; only the recovery loop (opportunities, actions, gateway calls) is withheld \u2014 a no-action control, not a blind spot.",
+        "Both groups share the organic no_action baseline (the same documented prior family as the action conversion table): failures the loop never executed an action against self-resolve with the no_action probability, captured through the real signed-webhook path in both groups.",
+        "Payments with an executed action resolve on the action's own conversion draw only \u2014 no second organic draw.",
+        "Self-resolution lags sampled past the scenario-end anchor are right-censored (counted as not recovered).",
+        "Sim-time action time-to-recovery is a batch artifact: the harness executes all actions at the scenario end. The operational latency measure is wall-clock MTTR.",
+        "lift_class_adjusted removes chance failure-class imbalance between the randomized groups (pooled-weight post-stratification on the pre-registered stratification factor); the raw ITT contrast above stays primary."
+      ]
+    },
+    "incremental_lift": 0.022431,
+    "incremental_lift_ci95_low": -0.009443,
+    "incremental_lift_ci95_high": 0.049552,
+    "treatment_recovery_rate": 0.144202,
+    "holdout_recovery_rate": 0.121771,
+    "dataset": {
+      "scenario": "standard",
+      "seed": 42,
+      "simulator_run_id": "sim_42_2b55f523ad",
+      "end_date": "2026-08-28T00:00:00+00:00",
+      "anchor": "2026-08-28T00:00:00+00:00",
+      "dataset_version": "sim_42_2b55f523ad@2026-08-28"
+    },
+    "versions": {
+      "diagnosis_artifact": "random_forest v20260828T013109Z-77a4ef3b",
+      "policy": "1.0+sha256.5a6afe61d6db"
+    }
+  },
+  "headline": {
+    "detection_passes": 116,
+    "detection_incidents": 12,
+    "detection_precision": 0.333333,
+    "detection_recall": 0.666667,
+    "detection_f1": 0.444444,
+    "mttd_minutes": 230.0,
+    "matched_ground_truth": 4,
+    "unmatched_incident_rows": 8,
+    "matched_kinds": [
+      "checkout_abandonment_spike",
+      "gateway_degradation",
+      "method_outage",
+      "route_latency"
+    ],
+    "diagnosis_top1": 1.0,
+    "diagnosis_top3": 1.0,
+    "diagnosis_scored": 4,
+    "opportunities_count": 1457,
+    "interventions": 100,
+    "approvals_required": 94,
+    "false_interventions": 8,
+    "baseline_interventions": 4897,
+    "baseline_false_interventions": 421,
+    "unsafe_action_count": 0,
+    "recovered_revenue_paise": 3670700,
+    "baseline_recovered_revenue_paise": 92398100,
+    "failed_payments_count": 4897,
+    "failed_amount_paise": 364686600,
+    "holdout_realized_fraction": 0.1012,
+    "treatment_recovery_rate": 0.144202,
+    "holdout_recovery_rate": 0.121771,
+    "raw_lift": 0.022431,
+    "raw_lift_ci95": [
+      -0.009443,
+      0.049552
+    ],
+    "adj_lift": 0.015071,
+    "adj_lift_ci95": [
+      -0.014949,
+      0.04509
+    ]
+  }
+}
