@@ -156,7 +156,7 @@ every *number* is identical.)
 
 | Scenario | Proves |
 |---|---|
-| **A** — Major degradation | Full closed loop on a 2.5h gateway degradation over ~144k events: detection, ML diagnosis, 1,715 opportunities, one approval-lane recovery + two auto-executions, all webhook-verified |
+| **A** — Major degradation | Full closed loop on a 2.5h gateway degradation over ~144k events: detection, ML diagnosis, 2,023 opportunities, one approval-lane recovery + two auto-executions, all webhook-verified |
 | **B** — Safe autonomous recovery | ₹501 timeout retry, confidence 0.98 ≥ 0.85 floor → `auto_execute.ok`, fired with no human in the loop, webhook-verified |
 | **C** — Human approval lane | ₹10,143 retry → `REQUIRES_APPROVAL` (`approval.amount`), sits in `PENDING_APPROVAL` until `human:ops` approves, then executes once |
 | **D** — Gateway timeout | Mutating call 503s → action `UNKNOWN`, **no blind retry**; re-execute is a GET-only re-query (1 mutation total); resolves to `RECOVERED` on gateway evidence |
@@ -168,9 +168,9 @@ Real output (verbatim, scenario A — ids projected out):
 [DETECT] POST /api/v1/detection/run - metric=payment_success_rate, window=240m, bucket=10m, anchored 2026-08-15 11:25 UTC
         anomaly -> incident inc_...: success rate 82.9% -> 69.0% (-16.69%), severity=MEDIUM
         blast radius: 1359 failed payments, Rs 10,36,582 at risk
-[DIAGNOSE] ML root-cause: gateway_degradation (confidence 0.8997, model diagnosis-logistic_regression@v20260826T234303Z-c5434878)
-[QUANTIFY] POST /api/v1/recovery/opportunities/build -> 1715 per-payment opportunities (Rs 13,02,241 of failed payments in scope)
-[POLICY] gate: REQUIRES_APPROVAL (rules: approval.amount, approval.confidence) - Rs 8,047 is above the Rs 5,000 auto-execute ceiling; routing to a human
+[DIAGNOSE] ML root-cause: gateway_degradation (confidence 0.9740, model diagnosis-random_forest@v20260828T013109Z-77a4ef3b)
+[QUANTIFY] POST /api/v1/recovery/opportunities/build -> 2023 per-payment opportunities (Rs 15,25,844 of failed payments in scope)
+[POLICY] gate: REQUIRES_APPROVAL (rules: approval.amount) - Rs 8,047 is above the Rs 5,000 auto-execute ceiling; routing to a human
 [VERIFY] webhook payment.captured (HMAC signature valid, event id deduped) -> action RECOVERED - Rs 8,047 recovered
 [POLICY] gate: ALLOWED (rules: auto_execute.ok) - auto-execute lane (<= Rs 5,000, confidence >= 0.85)
 [VERIFY] webhook payment.captured ... -> action RECOVERED - Rs 504 / Rs 509 recovered
@@ -226,8 +226,12 @@ forest, gradient boosting — selected on **validation macro-F1**, ties to the
 simpler model; headline numbers computed once on the untouched test block.
 
 **Final numbers** (held-out test block; trained on 2,050 labeled windows
-exported from 60 simulator seeds; active artifact
-`diagnosis_logistic_regression_v20260826T234303Z-c5434878`):
+exported from 60 simulator seeds — the model-selection study below; the
+**active artifact is now the exp07 random forest**
+`diagnosis_random_forest_v20260828T013109Z-77a4ef3b`, shipped through the
+pre-registered exp06 gate — span top-1 0.910 vs the LR's 0.878, unsafe-side
+error 0.567 → 0.093 — with the LR kept as rollback; see
+[docs/ml.md](docs/ml.md) §10):
 
 | Model | Val macro-F1 | Test macro-F1 | Test top-1 | Test top-3 |
 |---|---:|---:|---:|---:|
@@ -255,72 +259,80 @@ no policy, no verification) vs **PULSECOVER** (the real product loop,
 unchanged). All harness roles (the approving operator, the customer
 conversion table) are deterministic and disclosed in the doc.
 
-Reproduced results — scenario `standard`, seed 42 (30 days, 68,993 payment
-events, 4,918 failed payments, 6 injected incidents; runs stored and
-browsable in the Evaluation Lab). Detection/diagnosis: detection-v2 run
-`run_0022000d…`. Arm/holdout analysis: run
-`run_caa1f1a90ef243d08860679b6631fe6d` (detection v1 — see the note after
-the recovery table for what detection v2 changes):
+Reproduced results — scenario `standard`, seed 42 (30 days anchored to
+2026-08-28 00:00 UTC, 68,410 simulator payment_events, 4,897 failed
+payments, 6 injected incidents; canonical run `run_b371e5b4…`, stored and
+browsable in the Evaluation Lab — version history with the two previous
+published runs in [docs/evaluation.md](docs/evaluation.md) §3b). Note: the
+simulator anchors an unset `end_date` to *today* 00:00 UTC, so the same
+seed reproduces this run bit-for-bit on the same calendar day, and the
+same experiment on a one-day-shifted window on a later day (disclosed,
+with both anchors stated, in the doc).
 
 **Detection** (scheduled 12h/6h passes, production defaults, detection v2):
-precision **0.778**, recall **1.000** (6/6 injected incidents found), F1
-0.875, MTTD **585 min**. Two evidence-gated redesigns got here
-([docs/detection.md](docs/detection.md), `ml/experiments/detection/`): noise
-floors + episode dedup (precision 0.156→0.667, rows 90→6), then three new
-signals — per-route latency scan, `checkout_abandonment_rate`,
-`insufficient_fund_share` — which closed all three former blind spots while
-*raising* precision to 0.778 and adding zero quiet-control false positives.
+precision **0.333**, recall **0.667** (4/6 injected incidents found), F1
+0.444, MTTD **230 min**. The same engine scored 0.778 / 1.000 (6/6) on the
+2026-08-27 anchor — the swing is window sensitivity, not a code change,
+and both readings are published. The evidence-gated redesign behind v2
+(noise floors + episode dedup, then three recall signals —
+0.156→0.667→0.778 precision on the 08-27 anchor with zero quiet-control
+false positives) is in [docs/detection.md](docs/detection.md) and
+`ml/experiments/detection/`.
 
-**Diagnosis on detection windows:** top-1 0.667 / top-3 0.667 — diluted
-12h scheduled-pass windows blur weak incidents; the same model is 6/6 on
-exact incident spans.
+**Diagnosis on detection windows:** top-1 **1.000** / top-3 **1.000** — 4
+matched windows, all correct with the exp07 random-forest artifact. The
+two incidents the previous artifact misread are undetected (and therefore
+unscored) on this window, so the model-choice case rests on the
+pre-registered exp06 gate, not on this table
+([docs/ml.md](docs/ml.md) §10).
 
 **Recovery** (verified = webhook/inline-confirmed `RECOVERED` only; both arms
 flow through the real signed-webhook path):
 
 | Metric | BASELINE (retry everything) | PULSECOVER |
 |---|---:|---:|
-| Interventions (actions reaching the gateway) | 4,918 | **60** (98.8% fewer) |
-| Recovered revenue (gross, verified) | 99,025,100 paise (27.2%) | 1,380,700 paise (16 actions) |
-| False interventions (never-approve resubmissions) | **432** | **5** |
-| Unsafe actions (no gate, no approval) | 4,918 ungated | **0** |
-| Human approvals required | 0 | 58 |
+| Interventions (actions reaching the gateway) | 4,897 | **100** (98.0% fewer) |
+| Recovered revenue (gross, verified) | 95,016,400 paise (26.1%) | 2,521,400 paise (28 actions) |
+| False interventions (never-approve resubmissions) | **421** | **6** |
+| Unsafe actions (no gate, no approval) | 4,897 ungated | **0** |
+| Human approvals required | 0 | 94 |
 
-*Detection-v2 run (`run_0022000d…`, same dataset/seed): recovered revenue
-rises to **2,452,900 paise (+77.7%)** across 90 interventions with 7 false
-interventions and **0 unsafe** — newly detected incidents surface ₹173,659 of
-additional revenue at risk. The arm-shape story (98.8% fewer interventions)
-is unchanged.*
+*1,472 opportunities built — 1,116 failed-payment + **356 stuck-checkout**
+(the new loop: payments stranded in `created` > 30 min, ₹254,080 of
+abandoned checkouts surfaced). The gate's rate brakes (10 per incident,
+100 per hour globally — hit exactly) held volume at 100 executed actions
+and blocked all 356 stuck-checkout proposals: the deterministic gate
+absorbing a volume spike as configured. The stuck-checkout lane itself is
+proven end-to-end in `tests/recovery/test_stuck_checkout.py`.*
 
-**Incremental lift (randomized holdout, pre-registered estimand):** 8.85% of
-customers (165/1,865) were deterministically held out of all PulseRecover
-actions. Treatment recovered 14.38% of first-attempt failures (639/4,445) vs
-holdout 18.18% (86/473): raw ITT lift **−3.8pp [−7.7, −0.4]** (Newcombe 95%
-CI), class-adjusted **−2.7pp [−6.1, +0.7]**. Meanwhile **executed actions
-convert at 26.7% vs ~14.4% organic** — the intervention works where it
-fires; the fleet-level effect is underpowered because the policy envelope
-permits only ~1.3% action coverage (60 actions across 4,445 failures;
-expected fleet effect +0.2–0.4pp vs ±1.9pp of sampling noise). That is the
-Lewis & Rao measurement-power problem, reported instead of hidden — full
-analysis in [docs/evaluation.md](docs/evaluation.md).
+**Incremental lift (randomized holdout, pre-registered estimand):** 9.2% of
+customers (170/1,847) were deterministically held out of all PulseRecover
+actions. Treatment recovered 13.79% of first-attempt failures (610/4,424)
+vs holdout 14.80% (70/473): raw ITT lift **−1.0 pp [−4.6, +2.1]**
+(Newcombe 95% CI), class-adjusted **+0.1 pp [−2.9, +3.2]**. Meanwhile
+**executed actions convert at 28.0% vs ~13.3% organic** — the intervention
+works where it fires; the fleet-level effect is underpowered at 2.3%
+action coverage (100 actions over 4,424 treatment failures; expected
+effect ≈ +0.3 pp vs ±1.7 pp of sampling noise). That is the Lewis & Rao
+measurement-power problem, reported instead of hidden — full analysis in
+[docs/evaluation.md](docs/evaluation.md).
 
 **The honest read:** the naive baseline recovers more *gross* revenue by
-construction — it fires at every organic failure too, and 27% of a much
-larger blast radius is a big number. It pays with 82× the interventions, 432
-never-approve resubmissions (network-penalty territory), zero verification,
-and zero auditability. PulseRecover's number is small but *clean*: gated,
-verified, audited, and it never touches a customer it shouldn't. Its gross
-figure also *dropped* versus earlier runs for two honest reasons — the
-detection fix removed noise-window "recovery" no action ever caused, and the
-holdout withholds ~9% of customers by design. Widening recovery volume is a
-policy-file decision (per-incident caps, the global rate brake), not a code
-change.
+construction — it fires at every organic failure too, and 26% of a much
+larger blast radius is a big number. It pays with 49× the interventions,
+421 never-approve resubmissions (network-penalty territory), zero
+verification, and zero auditability. PulseRecover's number is small but
+*clean*: gated, verified, audited, and it never touches a customer it
+shouldn't — including the 356 stuck-checkout proposals it surfaced but
+refused to fire past the rate brakes. Widening recovery volume is a
+policy-file decision (per-incident caps, the global rate brake), not a
+code change.
 
 Reproduce:
 
 ```bash
 cd backend
-.venv/Scripts/python scripts/run_evaluation.py --scenario standard            # full preset incl. holdout arm (~15-20 min)
+.venv/Scripts/python scripts/run_evaluation.py --scenario standard            # full preset incl. holdout arm (~2 min; add --name canonical-v2 for a readable run name)
 .venv/Scripts/python scripts/run_evaluation.py --scenario standard --holdout-fraction 0   # arms only, no holdout
 .venv/Scripts/python scripts/run_evaluation.py --scenario upi_outage_demo --days 5 --events 8000   # faster smoke
 ```
@@ -412,7 +424,7 @@ cp .env.example .env        # defaults: SIMULATION_MODE=true, SQLite, no keys ne
 cd backend
 python -m venv .venv
 .venv/Scripts/python -m pip install -r requirements.txt
-.venv/Scripts/python -m pytest tests -q            # 616 tests
+.venv/Scripts/python -m pytest tests -q            # 645 tests
 .venv/Scripts/python -m uvicorn app.main:app --reload --port 8000
 
 # 2) Seed the simulator (separate shell; ~30 days of synthetic traffic + incidents)
@@ -496,12 +508,14 @@ Stated plainly — each is documented in the linked doc:
 - **Heuristic reasoner is the default.** The AI investigator's narratives are
   deterministic and shallow unless an LLM is configured; even then the LLM is
   advisory-only.
-- **Detection coverage gap.** `route_latency` incidents are essentially
-  invisible to global-metric detection (a single route barely moves
-  merchant-wide p90) — the evaluation's missed incident, not a harness bug.
-- **Diagnosis on scheduled-pass windows is diluted** (top-1 0.60 on 12h
-  detection windows vs 6/6 on exact spans) — argues for a window re-scoping
-  triage step before diagnosis.
+- **Detection is window-sensitive.** The same v2 engine found 6/6 injected
+  incidents (precision 0.778) on the 2026-08-27 evaluation anchor and 4/6
+  (precision 0.333) on the 2026-08-28 anchor — misses and false-positive
+  volume move with the window's traffic (docs/evaluation.md §3/§4).
+- **Diagnosis on scheduled-pass windows is diluted** — top-1 1.000 on the
+  canonical run's 4 matched 12h windows, a small n; the model-quality study
+  on exact spans is the docs/ml.md §10 gate. A window re-scoping triage
+  step before diagnosis remains the follow-up.
 - **Simulator fidelity bounds every number.** Evaluation/ML metrics are
   measured on synthetic data with a documented prior conversion table; real
   Razorpay traffic will be noisier.
@@ -523,11 +537,14 @@ Stated plainly — each is documented in the linked doc:
 ## Future work
 
 - Window re-scoping triage: re-scope the incident window to the detected
-  anomaly span before diagnosis (closes the 0.60 → 1.00 window-dilution gap).
+  anomaly span before diagnosis (12h scheduled-pass windows dilute weak
+  incidents — docs/evaluation.md §3).
 - A scheduler/worker tier: true delayed retries, `notify_customer` delivery,
   subscription-aware recovery around `pending`/`halted` (where Razorpay's own
   T+1/2/3 retries stop, arrears payment links start).
-- Per-route latency detection to close the `route_latency` coverage gap.
+- Multi-anchor detection replay and signal hardening for the canonical
+  run's two misses (`subscription_failure_spike`,
+  `customer_insufficient_funds_wave` — docs/evaluation.md §3).
 - Multi-merchant tenancy; Postgres as the primary local default.
 - Retraining on real test-mode traffic; measured (not prior) customer
   conversion tables.
@@ -537,7 +554,7 @@ Stated plainly — each is documented in the linked doc:
 ## Repository layout & docs
 
 ```
-backend/    FastAPI app, services, simulator, evaluation harness, tests (616)
+backend/    FastAPI app, services, simulator, evaluation harness, tests (645)
 frontend/   Next.js 15 operations console (see frontend/README.md)
 contracts/  Generated openapi.json (committed; regenerate with backend/scripts/export_openapi.py)
 policies/   default.yaml — the deterministic policy gate config
