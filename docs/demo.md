@@ -44,15 +44,15 @@ differ between runs; every *number* is identical between runs.
 **Narrative:** "It's 2pm IST and the gateway is degrading. Detection anchors
 just after the incident window and fires: success rate fell **82.9% -> 69.0%
 (-16.7%)**, 1,359 failed payments, **Rs 10,36,582 at risk**. The ML diagnosis
-correctly reads `gateway_degradation` (confidence 0.8997) and the AI
-investigator explains it; the revenue engine turns it into 1,715 per-payment
+correctly reads `gateway_degradation` (confidence 0.9740) and the AI
+investigator explains it; the revenue engine turns it into 2,023 per-payment
 opportunities. We then execute three recoveries: the Rs 8,047 soft-decline
-retry is **above the Rs 5,000 auto-execute ceiling (and its 0.8097 confidence
-is below the 0.85 floor), so the deterministic gate holds it for a human**;
-the two timeout retries (Rs 504, Rs 509) carry 0.8817 confidence — genuinely
-above the floor — and auto-execute. Every recovery is proven by a signed
-`payment.captured` webhook, and every state change is in the append-only
-audit trail."
+retry is **above the Rs 5,000 auto-execute ceiling, so the deterministic gate
+holds it for a human** (its 0.8766 confidence clears the 0.85 floor — the
+ceiling, not the floor, is what holds it); the two timeout retries
+(Rs 504, Rs 509) carry 0.9545 confidence — genuinely above the floor — and
+auto-execute. Every recovery is proven by a signed `payment.captured`
+webhook, and every state change is in the append-only audit trail."
 
 Expected output (real, reproduced — this exact text, modulo ids):
 
@@ -61,9 +61,9 @@ Expected output (real, reproduced — this exact text, modulo ids):
         anomaly -> incident inc_...: success rate 82.9% -> 69.0% (-16.69%), severity=MEDIUM
         blast radius: 1359 failed payments, Rs 10,36,582 at risk
         ground truth (answer key): kind=gateway_degradation, affected=476, injected_failures=476, expected_cause=gateway_outage
-[DIAGNOSE] ML root-cause: gateway_degradation (confidence 0.8997, model diagnosis-logistic_regression@v20260826T234303Z-c5434878)
-[QUANTIFY] POST /api/v1/recovery/opportunities/build -> 1715 per-payment opportunities (Rs 13,02,241 of failed payments in scope)
-[POLICY] gate: REQUIRES_APPROVAL (rules: approval.amount, approval.confidence) - Rs 8,047 is above the Rs 5,000 auto-execute ceiling; confidence is below the 0.85 auto-execute floor; routing to a human
+[DIAGNOSE] ML root-cause: gateway_degradation (confidence 0.9740, model diagnosis-random_forest@v20260828T013109Z-77a4ef3b)
+[QUANTIFY] POST /api/v1/recovery/opportunities/build -> 2023 per-payment opportunities (Rs 15,25,844 of failed payments in scope)
+[POLICY] gate: REQUIRES_APPROVAL (rules: approval.amount) - Rs 8,047 is above the Rs 5,000 auto-execute ceiling; routing to a human
 [VERIFY] webhook payment.captured (HMAC signature valid, event id deduped) -> action RECOVERED - Rs 8,047 recovered
 [POLICY] gate: ALLOWED (rules: auto_execute.ok) - auto-execute lane (<= Rs 5,000, confidence >= 0.85)
 [VERIFY] webhook payment.captured ... -> action RECOVERED - Rs 504 / Rs 509 recovered
@@ -71,11 +71,14 @@ Expected output (real, reproduced — this exact text, modulo ids):
 ```
 
 The scenario is deliberately tuned so the auto-execute lane is *earned*: at
-fail_boost 0.12 the diagnosis is confident enough (0.8997) that timeout-retry
-strategies reach 0.8997 x 0.98 = 0.8817 confidence — over the 0.85 floor on
-merit, while the milder 0.10 variant (0.8599 -> 0.8427) would honestly take
-the approval lane instead. The policy boundary is never weakened to make the
-demo pass.
+fail_boost 0.12 the diagnosis reads the real 240-minute detection frame at
+0.9740, so timeout-retry strategies reach 0.9740 x 0.98 = 0.9545 confidence —
+over the 0.85 floor on merit — while the soft-decline approval pick scores
+0.9740 x 0.90 = 0.8766, also over the floor, and is held back only by the
+Rs 5,000 amount ceiling. (The milder 0.10 variant reads 0.9587 -> 0.9395,
+still over the floor — the current model is confident on mild pure
+success-rate drops; measured 2026-08-28.) The policy boundary is never
+weakened to make the demo pass.
 
 ## Scenario B — Safe autonomous recovery
 
@@ -167,10 +170,13 @@ fresh scratch DBs with the exact CLI configs:
   statuses, recovered amounts, mutation counts) must be identical — entity
   ids are projected out (uuid4 by design).
 
-Verified 2026-08-26 against the retrained diagnosis artifact
-(`v20260826T234303Z-c5434878`): **10 passed in 150s / 145s on two consecutive
-runs**. The full backend suite was re-verified 2026-08-28: **616 passed**
+Verified 2026-08-28 against the exp07 diagnosis artifact
+(`random_forest v20260828T013109Z-77a4ef3b`): **10 passed in 459s / 455s on
+two consecutive clean runs**. The full backend suite was re-verified the same
+day with the new pointer: **645 passed**
 (`cd backend && .venv/Scripts/python -m pytest tests -q`).
+(Previous verification, 2026-08-26, LR artifact `v20260826T234303Z-c5434878`:
+10 passed in 150s / 145s; suite 616 passed.)
 
 ## Where the pieces live
 

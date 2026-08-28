@@ -2,9 +2,10 @@
 
 The deterministic, rehearsed runbook for the live container demo. Every number
 below was produced by real rehearsal runs against the deployed compose stack
-(two full passes, 2026-08-27 — see Appendix B for the pass logs and the
-determinism diff). Nothing is mocked and nothing is scripted that the system
-did not actually do.
+(two full passes, 2026-08-28 — see Appendix B for the pass logs and the
+determinism diff; re-verified the same day against the exp07 diagnosis
+artifact `random_forest v20260828T013109Z-77a4ef3b`). Nothing is mocked and
+nothing is scripted that the system did not actually do.
 
 > Probabilistic AI proposes. Deterministic policy decides. Payment
 > infrastructure executes. Verification proves.
@@ -31,7 +32,7 @@ BACKEND_PORT=8100 FRONTEND_PORT=3200 DB_PORT=55432 \
 - [ ] Images current: `BACKEND_PORT=8100 FRONTEND_PORT=3200 DB_PORT=55432
       docker compose -f deploy/docker-compose.yml build` — the backend image
       ships the committed diagnosis artifact
-      (`backend/artifacts/diagnosis_active.json` + the active joblib, ~10 KB),
+      (`backend/artifacts/diagnosis_active.json` + the active joblib, ~9.8 MB),
       so container diagnosis is the real ML model, not the heuristic fallback.
 - [ ] Stack up; all three checks green:
 
@@ -59,7 +60,7 @@ BACKEND_PORT=8100 FRONTEND_PORT=3200 DB_PORT=55432 \
 
 > **Numbers caveat:** the simulator anchors its dataset to *today* 00:00 UTC,
 > so absolute figures are deterministic **within a calendar day**. The numbers
-> below are the 2026-08-27 rehearsal; on demo morning re-run the pass once
+> below are the 2026-08-28 rehearsal; on demo morning re-run the pass once
 > (§6) and confirm the talk-track figures — the structure (severity, gates,
 > lanes, outcomes) never changes.
 
@@ -73,8 +74,8 @@ BACKEND_PORT=8100 FRONTEND_PORT=3200 DB_PORT=55432 \
   of traffic, about 41,000 rows — and the platform has to do the rest."
 - **Do:** Demo control → **Run** on `upi_outage_demo`
   (or `curl -X POST http://localhost:8100/api/v1/demo/scenario/upi_outage_demo`).
-- **Expect:** ~13–15s (UI client allows 120s; "Seeding… can take up to a
-  minute" is normal). Response: 41,348 rows seeded; one anchored detection
+- **Expect:** ~13–20s (UI client allows 120s; "Seeding… can take up to a
+  minute" is normal). Response: 41,354 rows seeded; one anchored detection
   pass → **1 anomaly, 1 incident**.
 - **Fallback:** if the UI button shows "No response within 10 seconds", keep
   talking — the run continues server-side and the dashboard poll (15s)
@@ -83,22 +84,24 @@ BACKEND_PORT=8100 FRONTEND_PORT=3200 DB_PORT=55432 \
 ### 0:30–1:15 — Detection (Command Center → incident card)
 
 - **Say:** "Detection anchored just after the outage window and fired:
-  success rate fell **82.7% → 20.0% (−75.8%)** — severity **CRITICAL**,
-  **₹48,891** estimated at risk, **73 failed payments** in the blast radius."
-- **Expect (verified):** metric `payment_success_rate`, deviation −75.83%,
-  severity CRITICAL, `revenue_at_risk_paise` 4,889,100.
+  success rate fell **84.3% → 20.0% (−76.3%)** — severity **CRITICAL**,
+  **₹52,677** estimated at risk, **80 failed payments** in the blast radius."
+- **Expect (verified):** metric `payment_success_rate`, deviation −76.28%,
+  severity CRITICAL, `revenue_at_risk_paise` 5,267,730.
 - **Do:** click the incident.
 
 ### 1:15–2:00 — Diagnosis (Incident detail, `/incidents/{id}`)
 
-- **Say:** "The ML root-cause model — a calibrated logistic regression
-  shipped *inside* the image — reads this as `method_outage` with **0.9961
-  confidence**. Not a heuristic: model version
-  `v20260826T234303Z-c5434878`, held-out top-1 0.878."
-- **Expect (verified):** diagnosis card: `method_outage`, confidence 0.9961,
-  model `diagnosis-logistic_regression@v20260826T234303Z-c5434878`.
-- **Then:** revenue panel — **Say:** "The counterfactual engine refines the
-  estimate to **₹51,931** at risk across the window."
+- **Say:** "The ML root-cause model — a random forest trained on production
+  detection frames, shipped *inside* the image — reads this as `method_outage`
+  with **0.9787 confidence**. Not a heuristic: model version
+  `v20260828T013109Z-77a4ef3b`, held-out top-1 0.910 on exact spans and 0.715
+  on production 12-hour frames."
+- **Expect (verified):** diagnosis card: `method_outage`, confidence 0.9787,
+  model `diagnosis-random_forest@v20260828T013109Z-77a4ef3b`.
+- **Then:** revenue panel — **Say:** "The counterfactual engine confirms
+  **₹52,677** observed loss across the window and estimates **₹29,804** of
+  it recoverable."
 - **Do:** **Run investigation** button.
 - **Say:** "The AI investigator explains the evidence and ranks hypotheses.
   It only *advises* — it can touch nothing."
@@ -108,8 +111,10 @@ BACKEND_PORT=8100 FRONTEND_PORT=3200 DB_PORT=55432 \
 
 ### 2:00–2:45 — Recovery strategy (Recovery planner, `/recovery`)
 
-- **Do (terminal — the one non-UI step):** turn the incident's failed
-  payments into opportunities:
+- **Do (UI):** on the incident page, click **Build recovery opportunities** →
+  **Confirm build**. It is idempotent — a second run shows `0 created · 100
+  already existed`, which is itself a demo-worthy beat. (Terminal equivalent
+  if a panelist asks for the API:
 
   ```bash
   curl -X POST http://localhost:8100/api/v1/recovery/opportunities/build \
@@ -117,18 +122,21 @@ BACKEND_PORT=8100 FRONTEND_PORT=3200 DB_PORT=55432 \
     -d '{"incident_id":"<incident_id>","actor":"human:demo"}'
   ```
 
-- **Expect (verified):** **100 opportunities** created, **₹64,349** of failed
-  payments in scope.
-- **Show:** the planner list; open the smallest retry (₹534 UPI).
+  )
+
+- **Expect (verified):** **113 opportunities** created (103 failed-payment
+  retries + 10 stuck-checkout recoveries), **₹73,071** of failed payments in
+  scope.
+- **Show:** the planner list; open the smallest retry (₹100 UPI timeout).
 - **Say:** "Each opportunity gets ranked strategies with expected recovery
-  and confidence. This retry scores 0.8965 — and the gate *previews* the
+  and confidence. This retry scores 0.9591 — and the gate *previews* the
   policy decision: ALLOWED."
-- **Expect:** plan shows `retry_payment`, confidence 0.8965, expected
-  recovery ₹160.20, policy preview **ALLOWED**.
+- **Expect:** plan shows `retry_payment`, confidence 0.9591, expected
+  recovery ₹35.00, policy preview **ALLOWED**.
 
 ### 2:45–3:30 — Policy gate + Razorpay action + verification (two lanes)
 
-**Auto lane (₹534):**
+**Auto lane (₹100):**
 - **Do:** Execute (or curl `POST /api/v1/recovery/{opp}/execute
   {"actor":"agent:strategist"}`).
 - **Say:** "Under ₹5,000 with confidence ≥ 0.85, the deterministic gate
@@ -145,7 +153,7 @@ BACKEND_PORT=8100 FRONTEND_PORT=3200 DB_PORT=55432 \
   ```
 
 - **Say:** "The signed `payment.captured` webhook lands — HMAC verified,
-  event id deduped — and the action closes **RECOVERED**. ₹534 back."
+  event id deduped — and the action closes **RECOVERED**. ₹100 back."
 - **Expect:** HTTP 200 `processed:true`; action RECOVERED.
 
 **Approval lane (₹5,656):**
@@ -178,7 +186,7 @@ docker compose -f deploy/docker-compose.yml exec backend \
   counter stays at **1**. When the gateway recovers and its own records show
   the capture, the same re-query resolves it **RECOVERED on evidence, never
   on hope**."
-- **Expect (verified):** `Rs 553` UPI soft-decline; UNKNOWN → re-query (1
+- **Expect (verified):** `Rs 518` UPI soft-decline; UNKNOWN → re-query (1
   mutation total) → RECOVERED. Visible in the UI + audit trail afterwards.
 
 **Beat E — unsafe AI recommendation → POLICY BLOCKED:**
@@ -188,7 +196,7 @@ docker compose -f deploy/docker-compose.yml exec backend \
   python scripts/demo_live.py beat-e --incident-id <incident_id>
 ```
 
-- **Say:** "We plant a compromised AI output: refund ₹554, confidence 0.99.
+- **Say:** "We plant a compromised AI output: refund ₹534, confidence 0.99.
   Confidence is not authority. The gate matches `allowlist` +
   `never_auto_execute.refund` — **BLOCKED**, action **REJECTED**, and the
   block happens *before* any gateway call: zero money moved. The block itself
@@ -198,20 +206,23 @@ docker compose -f deploy/docker-compose.yml exec backend \
 
 - **Show:** Audit trail filtered to the incident — every transition with
   actor and policy version (`1.0+sha256.5a6afe61d6db`), append-only.
-- **Show:** Command Center: **Recovered revenue ₹6,743** (534 + 5,656 + 553),
-  revenue at risk now **₹45,741**, pending approvals 0.
+- **Show:** Command Center: **Recovered revenue ₹6,274** (100 + 5,656 + 518),
+  revenue at risk now **₹46,921**, pending approvals 0.
 - **Say:** "Every rupee claimed is backed by a signed webhook and an audit
   row."
 
 ### 4:40–5:00 — Evaluation lab (`/evaluation`)
 
 - **Show:** the pre-seeded run `demo-panel-baseline`.
-- **Say (verified numbers):** "We measure ourselves the same way: detection
-  **precision 0.78, recall 1.0** on the standard battery; diagnosis top-1
-  0.67 at this small scale; **zero unsafe actions** across every run; the
+- **Say (verified numbers, 2026-08-28 re-run):** "We measure ourselves the
+  same way: at this small scale the current battery reads detection
+  **precision 0.33, recall 0.67** (12 incidents, 4 matched of 6 ground
+  truth); diagnosis **top-1 1.0, top-3 1.0** on those matched detection
+  windows; **zero unsafe actions** across the run; and the
   randomized-holdout arm isolates *incremental* lift against organic
-  recovery — and when the lift isn't there at small scale, the lab says so.
-  That's the discipline we'd bring to Razorpay's numbers."
+  recovery — when the lift isn't resolvable at this scale the lab says so
+  (today's lift reads null, and we show it). That's the discipline we'd
+  bring to Razorpay's numbers."
 - **Do NOT** trigger a fresh run live (~55s — over budget); offer to run it
   for questions after.
 
@@ -235,7 +246,7 @@ identical key numbers (Appendix B).
 | Scenario trigger >10s in UI | Normal — it seeds 41k rows. The UI says "still running server-side"; wait for the 15s poll or curl the endpoint once. Runs are idempotent. |
 | Diagnosis shows `heuristic` | Image lacks the artifact → rebuild (pre-flight 3). Until then: "the heuristic fallback is the fail-safe; the ML artifact ships in the production image." |
 | `captured` beat: `duplicate:true` | Dedupe proof — action already RECOVERED. Say exactly that. |
-| Execute → PENDING_APPROVAL on the small opp | You picked one with conf < 0.85 — pick the ₹534 one (smallest ≥ ₹500). The gate is honest; narrate the boundary. |
+| Execute → PENDING_APPROVAL on the small opp | You picked one with conf < 0.85 — pick the ₹100 UPI timeout (smallest auto-eligible). The gate is honest; narrate the boundary. |
 | Beat D says "no fresh auto-lane opportunity" | The incident's small opportunities are spent — reset and re-run the scenario (30s), then build opportunities. |
 | Any 5xx from the backend | Show `/api/v1/system/health` — honest component status; restart: `docker compose -f deploy/docker-compose.yml restart backend`. The CLI proof suite (`python scripts/demo_run.py --scenario all`) runs the same story in ~2 min on any laptop. |
 | Frontend blank/error panel | The console has designed error/empty states — refresh; error panels have retry. Backend is the source of truth; curl the same endpoint to prove it. |
@@ -277,7 +288,7 @@ Mode selection is by **key prefix** (`rzp_test_` vs `rzp_live_`), not URL.
 With no keys configured the factory always falls back to the twin — the app
 can never silently hit the network.
 
-## Appendix B — Determinism evidence (2026-08-27, two full passes)
+## Appendix B — Determinism evidence (2026-08-28, two full passes)
 
 Pass 1 and pass 2, each: reset → scenario → detection → diagnosis →
 investigate → build → auto lane + approval lane → webhooks → beats D + E →
@@ -285,17 +296,24 @@ dashboard. Identical in both passes:
 
 | Figure | Value (both passes) |
 |---|---|
-| Seed | 41,348 rows; trigger 13.1s / 15.1s (client budget 120s) |
-| Detection | 1 anomaly, CRITICAL, 82.7% → 20.0% (−75.83%), ₹48,891 at risk |
-| Incident | baseline 0.827381, observed 0.2, 73 affected, ₹51,931 counterfactual |
-| Diagnosis | `method_outage`, confidence **0.9961315854932278** (bit-identical), model `v20260826T234303Z-c5434878` |
-| Opportunities | 100 created, ₹64,349 in scope |
-| Auto lane | ₹534, conf 0.8965, expected ₹160.20, ALLOWED → VERIFYING → RECOVERED |
+| Seed | 41,354 rows; trigger ~20s (client budget 120s) |
+| Detection | 1 anomaly, CRITICAL, 84.3% → 20.0% (−76.28%), ₹52,677 at risk |
+| Incident | baseline 0.843105, observed 0.2, 80 affected, ₹52,677 counterfactual (₹29,804 recoverable) |
+| Diagnosis | `method_outage`, confidence **0.9787218468468468** (bit-identical), model `diagnosis-random_forest@v20260828T013109Z-77a4ef3b` |
+| Opportunities | 113 created (103 retry + 10 stuck-checkout), ₹73,071 in scope |
+| Auto lane | ₹100 UPI timeout, conf 0.9591, expected ₹35.00, ALLOWED → VERIFYING → RECOVERED |
 | Approval lane | ₹5,656, REQUIRES_APPROVAL (`approval.amount`) → approve → RECOVERED |
-| Beat D | ₹553, UNKNOWN → re-query (1 mutation) → RECOVERED |
-| Beat E | ₹554 refund conf 0.99 → BLOCKED (`allowlist`, `never_auto_execute.refund`) → REJECTED |
-| Dashboard | recovered ₹6,743; at risk ₹45,741; pending approvals 0 |
-| Audit | 442 → 668 rows (append-only by design, +226/pass; ids are uuid4) |
+| Beat D | ₹518, UNKNOWN → re-query (1 mutation) → RECOVERED |
+| Beat E | ₹534 refund conf 0.99 → BLOCKED (`allowlist`, `never_auto_execute.refund`) → REJECTED |
+| Dashboard | recovered ₹6,274; at risk ₹46,921; pending approvals 0 |
+| Audit | append-only by design (ids are uuid4) |
+
+(The 2026-08-27 rehearsal of this runbook — same structure, previous LR
+artifact — recorded: 82.7%→20.0%, diagnosis 0.9961 on
+`v20260826T234303Z-c5434878`, 100 opportunities, ₹534 auto pick, beat D
+₹553, beat E ₹554, recovered ₹6,743. Kept as the cross-day, cross-model
+continuity note; the simulator anchors to today 00:00 UTC, so absolute
+figures are deterministic within a calendar day.)
 
 ## See also
 

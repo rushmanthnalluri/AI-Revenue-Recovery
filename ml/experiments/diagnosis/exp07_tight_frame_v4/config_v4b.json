@@ -1,0 +1,62 @@
+{
+  "experiment": "exp07_tight_frame_v4 iteration 2 (v4b)",
+  "script": "ml\\experiments\\diagnosis\\exp07_tight_frame_v4\\run_v4.py",
+  "argv": [
+    "ml/experiments/diagnosis/exp07_tight_frame_v4/run_v4.py",
+    "--aug-csv",
+    "backend/artifacts/aug_pure_sr_v1.csv",
+    "--tag",
+    "v4b"
+  ],
+  "augmentation": "aug_pure_sr_v1.csv: 125 rows (91 scheduled + 34 tight) merged into the respective sources; sha256 b4e6fe3c91f5809ad546b89ac5dfb4adbea65e86228a5161b53e767ba2941ecf",
+  "run_at_utc": "2026-08-28T01:16:17.617624+00:00",
+  "git_sha": "8bf312d",
+  "dataset": {
+    "version": "v4b",
+    "rows": 3254,
+    "sources": {
+      "prod_detection_window_v3": {
+        "rows": 735,
+        "sha256": "99533a9f7f5850b69ab081105babe6f8c15da3777d16edba64d6d5e79be1888d",
+        "split": {
+          "train": 441,
+          "val": 147,
+          "test": 147
+        }
+      },
+      "tight_adhoc_frame_v1": {
+        "rows": 469,
+        "sha256": "7f8cd9eef93dfb9c5646b0561bdfd315c4c28fae73425dc7fc11c1eae1331c22",
+        "split": {
+          "train": 281,
+          "val": 93,
+          "test": 95
+        }
+      },
+      "exact_span_frame": {
+        "rows": 2050,
+        "sha256": "b1e6796bde8ce6ef2fc29cba25b364dcb1260c93db169540dc1e060f3fcf1b2a",
+        "split": {
+          "train": 1230,
+          "val": 410,
+          "test": 410
+        }
+      }
+    },
+    "split_policy": "per-source temporal 0.6/0.2/0.2 (each family's test block stays exact)",
+    "prod_frames_v2": "NOT trained on (contaminated shard2, exp04) \u2014 held-out legacy reference only"
+  },
+  "seed": 42,
+  "selection_rule": "validation block only: max safe_auto_lane_coverage (ties at 2dp) -> max macro-F1 (ties at 3dp) -> min ECE -> earliest candidate order (LR>RF>GB, raw>sigmoid>isotonic)",
+  "gate": {
+    "clauses": [
+      "prod_v3 test: safe strictly > incumbent, unsafe <= incumbent - 0.1, macro-F1 >= incumbent - 0.03",
+      "span test: top-1 and macro-F1 >= incumbent - 0.03",
+      "demo A gateway_degradation conf >= 0.867 (top-1), demo D >= 0.944 (top-1)",
+      "tests/demo 10/10 + full backend suite green after the swap (post-check, rollback on fail)"
+    ],
+    "incumbent": "v20260826T234303Z-c5434878"
+  },
+  "val_rule_winner": "gradient_boosting+isotonic",
+  "ship_candidate": null
+}

@@ -1,11 +1,12 @@
-# Diagnosis track — experiment index (2026-08-27)
+# Diagnosis track — experiment index (2026-08-28)
 
 Mission: close the train/serve skew (exact spans -> the diluted detection
 windows production serves) and add calibration measurement, through the full
-scientific loop. Outcome: **NO-SHIP — old artifact
-(`logistic_regression v20260826T234303Z-c5434878`) remains active**; the
-production-frame dataset, the calibration/business-metric machinery, and the
-constraint map for the next attempt are the deliverables.
+scientific loop. Outcome: **SHIPPED in exp07 —
+`random_forest v20260828T013109Z-77a4ef3b` is active** (the exp06 incumbent
+`logistic_regression v20260826T234303Z-c5434878` stays committed for
+rollback). exp01–exp06 were the NO-SHIP arc that built the production-frame
+datasets, the calibration/business-metric machinery, and the constraint map.
 
 Chain (each dir has config.json + metrics/results + analysis):
 
@@ -28,10 +29,21 @@ Chain (each dir has config.json + metrics/results + analysis):
    on prod gate + exact spans + both demo operating points; no candidate
    satisfies every hard constraint -> NO-SHIP, old artifact restored.
    `SHIP_VERDICT.md` is the constraint map and the exp07 recommendation.
+7. `exp07_tight_frame_v4/` — the exp06 follow-ups executed: prod_frames_v3
+   (rebuilt on the stabilized detection engine, density to 70k/day),
+   tight_frames_v1 (the missing ad-hoc frame family), then a measured
+   iteration 2 (aug_pure_sr_v1, train-only) closing the demo-A OOD hole
+   (latency_multiplier=1.0 pure success-rate drops). **SHIP
+   `random_forest v20260828T013109Z-77a4ef3b`** — passes every gate clause
+   (prod safe 0.2708 vs 0.1906, unsafe 0.0928 vs 0.567, demo A 0.974,
+   demo D 1.000, span top-1 0.9098 vs 0.8780). `SHIP_VERDICT.md` is the
+   gate account incl. the disclosed macro-F1 tradeoff and the v4b
+   merge-policy bug (caught, corrected, kept on record).
 
 Shared tools: `error_analysis.py` (row-level failure cuts),
 `live_check.py` (TestClient end-to-end diagnosis check; `live_check.log`).
 
 Datasets (in `backend/artifacts/`, gitignored): `prod_frames_v1.csv`,
-`prod_frames_v2_shard2.csv`, `prod_frames_v2.csv`. Training CLI:
+`prod_frames_v2_shard2.csv`, `prod_frames_v2.csv`, `prod_frames_v3.csv`,
+`tight_frames_v1.csv`, `aug_pure_sr_v1.csv`. Training CLI:
 `backend/scripts/train_models.py --input <csv> --experiment-dir <dir>`.

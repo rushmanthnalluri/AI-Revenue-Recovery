@@ -41,7 +41,8 @@ from app.services.evaluation.runner import (  # noqa: E402
 from app.simulator.config import SCENARIOS  # noqa: E402
 from app.simulator.engine import run_simulation  # noqa: E402
 
-SEED = 777  # unseen by every training dataset (v1: 5000-5071, v2: +5072-5143)
+SEED = 777  # unseen by every training dataset (v1: 5000-5071, v2: +5072-5143,
+# v4: 6000-6143, pure-SR aug: 7000-7035)
 DAYS, EVENTS = 5, 40_000  # standard preset; gateway_degradation is reliably
 # detected at this density (the upi_outage_demo/8k variant's method_outage
 # does not clear the volume floor — measured, that run is in the report)

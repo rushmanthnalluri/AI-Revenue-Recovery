@@ -16,6 +16,7 @@ backend/.venv
 backend/artifacts/*
 !backend/artifacts/diagnosis_active.json
 !backend/artifacts/diagnosis_logistic_regression_v20260826T234303Z-c5434878.joblib
+!backend/artifacts/diagnosis_random_forest_v20260828T013109Z-77a4ef3b.joblib
 
 # Node / Next.js
 **/node_modules

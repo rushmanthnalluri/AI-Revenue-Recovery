@@ -1,0 +1,831 @@
+{
+  "candidate": "random_forest",
+  "model_version": "v20260828T013109Z-77a4ef3b",
+  "metrics": {
+    "val": {
+      "per_class": {
+        "gateway_degradation": {
+          "precision": 0.8214,
+          "recall": 0.8846,
+          "f1": 0.8519,
+          "support": 104
+        },
+        "route_latency": {
+          "precision": 0.8723,
+          "recall": 0.8913,
+          "f1": 0.8817,
+          "support": 46
+        },
+        "method_outage": {
+          "precision": 0.939,
+          "recall": 0.9506,
+          "f1": 0.9448,
+          "support": 81
+        },
+        "bank_downtime": {
+          "precision": 1.0,
+          "recall": 0.0588,
+          "f1": 0.1111,
+          "support": 17
+        },
+        "abandonment_spike": {
+          "precision": 0.7755,
+          "recall": 0.7917,
+          "f1": 0.7835,
+          "support": 48
+        },
+        "subscription_failure_spike": {
+          "precision": 0.8824,
+          "recall": 0.3488,
+          "f1": 0.5,
+          "support": 43
+        },
+        "customer_insufficient_funds_wave": {
+          "precision": 0.9211,
+          "recall": 0.9211,
+          "f1": 0.9211,
+          "support": 76
+        },
+        "no_fault": {
+          "precision": 0.8672,
+          "recall": 0.9952,
+          "f1": 0.9268,
+          "support": 210
+        }
+      },
+      "macro_f1": 0.7401,
+      "macro_fpr": 0.0211,
+      "top1_accuracy": 0.8688,
+      "top3_accuracy": 0.9728,
+      "ece": 0.116,
+      "brier": 0.2186,
+      "business": {
+        "threshold": 0.85,
+        "auto_classes": [
+          "bank_downtime",
+          "gateway_degradation",
+          "method_outage"
+        ],
+        "n_auto_recoverable": 202,
+        "n_not_auto_recoverable": 423,
+        "auto_coverage": 0.5198,
+        "unsafe_coverage": 0.3239,
+        "false_fire_rate": 0.0118,
+        "safe_auto_lane_coverage": 0.1959
+      },
+      "n_samples": 625,
+      "confusion_matrix": {
+        "labels": [
+          "gateway_degradation",
+          "route_latency",
+          "method_outage",
+          "bank_downtime",
+          "abandonment_spike",
+          "subscription_failure_spike",
+          "customer_insufficient_funds_wave",
+          "no_fault"
+        ],
+        "matrix": [
+          [
+            92,
+            3,
+            3,
+            0,
+            2,
+            0,
+            0,
+            4
+          ],
+          [
+            1,
+            41,
+            0,
+            0,
+            0,
+            0,
+            3,
+            1
+          ],
+          [
+            1,
+            0,
+            77,
+            0,
+            1,
+            0,
+            0,
+            2
+          ],
+          [
+            1,
+            2,
+            0,
+            1,
+            0,
+            0,
+            0,
+            13
+          ],
+          [
+            4,
+            1,
+            1,
+            0,
+            38,
+            1,
+            2,
+            1
+          ],
+          [
+            10,
+            0,
+            0,
+            0,
+            8,
+            15,
+            1,
+            9
+          ],
+          [
+            3,
+            0,
+            1,
+            0,
+            0,
+            0,
+            70,
+            2
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            209
+          ]
+        ]
+      },
+      "top_confusions": [
+        {
+          "true": "bank_downtime",
+          "predicted": "no_fault",
+          "count": 13
+        },
+        {
+          "true": "subscription_failure_spike",
+          "predicted": "gateway_degradation",
+          "count": 10
+        },
+        {
+          "true": "subscription_failure_spike",
+          "predicted": "no_fault",
+          "count": 9
+        },
+        {
+          "true": "subscription_failure_spike",
+          "predicted": "abandonment_spike",
+          "count": 8
+        },
+        {
+          "true": "gateway_degradation",
+          "predicted": "no_fault",
+          "count": 4
+        }
+      ]
+    },
+    "prod_v3_test": {
+      "per_class": {
+        "gateway_degradation": {
+          "precision": 0.6111,
+          "recall": 0.8462,
+          "f1": 0.7097,
+          "support": 13
+        },
+        "route_latency": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 10
+        },
+        "method_outage": {
+          "precision": 0.7273,
+          "recall": 1.0,
+          "f1": 0.8421,
+          "support": 16
+        },
+        "bank_downtime": {
+          "precision": 1.0,
+          "recall": 0.25,
+          "f1": 0.4,
+          "support": 4
+        },
+        "abandonment_spike": {
+          "precision": 0.4375,
+          "recall": 0.875,
+          "f1": 0.5833,
+          "support": 8
+        },
+        "subscription_failure_spike": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 16
+        },
+        "customer_insufficient_funds_wave": {
+          "precision": 0.9444,
+          "recall": 0.5484,
+          "f1": 0.6939,
+          "support": 31
+        },
+        "no_fault": {
+          "precision": 0.6889,
+          "recall": 0.9688,
+          "f1": 0.8052,
+          "support": 32
+        }
+      },
+      "macro_f1": 0.6293,
+      "macro_fpr": 0.0424,
+      "top1_accuracy": 0.7154,
+      "top3_accuracy": 0.9308,
+      "ece": 0.1291,
+      "brier": 0.459,
+      "business": {
+        "threshold": 0.85,
+        "auto_classes": [
+          "bank_downtime",
+          "gateway_degradation",
+          "method_outage"
+        ],
+        "n_auto_recoverable": 33,
+        "n_not_auto_recoverable": 97,
+        "auto_coverage": 0.3636,
+        "unsafe_coverage": 0.0928,
+        "false_fire_rate": 0.0206,
+        "safe_auto_lane_coverage": 0.2708
+      },
+      "n_samples": 130,
+      "confusion_matrix": {
+        "labels": [
+          "gateway_degradation",
+          "route_latency",
+          "method_outage",
+          "bank_downtime",
+          "abandonment_spike",
+          "subscription_failure_spike",
+          "customer_insufficient_funds_wave",
+          "no_fault"
+        ],
+        "matrix": [
+          [
+            11,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          [
+            0,
+            10,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            16,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            1,
+            1,
+            1,
+            0,
+            0,
+            1
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            7,
+            0,
+            0,
+            0
+          ],
+          [
+            4,
+            0,
+            0,
+            0,
+            6,
+            0,
+            1,
+            5
+          ],
+          [
+            1,
+            0,
+            4,
+            0,
+            2,
+            0,
+            17,
+            7
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            31
+          ]
+        ]
+      },
+      "top_confusions": [
+        {
+          "true": "customer_insufficient_funds_wave",
+          "predicted": "no_fault",
+          "count": 7
+        },
+        {
+          "true": "subscription_failure_spike",
+          "predicted": "abandonment_spike",
+          "count": 6
+        },
+        {
+          "true": "subscription_failure_spike",
+          "predicted": "no_fault",
+          "count": 5
+        },
+        {
+          "true": "subscription_failure_spike",
+          "predicted": "gateway_degradation",
+          "count": 4
+        },
+        {
+          "true": "customer_insufficient_funds_wave",
+          "predicted": "method_outage",
+          "count": 4
+        }
+      ]
+    },
+    "tight_test": {
+      "per_class": {
+        "gateway_degradation": {
+          "precision": 0.7692,
+          "recall": 1.0,
+          "f1": 0.8696,
+          "support": 40
+        },
+        "route_latency": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 4
+        },
+        "method_outage": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 23
+        },
+        "bank_downtime": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 6
+        },
+        "abandonment_spike": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "subscription_failure_spike": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 6
+        },
+        "customer_insufficient_funds_wave": {
+          "precision": 1.0,
+          "recall": 0.8571,
+          "f1": 0.9231,
+          "support": 7
+        },
+        "no_fault": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 1
+        }
+      },
+      "macro_f1": 0.5991,
+      "macro_fpr": 0.0334,
+      "top1_accuracy": 0.8506,
+      "top3_accuracy": 0.9655,
+      "ece": 0.0524,
+      "brier": 0.2326,
+      "business": {
+        "threshold": 0.85,
+        "auto_classes": [
+          "bank_downtime",
+          "gateway_degradation",
+          "method_outage"
+        ],
+        "n_auto_recoverable": 69,
+        "n_not_auto_recoverable": 18,
+        "auto_coverage": 0.7681,
+        "unsafe_coverage": 0.3333,
+        "false_fire_rate": 0.1111,
+        "safe_auto_lane_coverage": 0.4348
+      },
+      "n_samples": 87,
+      "confusion_matrix": {
+        "labels": [
+          "gateway_degradation",
+          "route_latency",
+          "method_outage",
+          "bank_downtime",
+          "abandonment_spike",
+          "subscription_failure_spike",
+          "customer_insufficient_funds_wave",
+          "no_fault"
+        ],
+        "matrix": [
+          [
+            40,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            4,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            23,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            6,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            6,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            6,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1
+          ]
+        ]
+      },
+      "top_confusions": [
+        {
+          "true": "bank_downtime",
+          "predicted": "gateway_degradation",
+          "count": 6
+        },
+        {
+          "true": "subscription_failure_spike",
+          "predicted": "gateway_degradation",
+          "count": 6
+        },
+        {
+          "true": "customer_insufficient_funds_wave",
+          "predicted": "abandonment_spike",
+          "count": 1
+        }
+      ]
+    },
+    "span_test": {
+      "per_class": {
+        "gateway_degradation": {
+          "precision": 1.0,
+          "recall": 0.9556,
+          "f1": 0.9773,
+          "support": 45
+        },
+        "route_latency": {
+          "precision": 0.8571,
+          "recall": 1.0,
+          "f1": 0.9231,
+          "support": 30
+        },
+        "method_outage": {
+          "precision": 0.9574,
+          "recall": 1.0,
+          "f1": 0.9783,
+          "support": 45
+        },
+        "bank_downtime": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 15
+        },
+        "abandonment_spike": {
+          "precision": 0.8824,
+          "recall": 1.0,
+          "f1": 0.9375,
+          "support": 30
+        },
+        "subscription_failure_spike": {
+          "precision": 1.0,
+          "recall": 0.3478,
+          "f1": 0.5161,
+          "support": 23
+        },
+        "customer_insufficient_funds_wave": {
+          "precision": 0.8,
+          "recall": 0.8889,
+          "f1": 0.8421,
+          "support": 45
+        },
+        "no_fault": {
+          "precision": 0.9171,
+          "recall": 1.0,
+          "f1": 0.9568,
+          "support": 177
+        }
+      },
+      "macro_f1": 0.7664,
+      "macro_fpr": 0.0157,
+      "top1_accuracy": 0.9098,
+      "top3_accuracy": 0.9951,
+      "ece": 0.1465,
+      "brier": 0.1907,
+      "business": {
+        "threshold": 0.85,
+        "auto_classes": [
+          "bank_downtime",
+          "gateway_degradation",
+          "method_outage"
+        ],
+        "n_auto_recoverable": 105,
+        "n_not_auto_recoverable": 305,
+        "auto_coverage": 0.5619,
+        "unsafe_coverage": 0.3082,
+        "false_fire_rate": 0.0,
+        "safe_auto_lane_coverage": 0.2537
+      },
+      "n_samples": 410,
+      "confusion_matrix": {
+        "labels": [
+          "gateway_degradation",
+          "route_latency",
+          "method_outage",
+          "bank_downtime",
+          "abandonment_spike",
+          "subscription_failure_spike",
+          "customer_insufficient_funds_wave",
+          "no_fault"
+        ],
+        "matrix": [
+          [
+            43,
+            0,
+            2,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            30,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            45,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            5,
+            0,
+            0,
+            0,
+            0,
+            0,
+            10
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            30,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            3,
+            8,
+            10,
+            2
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            40,
+            4
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            177
+          ]
+        ]
+      },
+      "top_confusions": [
+        {
+          "true": "bank_downtime",
+          "predicted": "no_fault",
+          "count": 10
+        },
+        {
+          "true": "subscription_failure_spike",
+          "predicted": "customer_insufficient_funds_wave",
+          "count": 10
+        },
+        {
+          "true": "bank_downtime",
+          "predicted": "route_latency",
+          "count": 5
+        },
+        {
+          "true": "customer_insufficient_funds_wave",
+          "predicted": "no_fault",
+          "count": 4
+        },
+        {
+          "true": "subscription_failure_spike",
+          "predicted": "abandonment_spike",
+          "count": 3
+        }
+      ]
+    },
+    "demo": {
+      "A": {
+        "top3": [
+          [
+            "gateway_degradation",
+            0.974
+          ],
+          [
+            "method_outage",
+            0.0145
+          ],
+          [
+            "abandonment_spike",
+            0.0091
+          ]
+        ],
+        "gateway_degradation_conf": 0.974,
+        "floor": 0.867,
+        "pass": true
+      },
+      "B": {
+        "top3": [
+          [
+            "gateway_degradation",
+            1.0
+          ],
+          [
+            "abandonment_spike",
+            0.0
+          ],
+          [
+            "bank_downtime",
+            0.0
+          ]
+        ],
+        "gateway_degradation_conf": 1.0,
+        "floor": 0.867,
+        "pass": true
+      },
+      "D": {
+        "top3": [
+          [
+            "gateway_degradation",
+            1.0
+          ],
+          [
+            "abandonment_spike",
+            0.0
+          ],
+          [
+            "bank_downtime",
+            0.0
+          ]
+        ],
+        "gateway_degradation_conf": 1.0,
+        "floor": 0.944,
+        "pass": true
+      }
+    }
+  }
+}
