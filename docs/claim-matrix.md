@@ -10,7 +10,7 @@ elsewhere, not re-run here) or **flagged** (not independently verifiable).
 **First-hand re-runs performed for this audit** (this machine, 2026-08-28):
 
 - `cd backend && .venv/Scripts/python -m pytest tests --collect-only -q` →
-  **645 tests collected** (suite pass attested by exp07 SHIP_VERDICT +
+  **678 tests collected** (suite pass attested by the invariants wave +
   docs/demo.md, same day; collect-only re-verified here).
 - Per-directory collects: policy **81**, security **88**, razorpay **47**,
   demo **10**, agenteval **15** (agenteval also executed: **15 passed**).
@@ -43,7 +43,7 @@ it without qualification beyond what the doc already states.
 
 | # | Claim | Where stated | Source | Reproducible? | Current? | Safe? | Action taken |
 |---|---|---|---|---|---|---|---|
-| 1.1 | 645 backend tests | README (setup, repo layout), docs/demo.md, exp07 SHIP_VERDICT | `pytest tests --collect-only -q` → 645 collected; 645 passed 2026-08-28 (SHIP_VERDICT) | Yes | yes | yes | none |
+| 1.1 | 678 backend tests | README (setup, repo layout), docs/demo.md, invariants wave | `pytest tests --collect-only -q` → 678 collected; 678 passed 2026-08-28 (invariants-wave full run) | Yes | yes | yes | count updated 645→678 after the invariants wave |
 | 1.2 | 81 policy tests | docs/policy.md §6 | collect-only → 81 | Yes | yes | yes | none |
 | 1.3 | 88 security tests | docs/security-testing.md | collect-only → 88 | Yes | yes | yes | none |
 | 1.4 | 47 razorpay tests | docs/razorpay-integration.md §5 | collect-only → 47 | Yes | **was stale (46)** | yes | corrected 46 → 47 |
@@ -192,7 +192,7 @@ Config re-read and hashed this audit: `sha256[:12] = 5a6afe61d6db` →
 
 | # | Claim | Where stated | Source | Reproducible? | Current? | Safe? | Action taken |
 |---|---|---|---|---|---|---|---|
-| 10.1 | Modular monolith; ports-only coupling; dependency matrix enforced by AST test | architecture.md §1/§4, ADR 0010 | `tests/architecture/test_boundaries.py` (in the 645) | Yes | yes | yes | none |
+| 10.1 | Modular monolith; ports-only coupling; dependency matrix enforced by AST test | architecture.md §1/§4, ADR 0010 | `tests/architecture/test_boundaries.py` (in the 678) | Yes | yes | yes | none |
 | 10.2 | Agent can never reach the gateway; policy engine depends on nothing probabilistic | architecture.md §4 | boundary test rules | Yes | yes | yes | none |
 | 10.3 | One mutation per action ever; `gateway_request_id` UNIQUE → order `receipt` / link `reference_id`; timeout/5xx → UNKNOWN → GET-only resolve | README, recovery.md §5, razorpay-integration.md §3 | executor code + failure-mode tests (incl. one-POST wire assertion) | Yes | yes | yes | none |
 | 10.4 | Webhooks: raw-body HMAC-SHA256, constant-time, fail-closed; `x-razorpay-event-id` UNIQUE dedup → 200 `already_processed` zero side effects; out-of-order safe (captured wins) | README, razorpay-integration.md §4 | `app/api/v1/webhooks.py` (read), webhook tests (47-dir) | Yes | yes | yes | none |
