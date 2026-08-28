@@ -42,13 +42,17 @@ app/
   services/
     policy/        deterministic core: YAML gate, audit writer, history (leaf)
     revenue/       revenue-at-risk + expected-recovery quantification (leaf)
-    detection/     anomaly detectors + incident engine (leaf)
-    diagnosis/     ML root-cause model: features, training, artifacts (leaf)
+    detection/     anomaly detectors + incident engine over 4 metric series
+                   (payment_success_rate, capture_latency_ms,
+                   checkout_abandonment_rate, insufficient_fund_share) (leaf)
+    diagnosis/     ML root-cause model: features, prod-frame labeling,
+                   calibrated training, artifacts (leaf)
     insights/      failure-facet outlier ranking + platform callout (leaf)
     razorpay/      PaymentGateway adapter: raw REST client + simulator twin (leaf)
     recovery/      execution engine: builder, strategies, executor,
                    webhook_handlers (verification registry), reconcile (sweep)
-    agent/         AI investigator: reasoners, tool whitelist, reports
+    agent/         AI investigator: reasoners (confidence caps, escalation
+                   floors), tool whitelist, hallucination guard, reports
     evaluation/    experiment harness (second composition root; drives the
                    simulator + services + webhook registry in scratch DBs)
   simulator/       deterministic synthetic payment environment + ground truth
@@ -174,7 +178,7 @@ contracts (`app.models`, `app.ports`, `app.config`, `app.db`, `app.ids`,
 | `services.detection` | — (leaf; `schemas` sanctioned) | any other `services.*`, `api`, `simulator` |
 | `services.insights` | — (leaf) | any other `services.*`, `api`, `simulator` |
 | `services.diagnosis` | — (leaf) | any other `services.*`, `api`, `simulator` |
-| `services.razorpay` | — (leaf adapter) | `services.{policy,recovery,agent,revenue,detection,diagnosis,evaluation}`, `api` |
+| `services.razorpay` | — (leaf adapter) | any other `services.*` (incl. `insights`), `api`, `simulator` |
 | `services.recovery` | `services.{policy, revenue, razorpay.errors}` (sanctioned: executor gates through policy, strategies price via revenue) | `services.agent`, `api`, `simulator` |
 | `services.agent` | `services.{diagnosis, policy, revenue}` (sanctioned: composes diagnosis, gates via policy tools) | `services.razorpay`, `simulator`, `api` |
 | `simulator` | — | `services` |
@@ -196,8 +200,9 @@ Every request is traceable end to end:
    optional `X-Request-ID`. `RequestIdMiddleware` assigns/echoes the id; every
    log line and every `audit_logs.request_id` carries it.
 2. **API → agent:** the recovery agent builds a `StrategyCandidate` and an
-   `ActionContext`; a `recovery_actions` row appears (`PROPOSED`, actor
-   `human:...` or `agent:strategist`).
+   `ActionContext`; a `recovery_actions` row appears (`PROPOSED`; actor is the
+   caller-supplied `human:...` on the execute route, or `agent:investigator`
+   for agent-tool requests).
 3. **Agent → policy:** `PolicyEngineProto.evaluate()` returns a `PolicyDecision`;
    an immutable `policy_decisions` row stores outcome, reasons, rules matched,
    policy version. The LLM/reasoner is **never** on this path (ADR 0004).
@@ -233,7 +238,7 @@ floats, no mixed units. Policy thresholds are written in INR in
 - **Idempotency:** `gateway_request_id` unique; webhook dedup via unique
   `gateway_event_id`; safe retries end to end.
 - **Stopping rules:** max attempts per opportunity, max 3 consecutive failed
-  recoveries per incident, rate limits per incident/customer/global.
+  recoveries per incident/strategy, rate limits per incident/customer/global.
 - **Hard blocks:** refunds, irreversible actions, and opted-out customers are
   never auto-executed.
 - **UNKNOWN state:** unverifiable outcomes are surfaced, not guessed —

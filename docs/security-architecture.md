@@ -23,7 +23,7 @@
 
 - **LLM boundary:** the reasoner is a sandboxed advisor. It can reach only the 9-function `AgentTools` whitelist; it has no DB handle, no gateway import, no secrets in prompt context, and its two mutation tools must pass through `PolicyEngine.evaluate` before anything is created beyond a PROPOSED row. Amounts are copied from original payment/order rows — never from model output.
 - **Gateway boundary:** all money movement crosses exactly one adapter behind `ports.PaymentGateway`; mutating calls carry `gateway_request_id` idempotency keys and are sent exactly once; ambiguity → UNKNOWN + GET-only resolution.
-- **Webhook boundary:** unauthenticated ingress from Razorpay; every request is HMAC-verified against the raw body before any processing (fail-closed when no secret), deduplicated by `x-razorpay-event-id` UNIQUE constraint, and acknowledged fast with side effects confined to idempotent handlers.
+- **Webhook boundary:** unauthenticated ingress from Razorpay; bodies are size-capped at 1 MiB (413, enforced before verification), then every request is HMAC-verified against the raw body before any processing (fail-closed when no secret), deduplicated by `x-razorpay-event-id` UNIQUE constraint, and acknowledged fast with side effects confined to idempotent handlers.
 - **Enforced continuously:** `backend/tests/architecture/test_boundaries.py` statically verifies the import-direction matrix (agent !→ gateway; policy !→ services; recovery !→ agent; adapter !→ policy/recovery; simulator !→ services) so these boundaries cannot silently erode.
 
 ## 2. Authentication & authorization (honest posture — demo grade)
