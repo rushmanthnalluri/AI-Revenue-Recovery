@@ -16,6 +16,21 @@ Idempotence: re-running `build_for_incident` never creates duplicates. A
 payment already linked to an opportunity of this incident is skipped, as is an
 order already represented by a `dropped_checkout` opportunity (tracked via
 `meta["order_id"]` — no schema change needed).
+
+DEDUP RULE (one opportunity per incident+checkout): a checkout is counted
+exactly once, however many sources could describe it.
+- Payment-level wins at selection time: an order with ANY payment row (failed
+  or stuck-created) is excluded from the order-level `dropped_checkout` path —
+  the payment's own opportunity already covers the checkout.
+- First-write wins across builds: a stuck payment whose order is already
+  represented in this incident (by an order-level `dropped_checkout` from an
+  earlier build, or by a sibling stuck attempt on the same order) is skipped —
+  the existing opportunity already carries the checkout's customer and amount,
+  and its payment-link recovery is identical. The skip is reported in
+  `BuildResult.existing`, never silently dropped.
+Two DISTINCT payments on one order (e.g. a failed attempt plus a later stuck
+one) are NOT merged: they are separate attempts, and the policy gate's
+duplicate protection already prevents double-firing the customer.
 """
 
 from dataclasses import dataclass, field
@@ -42,6 +57,21 @@ _DEFAULT_WINDOW = timedelta(hours=1)
 
 _FAILED_STATUS = "failed"
 _ORDER_OPEN_STATUS = "created"  # Razorpay order created but never paid
+_STUCK_STATUS = "created"  # payment created but never resolved to a terminal state
+
+# A payment still in `created` this long after creation is stuck: the customer
+# never completed the checkout. Mirrors the detection engine's
+# checkout_abandonment_rate inactivity threshold
+# (app/services/detection/series.py, inactivity_minutes=30), but evaluated
+# against the build's knowledge edge (now) rather than the detection pass's
+# window end — the builder acts in the present, so a payment created late in
+# the window still qualifies once it is genuinely stuck. Payments younger than
+# the threshold may still be in flight and are honestly excluded.
+STUCK_CREATED_THRESHOLD = timedelta(minutes=30)
+
+# Opportunity type for payments stuck in `created` (checkout abandonment at
+# the payment level — the order-level equivalent is `dropped_checkout`).
+STUCK_CHECKOUT_PAYMENT_TYPE = "stuck_checkout_payment"
 
 
 @dataclass(frozen=True)
@@ -74,6 +104,7 @@ class OpportunityBuilder:
 
         already = self._existing_index(incident.id)
         result = BuildResult(incident_id=incident.id)
+        knowledge_edge = utcnow()
 
         for payment in self._failed_payments(win_start, win_end):
             if payment.id in already["payments"]:
@@ -96,6 +127,41 @@ class OpportunityBuilder:
             )
             result.created.append(opp)
             already["payments"][payment.id] = opp
+
+        for payment in self._stuck_created_payments(win_start, win_end, knowledge_edge):
+            if payment.id in already["payments"]:
+                result.existing.append(already["payments"][payment.id])
+                continue
+            if payment.order_id and payment.order_id in already["orders"]:
+                # First-write wins: the checkout is already represented (an
+                # order-level dropped_checkout from an earlier build, or a
+                # sibling stuck attempt seen above) — never double-count it.
+                result.existing.append(already["orders"][payment.order_id])
+                continue
+            opp = self._new_opportunity(
+                incident,
+                opportunity_type=STUCK_CHECKOUT_PAYMENT_TYPE,
+                payment_id=payment.id,
+                customer_id=payment.customer_id,
+                amount_paise=payment.amount_paise,
+                currency=payment.currency,
+                reason=(
+                    f"payment {payment.gateway_payment_id or payment.id} has been stuck "
+                    f"in 'created' for over "
+                    f"{int(STUCK_CREATED_THRESHOLD.total_seconds() // 60)} minutes — "
+                    "the customer never completed the checkout inside the "
+                    "incident window"
+                ),
+                meta={
+                    "gateway_payment_id": payment.gateway_payment_id,
+                    "order_id": payment.order_id,
+                },
+                actor=actor,
+            )
+            result.created.append(opp)
+            already["payments"][payment.id] = opp
+            if payment.order_id:
+                already["orders"][payment.order_id] = opp
 
         for order in self._abandoned_orders(win_start, win_end):
             if order.id in already["orders"]:
@@ -145,11 +211,30 @@ class OpportunityBuilder:
         )
         return list(self._db.scalars(stmt))
 
+    def _stuck_created_payments(self, start, end, knowledge_edge) -> list[Payment]:
+        """Payments created inside the window that are STILL in `created` and
+        have been so for at least STUCK_CREATED_THRESHOLD as of the build's
+        knowledge edge. A payment that resolved (captured/failed) is covered
+        by the other sources or needs no recovery; one younger than the
+        threshold may still be in flight — never flagged as abandoned."""
+        stuck_before = knowledge_edge - STUCK_CREATED_THRESHOLD
+        stmt = (
+            sa.select(Payment)
+            .where(
+                Payment.status == _STUCK_STATUS,
+                Payment.created_at >= start,
+                Payment.created_at < end,
+                Payment.created_at <= stuck_before,
+            )
+            .order_by(Payment.created_at, Payment.id)
+        )
+        return list(self._db.scalars(stmt))
+
     def _abandoned_orders(self, start, end) -> list[Order]:
         """Orders still in `created` state with NO payment rows at all. An
-        order with a failed payment is already covered by that payment's
-        failed_payment_retry opportunity — counting both would double the
-        revenue at risk."""
+        order with a failed or stuck-created payment is already covered by
+        that payment's own opportunity — counting both would double the
+        revenue at risk (payment-level wins; see the module docstring)."""
         has_payment = (
             sa.select(Payment.id).where(Payment.order_id == Order.id).correlate(Order).exists()
         )
@@ -234,4 +319,10 @@ class OpportunityBuilder:
         return opp
 
 
-__all__ = ["BuildResult", "OPPORTUNITY_TTL", "OpportunityBuilder"]
+__all__ = [
+    "BuildResult",
+    "OPPORTUNITY_TTL",
+    "STUCK_CHECKOUT_PAYMENT_TYPE",
+    "STUCK_CREATED_THRESHOLD",
+    "OpportunityBuilder",
+]

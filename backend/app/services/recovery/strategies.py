@@ -34,6 +34,7 @@ from app.ports import ActionType
 from app.services.policy import audit
 from app.services.revenue import RevenueService
 from app.services.revenue.classify import FailureClass, classify_failure
+from app.services.recovery.builder import STUCK_CHECKOUT_PAYMENT_TYPE
 from app.models import Payment
 
 logger = get_logger(__name__)
@@ -129,9 +130,14 @@ class StrategyGenerator:
             if opportunity.customer_id
             else None
         )
+        linked_payment = (
+            self._db.get(Payment, opportunity.payment_id)
+            if opportunity.payment_id
+            else None
+        )
         estimate = self._revenue.opportunity_estimate(opportunity)
 
-        candidates = self._candidates(opportunity, failure_class, customer)
+        candidates = self._candidates(opportunity, failure_class, customer, linked_payment)
 
         def _expected_of(cand: _Candidate) -> int:
             return self._expected_paise(estimate, cand.action_type)
@@ -230,6 +236,12 @@ class StrategyGenerator:
     # ------------------------------------------------------------------
 
     def _failure_class(self, opportunity: RecoveryOpportunity) -> FailureClass:
+        if opportunity.opportunity_type == STUCK_CHECKOUT_PAYMENT_TYPE:
+            # A payment stuck in `created` IS the abandonment signal — the
+            # customer never finished the checkout. Its (empty) error fields
+            # would classify UNKNOWN, which is less informative and would
+            # under-weight the payment-link fit below.
+            return FailureClass.ABANDONMENT
         if opportunity.payment_id:
             payment = self._db.get(Payment, opportunity.payment_id)
             if payment is not None:
@@ -266,9 +278,10 @@ class StrategyGenerator:
         opportunity: RecoveryOpportunity,
         failure_class: FailureClass,
         customer: Customer | None,
+        linked_payment: Payment | None,
     ) -> list[_Candidate]:
         amount = opportunity.amount_paise
-        has_payment = opportunity.payment_id is not None
+        has_payment = linked_payment is not None
         hard = failure_class is FailureClass.HARD_DECLINE
         opted_out = bool(customer.opted_out) if customer else False
         cls = failure_class.value
@@ -287,24 +300,42 @@ class StrategyGenerator:
                 "clears; costs some conversion versus an immediate retry"
             )
 
-        retry_eligible = has_payment and not hard
+        # Retry replays a FAILED charge. A linked payment that never resolved
+        # at the gateway (e.g. stuck in `created` — an abandoned checkout) has
+        # no failed charge to resubmit, so retry is ineligible and the
+        # payment link is the recovery vehicle.
+        payment_failed = has_payment and linked_payment.status == "failed"
+        retry_eligible = payment_failed and not hard
+        if retry_eligible:
+            retry_reason = (
+                f"retry the failed payment via a fresh idempotency-keyed order; "
+                f"failure class {cls} is "
+                + ("transient and usually recoverable" if retry_fit >= 0.8 else
+                   "only sometimes recoverable" if retry_fit >= 0.4 else
+                   "rarely recoverable by resubmission")
+            )
+        elif not has_payment:
+            retry_reason = "retry requires a linked failed payment"
+            delay_reason = "delayed retry requires a linked failed payment"
+        elif not payment_failed:
+            retry_reason = (
+                f"the linked payment never failed at the gateway (status "
+                f"'{linked_payment.status}') — there is no charge to retry; "
+                "a payment link lets the customer complete the checkout"
+            )
+            delay_reason = retry_reason
+        else:
+            retry_reason = (
+                "network rules discourage resubmitting never-approve (hard) declines"
+            )
+            delay_reason = retry_reason
         return [
             _Candidate(
                 ActionType.RETRY_PAYMENT,
                 retry_fit,
                 "medium",
                 retry_eligible,
-                (
-                    f"retry the failed payment via a fresh idempotency-keyed order; "
-                    f"failure class {cls} is "
-                    + ("transient and usually recoverable" if retry_fit >= 0.8 else
-                       "only sometimes recoverable" if retry_fit >= 0.4 else
-                       "rarely recoverable by resubmission")
-                ) if retry_eligible else (
-                    "retry requires a linked failed payment"
-                    if not has_payment
-                    else "network rules discourage resubmitting never-approve (hard) declines"
-                ),
+                retry_reason,
                 {},
             ),
             _Candidate(
@@ -312,7 +343,7 @@ class StrategyGenerator:
                 delay_fit,
                 "medium",
                 retry_eligible,
-                delay_reason if retry_eligible else "delayed retry requires a linked failed payment",
+                delay_reason,
                 {"delay_seconds": DELAY_SECONDS},
             ),
             _Candidate(

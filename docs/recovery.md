@@ -17,7 +17,8 @@ Tests: `backend/tests/recovery/`.
 incident (detected degradation)
   │  OpportunityBuilder.build_for_incident        idempotent per incident
   ▼
-recovery_opportunities      one row PER FAILED PAYMENT / per abandoned order
+recovery_opportunities      one row PER FAILED PAYMENT / per stuck-created
+                            payment / per payment-less abandoned order
   │  StrategyGenerator.generate                   find-or-create, immutable
   ▼
 recovery_strategies         ranked candidates + recommendation (selected=true)
@@ -34,14 +35,45 @@ RECOVERED / FAILED / UNKNOWN                      verification proves the outcom
 
 ## 2. Opportunities: per-payment, not batched
 
-`OpportunityBuilder` turns an incident's blast radius into opportunities:
+`OpportunityBuilder` turns an incident's blast radius into opportunities from
+three sources (all scoped to `window_start <= created_at < window_end`):
 
-- **Failed payments** in the incident window (`status == "failed"`,
-  `window_start <= created_at < window_end`) → `failed_payment_retry`.
+| source | selection | opportunity_type | natural strategy |
+|---|---|---|---|
+| Failed payment | `status == "failed"` | `failed_payment_retry` | `retry_payment` (transient classes) |
+| Stuck checkout payment | `status == "created"` for ≥ **30 min** at build time | `stuck_checkout_payment` | `create_payment_link` |
+| Abandoned order | order `created` with NO payment rows at all | `dropped_checkout` | `create_payment_link` |
+
+- **Failed payments** in the incident window (`status == "failed"`)
+  → `failed_payment_retry`.
+- **Stuck checkout payments**: payments created in the window that never
+  resolved and have been stuck in `created` for at least
+  `STUCK_CREATED_THRESHOLD` (30 min) *at build time* →
+  `stuck_checkout_payment`. This is the recovery half of detection's
+  `checkout_abandonment_rate` signal (docs/detection.md): same 30-minute
+  inactivity threshold, but evaluated against the builder's knowledge edge
+  (now), not the detection pass's window end — a payment created late in the
+  window qualifies once it is genuinely stuck, and a payment younger than
+  30 minutes is honestly left alone (it may still be in flight). The payment
+  carries no error fields, so the strategy generator classifies it
+  `abandonment` directly — the stuck state IS the abandonment signal.
 - **Abandoned checkouts**: orders still `created` with NO payment rows at all
-  → `dropped_checkout` (`meta.order_id` tracks the source order). An order
-  that has a failed payment is deliberately NOT double-counted — the
-  payment's opportunity already covers it.
+  → `dropped_checkout` (`meta.order_id` tracks the source order).
+
+**Dedup rule — exactly one opportunity per (incident, checkout):**
+
+- *Payment-level wins at selection time.* An order with ANY payment row
+  (failed or stuck-created) is excluded from the `dropped_checkout` path —
+  the payment's own opportunity already covers that checkout.
+- *First-write wins across builds.* A stuck payment whose order is already
+  represented in this incident — by an order-level `dropped_checkout` from an
+  earlier build, or by a sibling stuck attempt on the same order — is skipped
+  and reported in `BuildResult.existing`; the existing opportunity already
+  carries the checkout's customer and amount and its payment-link recovery is
+  identical.
+- Two DISTINCT payments on one order (a failed attempt plus a later stuck
+  one) are NOT merged: they are separate attempts, and the policy gate's
+  duplicate protection prevents double-firing the customer.
 
 Per-payment granularity is a hard requirement, not a style choice:
 
@@ -53,7 +85,16 @@ Per-payment granularity is a hard requirement, not a style choice:
    the opportunity's customer — per-payment rows keep them precise.
 3. **Idempotency** is per (incident, payment) / (incident, order): re-running
    the builder after new webhook arrivals adds only the delta. Proven by
-   `tests/recovery/test_builder.py::TestIdempotency`.
+   `tests/recovery/test_builder.py::TestIdempotency` and
+   `tests/recovery/test_stuck_checkout.py::TestIdempotency`.
+
+Known estimate caveat: `RevenueService.opportunity_estimate` classifies a
+stuck-created payment from its (empty) error fields as `unknown`
+(recoverability 0.10), so expected-recovery paise for
+`stuck_checkout_payment` opportunities are deliberately conservative; the
+strategy RANKING is unaffected (link still first). Teaching the revenue
+engine to fall back to the opportunity-type class when payment
+classification is `unknown` is a flagged revenue-track follow-up.
 
 ## 3. Strategy generation and the plan table
 
@@ -88,9 +129,11 @@ Each candidate carries:
 - `risk` (`low|medium|high`), `eligibility`, `reason`, `constraints`.
 
 Eligibility is a hard pre-filter (not policy — policy re-checks everything):
-retry requires a linked failed payment and is disabled for hard declines
-(network rules discourage resubmission); payment links require
-`amount >= 100` paise; notify requires a non-opted-out customer.
+retry requires a linked **failed** payment and is disabled for hard declines
+(network rules discourage resubmission) — a payment stuck in `created` has no
+failed charge to resubmit, so retry is ineligible there and the payment link
+is the recovery vehicle; payment links require `amount >= 100` paise; notify
+requires a non-opted-out customer.
 
 **Recommendation rule:** the eligible candidate with the highest
 `expected_recovery_paise`; ties break to lower risk, then candidate order.

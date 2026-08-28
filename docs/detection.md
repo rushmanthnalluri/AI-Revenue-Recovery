@@ -489,9 +489,9 @@ Per-scenario detail (recorded at the same run):
   across methods (measured once on standard/seed7: dev +907%, 1h span) —
   corroboration kills mix shifts, not genuine organic multi-method latency
   events.
-- Abandoned-checkout incidents surface revenue at risk but do not yet feed
-  recovery: the OpportunityBuilder covers failed payments and payment-less
-  dropped orders, not payments stuck in `created` (downstream scope).
+- Abandoned-checkout incidents now feed recovery: the OpportunityBuilder
+  sources payments stuck in `created` as `stuck_checkout_payment`
+  opportunities (payment-link-first strategy; see docs/recovery.md §2).
 - Seasonality: the leading-window baseline cannot tell a daily-cycle trough
   from a degradation. The noise floors + episode dedup suppress the
   resulting incidents (measured above), but multi-hour organic swings still
