@@ -127,7 +127,9 @@ BACKEND_PORT=8100 FRONTEND_PORT=3200 DB_PORT=55432 \
 - **Expect (verified):** **113 opportunities** created (103 failed-payment
   retries + 10 stuck-checkout recoveries), **₹73,071** of failed payments in
   scope.
-- **Show:** the planner list; open the smallest retry (₹100 UPI timeout).
+- **Show:** the planner list; open the smallest retry (₹100 UPI timeout) —
+  several opportunities sit at ₹100; open the `failed_payment_retry` whose
+  plan shows `retry_payment` at confidence **0.9591** (expected ₹35.00).
 - **Say:** "Each opportunity gets ranked strategies with expected recovery
   and confidence. This retry scores 0.9591 — and the gate *previews* the
   policy decision: ALLOWED."
@@ -161,12 +163,17 @@ BACKEND_PORT=8100 FRONTEND_PORT=3200 DB_PORT=55432 \
 - **Say:** "Same AI, bigger money: ₹5,656 is above the ₹5,000 auto ceiling —
   the gate says **REQUIRES_APPROVAL** (`approval.amount`) and parks it in
   PENDING_APPROVAL. The AI cannot talk its way past this."
-- **Do:** Approval center → **Approve** (actor `human:ops`).
+- **Do:** Approval center → **Approve** (actor `human:ops`) — status
+  APPROVED ("approved by human; ready to execute"). Then fire it: recovery
+  planner → open the opportunity → strategy comparison → **Execute**
+  (curl equivalent: `POST /api/v1/recovery/{opp}/execute
+  {"actor":"human:ops"}` a second time). Approving does NOT fire the
+  executor — only the explicit execute does, and it fires exactly once.
 - **Say:** "A human approves; only then does the executor fire — once —
   and the same webhook proof closes it RECOVERED."
 - **Do:** the `demo_live.py captured` beat again for this opportunity.
-- **Expect (verified):** PENDING_APPROVAL → (approve) → VERIFYING →
-  (webhook) → **RECOVERED**.
+- **Expect (verified):** PENDING_APPROVAL → (approve) → APPROVED →
+  (execute) → VERIFYING → (webhook) → **RECOVERED**.
 - **Fallback:** if a webhook beat reports `duplicate:true`, the event id was
   already consumed (same payment re-verified) — the action is already
   RECOVERED; say "dedupe just proved itself" and move on.
@@ -204,8 +211,11 @@ docker compose -f deploy/docker-compose.yml exec backend \
 
 ### 4:15–4:40 — Audit trail + revenue recovered (`/audit`, Command Center)
 
-- **Show:** Audit trail filtered to the incident — every transition with
-  actor and policy version (`1.0+sha256.5a6afe61d6db`), append-only.
+- **Show:** the Audit trail — every transition with actor and policy
+  version (`1.0+sha256.5a6afe61d6db`), append-only. Rows are filed per
+  entity (`recovery_action`, `policy_decision`, `recovery_opportunity`):
+  filter by an action or opportunity id, or scroll the stream — the
+  incident id itself carries only the two revenue-at-risk refresh rows.
 - **Show:** Command Center: **Recovered revenue ₹6,274** (100 + 5,656 + 518),
   revenue at risk now **₹46,921**, pending approvals 0.
 - **Say:** "Every rupee claimed is backed by a signed webhook and an audit
@@ -213,16 +223,19 @@ docker compose -f deploy/docker-compose.yml exec backend \
 
 ### 4:40–5:00 — Evaluation lab (`/evaluation`)
 
-- **Show:** the pre-seeded run `demo-panel-baseline`.
+- **Show:** the pre-seeded run `demo-panel-baseline-exp07` (the 2026-08-28
+  re-run against the shipped RF artifact; on a freshly seeded volume the
+  pre-flight run is named `demo-panel-baseline` — same battery, same code).
 - **Say (verified numbers, 2026-08-28 re-run):** "We measure ourselves the
-  same way: at this small scale the current battery reads detection
+  same way: the current battery reads detection
   **precision 0.33, recall 0.67** (12 incidents, 4 matched of 6 ground
   truth); diagnosis **top-1 1.0, top-3 1.0** on those matched detection
   windows; **zero unsafe actions** across the run; and the
   randomized-holdout arm isolates *incremental* lift against organic
-  recovery — when the lift isn't resolvable at this scale the lab says so
-  (today's lift reads null, and we show it). That's the discipline we'd
-  bring to Razorpay's numbers."
+  recovery — today it reads **−1.0 pp with a 95% CI of [−4.6, +2.1]**,
+  which brackets zero: at this policy envelope the fleet-level effect is
+  too small for the run to resolve, and the lab shows the CI instead of a
+  bare point. That's the discipline we'd bring to Razorpay's numbers."
 - **Do NOT** trigger a fresh run live (~55s — over budget); offer to run it
   for questions after.
 
@@ -315,8 +328,32 @@ artifact — recorded: 82.7%→20.0%, diagnosis 0.9961 on
 continuity note; the simulator anchors to today 00:00 UTC, so absolute
 figures are deterministic within a calendar day.)
 
+## Appendix C — Failure chaos (live breakage beats, panel-optional)
+
+Nine verified ways to break this stack *on purpose* and let the failure make
+the sale. Full induction commands, pasted evidence, and recovery detail:
+**`docs/demo-chaos.md`**. All nine were re-verified on 2026-08-28 against
+this HEAD; no product code was changed. Restore whatever you break; the demo
+DB is disposable (reset + re-trigger rebuilds it deterministically).
+
+| # | Break it (on the compose stack) | The panel sees | Say |
+|---|---|---|---|
+| 1 | `docker compose -f deploy/docker-compose.yml stop backend` (then `start backend`) | Red `Backend unreachable` panels + Retry, `API · Offline` pill; self-heals on poll after restart | "Designed failure states, not a white screen. The backend is stateless; truth is in the DB." |
+| 2 | `SIMULATION_MODE=false` + dummy keys, execute an action | Action **FAILED** "gateway definitively rejected (nothing happened)"; health had `razorpay_test` all along | "Wrong keys = one typed `GatewayAuthenticationError`, zero crash. Missing keys = the factory silently refuses the network and health says `simulator`." |
+| 3 | `docker compose -f deploy/docker-compose.yml stop db` | **Read F1 first:** with the stock URL the endpoints *hang* — UI shows 10s `timeout` panels, `API · Connecting`; `/healthz` stays 200 | "Liveness ≠ readiness." (For the red `database: down` pill, add `?connect_timeout=3` to `DATABASE_URL` — see F1/F2 in `docs/demo-chaos.md`.) |
+| 4 | POST `/webhooks/razorpay` with `X-Razorpay-Signature: deadbeef…` | HTTP **400** `invalid_webhook_signature`; `webhook_events` count unchanged | "Signature before parsing. A forged capture touched nothing — here are the row counts." |
+| 5 | Signed `payment.failed` → `payment.captured` → late duplicate `payment.failed` on one VERIFYING action | Pill walks VERIFYING → FAILED → **RECOVERED**; late `failed` is a no-op | "Delivery is unordered; truth isn't. A late success recovers, a late failure can't claw back." |
+| 6 | `… exec backend python scripts/demo_live.py beat-d --incident-id <id>` (Beat D) | Action **UNKNOWN** — "no blind retry, resolution by re-query"; mutation counter stays 1 | "Maybe-it-charged is the scariest state in payments. One mutation, ever; then only reads." |
+| 7 | `/recovery` → **Approval center** after beat D | Amber UNKNOWN + `NEEDS RESOLUTION` card + **Re-query gateway truth** button → RECOVERED on gateway evidence, audited | "It would rather admit 'I don't know' than be wrong about your revenue — and climbs out on evidence." |
+| 8 | `LLM_PROVIDER=openai` + `OPENAI_BASE_URL` at a garbage endpoint; re-run investigation | Blue `LLM reasoner · …(fallback: heuristic)` + red **DEGRADED** badge with the reason; report still complete | "The AI is advisory and untrusted: garbage is schema-rejected, retried once, quarantined — the gate never saw it." |
+| 9 | `… exec backend mv /srv/artifacts/diagnosis_active.json /tmp/` (**restore after**; needs a fresh/uncached incident) | Amber **HEURISTIC FALLBACK** badge, confidence ≤0.7, investigation escalates to a human | "No model file, no invented confidence: capped, badged, human-in-the-loop. Automation earns its lane." |
+
 ## See also
 
+- `docs/demo-chaos.md` — the nine-beat failure-chaos runbook (Appendix C expanded, with pasted evidence and findings F1–F4).
+
+- `docs/demo-rehearsal.md` — the final-wave timed rehearsal of this runbook
+  (two full passes, per-beat timings, first-60-seconds check).
 - `docs/demo.md` — the deterministic CLI proof suite (scenarios A–E) and its
   twice-run assertions; `backend/scripts/demo_run.py`.
 - `backend/scripts/demo_live.py` — the live-stack beats used above
