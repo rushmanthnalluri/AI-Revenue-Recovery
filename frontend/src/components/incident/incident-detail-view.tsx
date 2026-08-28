@@ -87,7 +87,11 @@ function statBand(incident: IncidentDetail): MetricStripItem[] {
       key: "affected",
       label: "Affected payments",
       value: formatNumber(incident.affected_payments_count),
-      hint: `${incident.opportunities_count ?? 0} opportunities · ${incident.recovery_actions_count ?? 0} actions`,
+      hint: `${incident.opportunities_count ?? 0} ${
+        (incident.opportunities_count ?? 0) === 1 ? "opportunity" : "opportunities"
+      } · ${incident.recovery_actions_count ?? 0} action${
+        (incident.recovery_actions_count ?? 0) === 1 ? "" : "s"
+      }`,
     },
     {
       key: "risk",

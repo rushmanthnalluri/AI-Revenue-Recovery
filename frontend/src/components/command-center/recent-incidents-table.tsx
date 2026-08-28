@@ -20,8 +20,10 @@ const columns: ColumnDef<IncidentSummary>[] = [
     key: "incident",
     header: "Incident",
     render: (row) => (
-      <div className="max-w-[340px]">
-        <p className="truncate text-[13px] font-medium text-text">{row.title}</p>
+      <div className="max-w-[220px]">
+        <p className="truncate text-[13px] font-medium text-text" title={row.title}>
+          {row.title}
+        </p>
         <p className="mt-0.5 truncate font-mono text-[10px] uppercase tracking-[0.07em] text-text-3">
           {row.metric} · {row.detection_method.replace(/_/g, " ")}
         </p>

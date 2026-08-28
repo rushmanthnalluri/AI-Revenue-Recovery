@@ -124,7 +124,7 @@ export function CommandCenterScreen() {
                 tone: "warning",
                 loading: summary.isPending,
                 value: formatINR(s?.recoverable_revenue_paise ?? 0, { compact: true }),
-                hint: "recoverable share of the at-risk loss",
+                hint: "share of at-risk loss",
               },
               {
                 key: "recovered",
@@ -141,7 +141,7 @@ export function CommandCenterScreen() {
                 label: "Recovery rate",
                 loading: summary.isPending,
                 value: formatPercent(s?.recovery_rate ?? 0),
-                hint: "recovered / (recovered + lost + at risk)",
+                hint: "recovered / all affected",
               },
               {
                 key: "active-incidents",
@@ -149,7 +149,9 @@ export function CommandCenterScreen() {
                 tone: (s?.open_incidents ?? 0) > 0 ? "danger" : "default",
                 loading: summary.isPending,
                 value: formatNumber(s?.open_incidents ?? 0),
-                hint: s ? `${s.pending_approvals} approvals pending` : undefined,
+                hint: s
+                  ? `${s.pending_approvals} approval${s.pending_approvals === 1 ? "" : "s"} pending`
+                  : undefined,
               },
               {
                 key: "success-rate",
@@ -159,8 +161,8 @@ export function CommandCenterScreen() {
                 badge: <DeltaBadge value={successDeltaPp} format={(d) => formatDeltaPP(d)} />,
                 hint: s
                   ? baseline !== null
-                    ? `baseline ${formatPercent(baseline)} · ${formatNumber(s.payments_observed)} payments (1h)`
-                    : `${formatNumber(s.payments_observed)} payments observed (1h)`
+                    ? `baseline ${formatPercent(baseline)} · ${formatNumber(s.payments_observed)} in 1h`
+                    : `${formatNumber(s.payments_observed)} observed in 1h`
                   : undefined,
               },
               {
@@ -168,7 +170,7 @@ export function CommandCenterScreen() {
                 label: "Recoveries in flight",
                 loading: summary.isPending,
                 value: formatNumber(s?.active_recoveries ?? 0),
-                hint: "actions executing or verifying",
+                hint: "executing or verifying",
               },
             ]}
           />
