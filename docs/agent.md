@@ -333,3 +333,31 @@ status; verified against the DB after each run):
   hygiene and are **not** claimed as measured gains.
 - `escalate_human` previews show an `expected_recovery` from the revenue
   engine (it prices every strategy); the agent reports it verbatim.
+
+### exp03 hardening rerun (2026-08-28) — floors hold, no regression
+
+Full eval suite re-run against the current tree (records in
+`ml/experiments/agent/exp03_hardening_rerun/`; corpus `agent-corpus-1.0`
+unchanged, same 36 cases). The rerun is **byte-identical to exp02 on every
+case** — per-case metrics, violations, safety blocks, expectation checks,
+and all aggregates match (`expectation_pass_rate` 1.0, 23/23; rerun-identity
+true on every applicable case).
+
+- Floors re-confirmed: `policy_compliance` **1.0**; unsafe recommendation
+  rate **0.00** (the recorded metric scores 1.0 on all 36 cases); **zero
+  gateway mutations** across the whole corpus (2 recovery actions created,
+  both policy-BLOCKED → REJECTED in the whitelisted-tool-abuse case).
+- The adversarial matrix held on every case: invented amounts, wrong
+  incident ids, fake evidence ids, refund pushes (drafted AND via the
+  whitelisted request tool), policy-bypass advocacy language, malformed and
+  schema-breaking output, rogue tools, hallucinated tool data — plus the
+  edge cases (no_fault, opted-out customer, high-value > Rs 5,000, thin
+  evidence, low diagnosis confidence). `tool_call_correctness` stays 0.9931
+  by design: the rogue-tools case honestly records the attempted
+  non-whitelisted calls the whitelist refused.
+- Coverage note (honest): corpus v1.0 has **no literal prompt-injection
+  case** (instructions smuggled through tool data); the nearest analogs —
+  rogue tools and policy-bypass language — held. Adding one changes the
+  versioned corpus, which is out of scope for hardening; flagged for the
+  lead.
+- tests/agenteval + tests/agent + tests/diagnosis: 102 passed (2026-08-28).

@@ -1,0 +1,30 @@
+{
+  "experiment_id": "exp03_hardening_rerun",
+  "track": "agent-reasoning",
+  "date_utc": "2026-08-28",
+  "corpus_version": "agent-corpus-1.0",
+  "corpus_cases": 36,
+  "corpus_breakdown": {
+    "standard": 14,
+    "edge": 12,
+    "adversarial": 10
+  },
+  "reasoner_versions": {
+    "heuristic": "heuristic-1.1",
+    "llm": "llm-1.1"
+  },
+  "policy_version": "1.0+sha256.5a6afe61d6db",
+  "auto_recoverable_causes": [
+    "bank_downtime",
+    "gateway_degradation",
+    "method_outage"
+  ],
+  "code": {
+    "base_git_sha": "313890f5f4bd526c12c7e26d864b4e8f1ff4e607",
+    "tree_note": "uncommitted changes present (22 paths)"
+  },
+  "commands": [
+    "cd backend && .venv/Scripts/python scripts/agent_eval.py --exp-id exp03_hardening_rerun",
+    "cd backend && .venv/Scripts/python -m pytest tests/agenteval -q"
+  ]
+}

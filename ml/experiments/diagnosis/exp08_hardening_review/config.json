@@ -1,0 +1,55 @@
+{
+  "experiment_id": "exp08_hardening_review",
+  "track": "diagnosis-ml",
+  "kind": "hardening re-verification (read-mostly; no new campaign, no new model)",
+  "date_utc": "2026-08-28",
+  "git_sha": "313890f",
+  "scope": [
+    "re-verify NO leakage: features only from payment_events/payment meta, labels only from simulator_ground_truth",
+    "re-measure calibration (ECE/Brier) + full metric blocks for the SHIPPED artifact on the recorded exp07 held-out blocks (datasets reused, never rebuilt)",
+    "re-run the exp07 gate comparison end-to-end: shipped RF and exp06 incumbent LR both re-scored fresh on identical blocks",
+    "live TestClient check on TWO fresh unseen seeds/scales against the shipped artifact",
+    "verdict on the incumbent: KEEP unless a REAL regression appears"
+  ],
+  "shipped_artifact": {
+    "pointer": "backend/artifacts/diagnosis_active.json",
+    "artifact": "diagnosis_random_forest_v20260828T013109Z-77a4ef3b.joblib",
+    "model_version": "v20260828T013109Z-77a4ef3b",
+    "rollback_incumbent": "diagnosis_logistic_regression_v20260826T234303Z-c5434878.joblib (still in backend/artifacts/)"
+  },
+  "datasets": {
+    "reused_not_rebuilt": true,
+    "integrity_pin": "sha256 of each CSV verified against exp07_tight_frame_v4/config_v4b2.json BEFORE scoring; drift aborts the run",
+    "prod_frames_v3.csv": "sha256 match (644 rows; test block n=130)",
+    "tight_frames_v1.csv": "sha256 match (435 rows; test block n=87)",
+    "sim_features.csv": "2050 rows (exact-span family; test block n=410) — not pinned in config_v4b2 sources but split by the same temporal_split call as run_v4.py",
+    "split": "temporal_split(df, 0.6, 0.2) per source — the exact run_v4.py code path"
+  },
+  "leakage_check": {
+    "feature_provenance": "backend/app/services/diagnosis/features.py reads ONLY Payment + PaymentEvent (event payload, payment meta/columns); module contains zero ground-truth/simulator references (grep-verified)",
+    "vector_contract": "features_to_vector reads only the 58 FEATURE_NAMES keys; the CSVs' GT-derived audit columns (matched_entity_id, overlap_seconds, overlapping_entity_ids, n_gt_spans) are label-decision audit fields, never model inputs (column diff vs FEATURE_NAMES recorded)",
+    "label_provenance": "all dataset builders (exp01, exp07 build_dataset.py) label via load_ground_truth(db, sim.run_id) -> GroundTruthSpan -> label_detection_window (rule prodframe-label-v1) — labels only from simulator_ground_truth"
+  },
+  "live_checks": [
+    {"tag": "seed888", "seed": 888, "days": 4, "target_events": 36000, "density_per_day": 9000},
+    {"tag": "seed1234", "seed": 1234, "days": 6, "target_events": 55000, "density_per_day": 9167}
+  ],
+  "unseen_seed_contract": "training seeds: sim_features 1000-1059, prod v1 5000-5071, v2 5072-5143, v4 6000-6143, aug 7000-7035; exp07 live check used 777/5d/40000. This review: 888/4d/36000 and 1234/6d/55000 — disjoint seeds AND scales",
+  "scope_exclusions": [
+    "demo operating points (A/B/D frames) NOT re-computed — recorded exp07 numbers carried as recorded, flagged '_recorded' in block_remeasure.json; the two fresh live checks cover the live path instead",
+    "no retraining, no dataset rebuild, no candidate search — verification only"
+  ],
+  "commands": [
+    "backend/.venv/Scripts/python ml/experiments/diagnosis/exp08_hardening_review/remeasure_blocks.py",
+    "backend/.venv/Scripts/python ml/experiments/diagnosis/exp08_hardening_review/live_check_rerun.py --seed 888 --days 4 --events 36000",
+    "backend/.venv/Scripts/python ml/experiments/diagnosis/exp08_hardening_review/live_check_rerun.py --seed 1234 --days 6 --events 55000",
+    "cd backend && .venv/Scripts/python -m pytest tests/diagnosis tests/agent tests/agenteval -q"
+  ],
+  "files": {
+    "remeasure_blocks.py": "re-measure script (this dir)",
+    "block_remeasure.json": "full fresh-vs-recorded metric blocks + gate re-evaluation",
+    "live_check_rerun.py": "parametrized live TestClient check (this dir)",
+    "live_check_seed888.json": "fresh live run A (this dir)",
+    "live_check_seed1234.json": "fresh live run B (this dir)"
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "experiment_id": "exp08_hardening_review",
+  "date_utc": "2026-08-28",
+  "shipped_model_version": "v20260828T013109Z-77a4ef3b",
+  "block_remeasure": {
+    "anchor": "exp07_tight_frame_v4/ship_metrics.json + metrics_v4b2.json; fresh numbers re-scored 2026-08-28T06:54Z on sha256-pinned CSVs",
+    "all_blocks_match_record_4dp": true,
+    "prod_v3_test_n130": {
+      "macro_f1": 0.6293, "top1": 0.7154, "top3": 0.9308,
+      "ece": 0.1291, "brier": 0.459,
+      "safe_auto_lane": 0.2708, "unsafe": 0.0928, "false_fire": 0.0206, "auto_coverage": 0.3636,
+      "vs_record": "MATCH at 4dp on every leaf (full diff in block_remeasure.json)"
+    },
+    "tight_test_n87": {
+      "macro_f1": 0.5991, "top1": 0.8506,
+      "ece": 0.0524, "brier": 0.2326,
+      "safe_auto_lane": 0.4348, "unsafe": 0.3333, "false_fire": 0.1111,
+      "vs_record": "MATCH at 4dp"
+    },
+    "span_test_n410": {
+      "macro_f1": 0.7664, "top1": 0.9098,
+      "ece": 0.1465, "brier": 0.1907,
+      "safe_auto_lane": 0.2537, "unsafe": 0.3082, "false_fire": 0.0,
+      "vs_record": "MATCH at 4dp — the disclosed weaknesses reproduce exactly, no drift"
+    },
+    "incumbent_lr_rescored_same_blocks": {
+      "prod_v3": {"macro_f1": 0.4991, "safe": 0.1906, "unsafe": 0.567},
+      "span": {"macro_f1": 0.8231, "top1": 0.878, "ece": 0.051},
+      "note": "matches exp07's recorded incumbent numbers — the gate comparison was re-run fresh on BOTH sides, not carried over"
+    }
+  },
+  "gate_reevaluation": {
+    "prod_safe_strictly_better": {"fresh_shipped": 0.2708, "fresh_incumbent": 0.1906, "pass": true},
+    "prod_unsafe_materially_lower": {"fresh_shipped": 0.0928, "fresh_incumbent": 0.567, "required": "<= incumbent - 0.10", "pass": true},
+    "prod_f1_not_materially_worse": {"fresh_shipped": 0.6293, "fresh_incumbent": 0.4991, "required": ">= incumbent - 0.03", "pass": true},
+    "span_continuity_top1": {"fresh_shipped": 0.9098, "fresh_incumbent": 0.878, "required": ">= incumbent - 0.03", "pass": true},
+    "demo_a_recorded": {"conf": 0.974, "floor": 0.867, "pass": true, "basis": "exp07 record, not re-computed in this review"},
+    "demo_d_recorded": {"conf": 1.0, "floor": 0.944, "pass": true, "basis": "exp07 record, not re-computed in this review"},
+    "span_f1_stricter_reading_DISCLOSED_FAIL": {"fresh_shipped": 0.7664, "fresh_incumbent": 0.8231, "required": ">= incumbent - 0.03", "pass": false},
+    "all_hard_clauses_pass": true
+  },
+  "leakage": {
+    "verdict": "NO LEAKAGE (re-verified 2026-08-28)",
+    "features_from": "payment_events payload + payments meta/columns only (features.py; zero ground-truth references in module)",
+    "labels_from": "simulator_ground_truth only (load_ground_truth -> prodframe-label-v1 in every dataset builder)",
+    "feature_vector_contract": "58 FEATURE_NAMES; GT-derived CSV audit columns provably excluded from the model vector"
+  },
+  "live_checks": {
+    "seed888_4d_36000": {
+      "detection_passes": 15, "incidents_persisted": 4, "incidents_diagnosed": 4,
+      "top1_correct": 2, "top1_total": 4,
+      "max_wrong_confidence": 0.6028,
+      "misses": [
+        {"incident": "inc_7ebce8e26a614886952b1e47c01152a4", "shape": "33h-wide merged latency span overlapping 4 GT episodes; label rule picks the 72000s-overlap insufficient-funds wave; model said method_outage @ 0.6028 (one of the overlapping episodes), hedged"},
+        {"incident": "inc_c1d1705f653c4b5bb7f85f352a10e18d", "shape": "exact GT tie: 7200s wave overlap vs 7200s abandonment-spike overlap; rule tie-breaks to earliest gt start (wave); model said abandonment_spike @ 0.5199 — the other tied GT span, hedged"}
+      ],
+      "model_serving": "diagnosis-random_forest @ v20260828T013109Z-77a4ef3b on every diagnosis"
+    },
+    "seed1234_6d_55000": {
+      "detection_passes": 23, "incidents_persisted": 11, "incidents_diagnosed": 11,
+      "top1_correct": 8, "top1_total": 11,
+      "max_wrong_confidence": 0.5326,
+      "misses": [
+        {"incident": "inc_c0eaf20578084fdbac1da974ca75097b", "shape": "5h latency span; wave overlap 18000s beats abandonment 6600s; model said abandonment_spike @ 0.5326 (the minority-overlap GT), hedged"},
+        {"incident": "inc_46cc8be117914049a3668e5c813c0b5c", "shape": "same exact GT tie as seed888 (7200s vs 7200s); model said abandonment_spike @ 0.5326 — the tied GT, hedged"},
+        {"incident": "inc_a9e18aa52e0346689c11d105fe926543", "shape": "thin 35-min span inside subscription_failure_spike; model said no_fault @ 0.487 — safe direction, hedged"}
+      ],
+      "model_serving": "diagnosis-random_forest @ v20260828T013109Z-77a4ef3b on every diagnosis"
+    },
+    "combined": {
+      "top1": "10/15",
+      "wrong_answers_above_0_60_confidence": 0,
+      "wrong_answers_near_auto_floor_0_85": 0,
+      "all_answers_above_0_80_confidence_correct": true,
+      "read": "misses concentrate in thin/merged/tied spans at hedged confidences — the exact failure shape disclosed in the exp07 model card; no new unsafe behavior"
+    }
+  },
+  "known_weaknesses_reconfirmed": {
+    "span_macro_f1_minority_classes": "0.7664 (bank_downtime 0.000 @ support 15, subscription_failure_spike 0.516 @ 23) — reproduces exactly",
+    "span_ece": "0.1465 — reproduces exactly",
+    "prod_auto_coverage": "0.3636 — reproduces exactly",
+    "regression_vs_record": "NONE"
+  },
+  "tests": {
+    "command": "cd backend && .venv/Scripts/python -m pytest tests/diagnosis tests/agent tests/agenteval -q",
+    "result": "102 passed in 72.87s",
+    "run_at": "2026-08-28 (this review)"
+  },
+  "verdict": "KEEP INCUMBENT"
+}

@@ -219,7 +219,8 @@ train/val/test, no shuffle, no leakage.
 
 Selected-artifact per-class test metrics (`logistic_regression`,
 `v20260826T234303Z-c5434878` — the active pointer in
-`backend/artifacts/diagnosis_active.json`):
+`backend/artifacts/diagnosis_active.json` until exp07 shipped the random
+forest (§10); still committed there for rollback):
 
 | class | P | R | F1 | support |
 |---|---:|---:|---:|---:|
@@ -250,13 +251,16 @@ gateway-degradation window classifies `gateway_degradation` at confidence
 subscription spike is classified `subscription_failure_spike` from its 24h
 detection window via `GET /api/v1/incidents/{id}` (auto-diagnosis).
 End-to-end scoring of detection-window diagnoses vs ground truth is in
-docs/evaluation.md §2 (top-1 0.60 / top-3 0.80 on the diluted 12h windows
-the scheduled passes produce — the gap vs exact spans is window dilution,
-and motivates a window re-scoping triage step).
+docs/evaluation.md (measured at this writing: top-1 0.60 / top-3 0.80 on the
+diluted 12h windows the scheduled passes produce — the gap vs exact spans is
+window dilution, and motivates a window re-scoping triage step). The current
+canonical readings live in docs/evaluation.md §3/§3b: top-1 1.000 on the 4
+matched windows of the 2026-08-28 anchor, 0.667 on the 6 of 2026-08-27.
 
 ## 9. Production-frame retraining + calibration (outcome: old artifact kept)
 
-> §8's artifact REMAINS the active pointer — this section documents the
+> §8's artifact REMAINS the active pointer at this stage of the campaign
+> (superseded by §10) — this section documents the
 > production-frame measurement, the candidate loop, and why no challenger
 > shipped. The §8 model was trained on exact
 > incident spans (+ random frames); production serves the DILUTED 12h
@@ -449,3 +453,35 @@ ALLOWED → RECOVERED, approval lane ₹5,656, beats D/E green, dashboard
 recovered ₹6,274); docs/demo.md scenario A/B/D numbers re-run and updated
 (A: diagnosis 0.9740, auto picks 0.9545, approval pick 0.8766 held by the
 amount ceiling only).
+
+### exp08 hardening re-verification (2026-08-28) — KEEP INCUMBENT
+
+Read-only re-verification of the shipped artifact (`random_forest
+v20260828T013109Z-77a4ef3b`) after all recent changes; records in
+`ml/experiments/diagnosis/exp08_hardening_review/`. Datasets reused
+(sha256-pinned against `exp07/config_v4b2.json` before scoring), never
+rebuilt; nothing retrained; the active pointer is unchanged.
+
+- The artifact reproduces `ship_metrics.json` at 4dp on every held-out
+  block: prod_v3 (n=130) ECE **0.1291** / Brier 0.4590 / safe 0.2708 /
+  unsafe 0.0928 / auto_coverage 0.3636; tight (n=87) ECE **0.0524**;
+  exact-span (n=410) ECE **0.1465** / macro-F1 0.7664 — the disclosed
+  weaknesses reproduce exactly, no drift.
+- The exp07 gate was re-run end-to-end with BOTH sides re-scored fresh on
+  identical blocks (the incumbent LR also matches its recorded numbers):
+  every hard clause PASS. The stricter span macro-F1 reading still fails
+  (0.7664 < 0.7931) — disclosed at ship time, unchanged. Demo A/D operating
+  points were not re-computed (scope exclusion; recorded 0.974/1.000 stand).
+- No-leakage re-verified: features only from `payment_events`/`payments`
+  meta (`features_to_vector` consumes only the 58 `FEATURE_NAMES`, so the
+  CSVs' GT-derived audit columns are provably not model inputs); labels only
+  from `simulator_ground_truth` (prodframe-label-v1 in every builder).
+- Live TestClient checks on two fresh unseen seeds/scales — 888 4d/36k and
+  1234 6d/55k (disjoint from every training seed and from exp07's seed-777
+  probe): combined top-1 10/15 via the real HTTP stack, every diagnosis
+  served by the shipped bytes. All misses hedged ≤0.6028 (two exact GT
+  ties, one merged multi-episode span, one minority-overlap pick, one thin
+  35-min span → no_fault) — the disclosed failure shape, zero wrong answers
+  near the 0.85 auto floor; every answer ≥0.80 was correct.
+- Verdict: **KEEP INCUMBENT**; no regression found. tests/diagnosis +
+  tests/agent + tests/agenteval: 102 passed (2026-08-28).

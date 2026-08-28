@@ -1,0 +1,231 @@
+{
+  "run_at_utc": "2026-08-28T06:58:55.834502+00:00",
+  "seed": 1234,
+  "days": 6,
+  "target_events": 55000,
+  "scenario": "standard",
+  "detection_passes": 23,
+  "ground_truth_spans": [
+    {
+      "kind": "gateway_degradation",
+      "cause": "gateway_degradation",
+      "start": "2026-08-23 08:30:00+00:00",
+      "end": "2026-08-23 10:00:00+00:00"
+    },
+    {
+      "kind": "method_outage",
+      "cause": "method_outage",
+      "start": "2026-08-24 14:30:00+00:00",
+      "end": "2026-08-24 16:30:00+00:00"
+    },
+    {
+      "kind": "route_latency",
+      "cause": "route_latency",
+      "start": "2026-08-25 03:30:00+00:00",
+      "end": "2026-08-25 05:30:00+00:00"
+    },
+    {
+      "kind": "customer_insufficient_funds_wave",
+      "cause": "customer_insufficient_funds_wave",
+      "start": "2026-08-25 18:30:00+00:00",
+      "end": "2026-08-26 14:30:00+00:00"
+    },
+    {
+      "kind": "subscription_failure_spike",
+      "cause": "subscription_failure_spike",
+      "start": "2026-08-25 22:30:00+00:00",
+      "end": "2026-08-27 22:30:00+00:00"
+    },
+    {
+      "kind": "checkout_abandonment_spike",
+      "cause": "abandonment_spike",
+      "start": "2026-08-26 12:30:00+00:00",
+      "end": "2026-08-26 15:00:00+00:00"
+    }
+  ],
+  "incidents_persisted": 11,
+  "incidents_diagnosed": 11,
+  "top1_correct": 8,
+  "top1_total": 11,
+  "model_versions_seen": [
+    "diagnosis-random_forest @ v20260828T013109Z-77a4ef3b"
+  ],
+  "results": [
+    {
+      "incident_id": "inc_f53810f19702434fba518ed9ef874098",
+      "metric": "payment_success_rate",
+      "evidence_span": [
+        "2026-08-22T20:10:00+00:00",
+        "2026-08-23T01:20:00+00:00"
+      ],
+      "expected_label_prodframe_v1": "no_fault",
+      "expected_entity": null,
+      "overlap_seconds": 0.0,
+      "diagnosis": "no_fault",
+      "confidence": 0.552,
+      "model": "diagnosis-random_forest @ v20260828T013109Z-77a4ef3b",
+      "top1_correct": true,
+      "explanation": "Predicted no_fault (confidence 0.55). Top-3: no_fault 0.55, gateway_degradation 0.13, subscription_failure_spike 0.10."
+    },
+    {
+      "incident_id": "inc_7963336632f04786b83003e6835fc6fb",
+      "metric": "capture_latency_ms",
+      "evidence_span": [
+        "2026-08-23T04:50:00+00:00",
+        "2026-08-23T11:35:00+00:00"
+      ],
+      "expected_label_prodframe_v1": "gateway_degradation",
+      "expected_entity": "inc_sim_1234_a66163a39b_00",
+      "overlap_seconds": 5400.0,
+      "diagnosis": "gateway_degradation",
+      "confidence": 0.6953,
+      "model": "diagnosis-random_forest @ v20260828T013109Z-77a4ef3b",
+      "top1_correct": true,
+      "explanation": "Predicted gateway_degradation (confidence 0.70). Top-3: gateway_degradation 0.70, method_outage 0.22, subscription_failure_spike 0.04."
+    },
+    {
+      "incident_id": "inc_4de89cb9354a4c72b2243c06092906cf",
+      "metric": "payment_success_rate",
+      "evidence_span": [
+        "2026-08-23T08:30:00+00:00",
+        "2026-08-23T09:45:00+00:00"
+      ],
+      "expected_label_prodframe_v1": "gateway_degradation",
+      "expected_entity": "inc_sim_1234_a66163a39b_00",
+      "overlap_seconds": 4500.0,
+      "diagnosis": "gateway_degradation",
+      "confidence": 0.8147,
+      "model": "diagnosis-random_forest @ v20260828T013109Z-77a4ef3b",
+      "top1_correct": true,
+      "explanation": "Predicted gateway_degradation (confidence 0.81). Top-3: gateway_degradation 0.81, method_outage 0.08, subscription_failure_spike 0.04."
+    },
+    {
+      "incident_id": "inc_a6870d92b2134312998bc22c11ec97e4",
+      "metric": "payment_success_rate",
+      "evidence_span": [
+        "2026-08-24T10:30:00+00:00",
+        "2026-08-24T18:00:00+00:00"
+      ],
+      "expected_label_prodframe_v1": "method_outage",
+      "expected_entity": "inc_sim_1234_a66163a39b_01",
+      "overlap_seconds": 7200.0,
+      "diagnosis": "method_outage",
+      "confidence": 0.9893,
+      "model": "diagnosis-random_forest @ v20260828T013109Z-77a4ef3b",
+      "top1_correct": true,
+      "explanation": "Predicted method_outage (confidence 0.99). Top-3: method_outage 0.99, no_fault 0.01, bank_downtime 0.00."
+    },
+    {
+      "incident_id": "inc_70b78e6023294253821bc0113137b5d8",
+      "metric": "capture_latency_ms",
+      "evidence_span": [
+        "2026-08-24T08:40:00+00:00",
+        "2026-08-24T19:05:00+00:00"
+      ],
+      "expected_label_prodframe_v1": "method_outage",
+      "expected_entity": "inc_sim_1234_a66163a39b_01",
+      "overlap_seconds": 7200.0,
+      "diagnosis": "method_outage",
+      "confidence": 0.9893,
+      "model": "diagnosis-random_forest @ v20260828T013109Z-77a4ef3b",
+      "top1_correct": true,
+      "explanation": "Predicted method_outage (confidence 0.99). Top-3: method_outage 0.99, no_fault 0.01, bank_downtime 0.00."
+    },
+    {
+      "incident_id": "inc_a2d3d46d409f437f9b26f884eb7fdd5b",
+      "metric": "payment_success_rate",
+      "evidence_span": [
+        "2026-08-25T03:55:00+00:00",
+        "2026-08-25T05:15:00+00:00"
+      ],
+      "expected_label_prodframe_v1": "route_latency",
+      "expected_entity": "inc_sim_1234_a66163a39b_02",
+      "overlap_seconds": 4800.0,
+      "diagnosis": "route_latency",
+      "confidence": 0.9442,
+      "model": "diagnosis-random_forest @ v20260828T013109Z-77a4ef3b",
+      "top1_correct": true,
+      "explanation": "Predicted route_latency (confidence 0.94). Top-3: route_latency 0.94, abandonment_spike 0.03, customer_insufficient_funds_wave 0.02."
+    },
+    {
+      "incident_id": "inc_440364c289364d98b53b0af3cc132382",
+      "metric": "capture_latency_ms",
+      "evidence_span": [
+        "2026-08-25T03:30:00+00:00",
+        "2026-08-25T16:40:00+00:00"
+      ],
+      "expected_label_prodframe_v1": "route_latency",
+      "expected_entity": "inc_sim_1234_a66163a39b_02",
+      "overlap_seconds": 7200.0,
+      "diagnosis": "route_latency",
+      "confidence": 0.9442,
+      "model": "diagnosis-random_forest @ v20260828T013109Z-77a4ef3b",
+      "top1_correct": true,
+      "explanation": "Predicted route_latency (confidence 0.94). Top-3: route_latency 0.94, abandonment_spike 0.03, customer_insufficient_funds_wave 0.02."
+    },
+    {
+      "incident_id": "inc_c0eaf20578084fdbac1da974ca75097b",
+      "metric": "capture_latency_ms",
+      "evidence_span": [
+        "2026-08-26T09:20:00+00:00",
+        "2026-08-26T14:20:00+00:00"
+      ],
+      "expected_label_prodframe_v1": "customer_insufficient_funds_wave",
+      "expected_entity": "inc_sim_1234_a66163a39b_03",
+      "overlap_seconds": 18000.0,
+      "diagnosis": "abandonment_spike",
+      "confidence": 0.5326,
+      "model": "diagnosis-random_forest @ v20260828T013109Z-77a4ef3b",
+      "top1_correct": false,
+      "explanation": "Predicted abandonment_spike (confidence 0.53). Top-3: abandonment_spike 0.53, customer_insufficient_funds_wave 0.25, subscription_failure_spike 0.19."
+    },
+    {
+      "incident_id": "inc_46cc8be117914049a3668e5c813c0b5c",
+      "metric": "checkout_abandonment_rate",
+      "evidence_span": [
+        "2026-08-26T12:30:00+00:00",
+        "2026-08-26T14:30:00+00:00"
+      ],
+      "expected_label_prodframe_v1": "customer_insufficient_funds_wave",
+      "expected_entity": "inc_sim_1234_a66163a39b_03",
+      "overlap_seconds": 7200.0,
+      "diagnosis": "abandonment_spike",
+      "confidence": 0.5326,
+      "model": "diagnosis-random_forest @ v20260828T013109Z-77a4ef3b",
+      "top1_correct": false,
+      "explanation": "Predicted abandonment_spike (confidence 0.53). Top-3: abandonment_spike 0.53, customer_insufficient_funds_wave 0.25, subscription_failure_spike 0.19."
+    },
+    {
+      "incident_id": "inc_e2d18f6ad5da45c3b072d04f418b5552",
+      "metric": "capture_latency_ms",
+      "evidence_span": [
+        "2026-08-27T03:45:00+00:00",
+        "2026-08-27T18:25:00+00:00"
+      ],
+      "expected_label_prodframe_v1": "subscription_failure_spike",
+      "expected_entity": "inc_sim_1234_a66163a39b_05",
+      "overlap_seconds": 52800.0,
+      "diagnosis": "subscription_failure_spike",
+      "confidence": 0.3477,
+      "model": "diagnosis-random_forest @ v20260828T013109Z-77a4ef3b",
+      "top1_correct": true,
+      "explanation": "Predicted subscription_failure_spike (confidence 0.35). Top-3: subscription_failure_spike 0.35, no_fault 0.33, customer_insufficient_funds_wave 0.17."
+    },
+    {
+      "incident_id": "inc_a9e18aa52e0346689c11d105fe926543",
+      "metric": "payment_success_rate",
+      "evidence_span": [
+        "2026-08-27T07:50:00+00:00",
+        "2026-08-27T08:25:00+00:00"
+      ],
+      "expected_label_prodframe_v1": "subscription_failure_spike",
+      "expected_entity": "inc_sim_1234_a66163a39b_05",
+      "overlap_seconds": 2100.0,
+      "diagnosis": "no_fault",
+      "confidence": 0.487,
+      "model": "diagnosis-random_forest @ v20260828T013109Z-77a4ef3b",
+      "top1_correct": false,
+      "explanation": "Predicted no_fault (confidence 0.49). Top-3: no_fault 0.49, subscription_failure_spike 0.18, customer_insufficient_funds_wave 0.14."
+    }
+  ]
+}
