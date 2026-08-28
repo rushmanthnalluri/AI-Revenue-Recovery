@@ -61,3 +61,40 @@ def test_builder_never_builds_for_excluded_customers(
     assert {o.customer_id for o in built.created} == {treated.id}
     violation_count = sum(1 for o in built.created if o.customer_id == held.id)
     assert violation_count == 0
+
+
+def test_builder_excludes_stuck_created_payments_for_holdout(
+    db_session, make_merchant, make_payment, make_incident
+):
+    """The stuck-checkout source (payments stranded in `created`) must honor
+    the holdout exactly like failed payments and abandoned orders — a held-out
+    customer's stuck payment must never yield an opportunity (and therefore
+    never an action)."""
+    merchant = make_merchant()
+    now = utcnow()
+    incident = make_incident(
+        window_start=now - timedelta(hours=2),
+        window_end=now,
+        detected_at=now,
+    )
+    held = _customer(db_session, merchant, name="held out")
+    treated = _customer(db_session, merchant, name="treated")
+
+    # One stuck-created checkout attempt per customer (older than the 30-min
+    # stuck threshold, inside the incident window, no failed payment involved).
+    for cust in (held, treated):
+        make_payment(
+            merchant,
+            customer_id=cust.id,
+            status="created",
+            created_at=now - timedelta(minutes=45),
+        )
+
+    builder = HoldoutExcludingBuilder(
+        db_session, is_excluded=lambda cid: cid == held.id
+    )
+    built = builder.build_for_incident(incident.id, actor="system:test")
+
+    assert len(built.created) == 1
+    assert built.created[0].customer_id == treated.id
+    assert built.created[0].opportunity_type == "stuck_checkout_payment"

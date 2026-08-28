@@ -145,6 +145,13 @@ class HoldoutExcludingBuilder(OpportunityBuilder):
             if not self._is_excluded(o.customer_id)
         ]
 
+    def _stuck_created_payments(self, start, end, knowledge_edge):  # noqa: ANN001 - parent signature
+        return [
+            p
+            for p in super()._stuck_created_payments(start, end, knowledge_edge)
+            if not self._is_excluded(p.customer_id)
+        ]
+
 
 __all__ = [
     "CI_LEVEL",
