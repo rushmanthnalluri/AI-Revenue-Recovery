@@ -323,9 +323,11 @@ Before/after on the **same dataset and seed**: scenario `standard` (30 days,
 at production defaults, reproduced by
 `scripts/run_evaluation.py --scenario standard --seed 42`.
 ⚠️ The simulator anchors its data window at *today* 00:00 UTC, so absolute
-numbers shift with the calendar day of the run; the published 0.185/0.833 in
-`docs/evaluation.md` was measured on a dataset anchored 2026-08-26, this
-pair on 2026-08-27. The before/after *delta* below is what is reproducible —
+numbers shift with the calendar day of the run: the pre-fix published
+reading (precision 0.185 / recall 0.833, since superseded) was measured on a
+dataset anchored 2026-08-26, this before/after pair on 2026-08-27, and the
+current published runs (docs/evaluation.md §3/§3b) span the 2026-08-27 and
+2026-08-28 anchors. The before/after *delta* below is what is reproducible —
 same day, same seed, same code except the detection change.
 
 | metric | before | after |
@@ -337,6 +339,13 @@ same day, same seed, same code except the detection change.
 | F1 | 0.237 | 0.571 |
 | MTTD (min, sim time) | 415 | 895 |
 | downstream: opportunities / interventions / false interventions | 8,460 / 100 / 12 | 719 / 60 / 6 |
+
+(Downstream-row provenance: this pair predates the randomized-holdout arm.
+With the holdout withholding ~9–10% of customers, the same post-floors
+detection state reads 655 / 60 / 5 — the number of record, in
+docs/evaluation.md §3b (`run_caa1f1a9…`, "detection v1 + first holdout
+arm"). Detection precision/recall/F1/MTTD are fleet-wide and unaffected by
+the holdout, so those rows agree across both readings.)
 
 Root causes the change attacks, measured:
 

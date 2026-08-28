@@ -43,7 +43,7 @@
 ## 4. Financial-action safety controls (defense in depth)
 
 1. **Allowlist** — only enumerated action types; refunds are structurally impossible to auto-execute (`never_auto_execute`, tested with zero-gateway-call assertion).
-2. **Thresholds** — auto-execute requires confidence ≥ 0.85 AND amount ≤ ₹5,000 AND attempts ≤ 2; anything else → human approval.
+2. **Thresholds** — auto-execute requires confidence ≥ 0.85 AND amount ≤ ₹5,000 AND attempts < 2 (i.e. first or second attempt); anything else → human approval.
 3. **Stateful guards** — stopping rule (3 consecutive failures per incident/strategy → BLOCK), per-customer daily limits, duplicate cooldown, kill switch (exempt: escalate/no_action).
 4. **Fail-closed** — malformed input, unknown action, broken config, missing history → BLOCKED or best-case REQUIRES_APPROVAL; auto-execution is structurally impossible in preview mode.
 5. **Idempotency** — gateway dedup fields (receipt/reference_id), UNIQUE `gateway_request_id`, webhook event dedup, duplicate-execute protection (exactly-once wire assertion).

@@ -62,7 +62,7 @@ Keep the built product. Three surgical additions, each small and leveraged on ex
 
 ## 6. Precise MVP (what we ship = current build + P0 + P1)
 
-**In scope (all already built, verified):** simulator with ground truth (60k+ events, 6 incident kinds); 4-detector degradation detection; ML diagnosis (held-out top-1 0.878/top-3 0.993); heuristic-default AI investigation with tool whitelist + hallucination guard; counterfactual revenue-at-risk with CIs; strategy generation; deterministic policy gate (fail-closed, content-versioned); recovery executor (idempotent, no-blind-retry, UNKNOWN resolve); Razorpay adapter + simulated twin; webhook verification (HMAC, dedup, out-of-order safe); audit trail; baseline-vs-PulseRecover evaluation; 5 deterministic demo scenarios; console UI (6 screens) per mandated design system; docker-compose deployment.
+**In scope (all already built, verified):** simulator with ground truth (60k+ events, 6 incident kinds); 4-detector degradation detection; ML diagnosis (held-out top-1 0.878/top-3 0.993 — the §8 LR reading at this writing; the exp07 random forest now active reads 0.910/0.995 on the same frame, `docs/ml.md` §10); heuristic-default AI investigation with tool whitelist + hallucination guard; counterfactual revenue-at-risk with CIs; strategy generation; deterministic policy gate (fail-closed, content-versioned); recovery executor (idempotent, no-blind-retry, UNKNOWN resolve); Razorpay adapter + simulated twin; webhook verification (HMAC, dedup, out-of-order safe); audit trail; baseline-vs-PulseRecover evaluation; 5 deterministic demo scenarios; console UI (6 screens) per mandated design system; docker-compose deployment.
 
 **Added by this strategy (P1):** holdout arm + incremental-lift reporting; decline-outlier facets + merchant-vs-network callout; detection noise-floor/dedup fix; auth hardening note.
 
@@ -70,7 +70,7 @@ Keep the built product. Three surgical additions, each small and leveraged on ex
 
 ## 7. Evaluation strategy
 
-- **Detection:** precision/recall/F1/MTTD vs simulator ground truth (current: P 0.185 / R 0.833 — P1 fix targets precision; publish both before and after).
+- **Detection:** precision/recall/F1/MTTD vs simulator ground truth (at this writing, pre-fix: P 0.185 / R 0.833 — the P1 fix has since shipped; before/after in `docs/detection.md`, current readings in `docs/evaluation.md` §3/§3b).
 - **Diagnosis:** top-1/top-3 on held-out temporal test (0.878 / 0.993) + fresh-incident acceptance (6/6).
 - **Recovery:** dual reporting — gross recovered (webhook-verified only, our existing standard, already stricter than the market) AND incremental lift vs randomized holdout with Wilson/bootstrapped CIs; stratified by failure class and method; survival analysis (time-to-recovery hazard ratio) to separate "faster" from "caused."
 - **Safety invariants:** unsafe actions == 0 (asserted), stopping rules, duplicate protection — all test-proven.
@@ -99,6 +99,9 @@ Keep the built product. Three surgical additions, each small and leveraged on ex
 14. KYA-style principal binding for approvals.
 
 ## 9. Demo story (5 minutes, deterministic)
+
+(Numbers below are indicative at this writing (2026-08-27); the rehearsed,
+verified values now live in `docs/demo.md` and `docs/demo-script.md`.)
 
 1. **Command Center** — healthy baseline, then trigger Scenario A (demo control): success rate degrades, ₹10.4L at risk appears.
 2. **Incident Intelligence** — deviation vs baseline, evidence series, decline outliers, ML diagnosis (gateway_degradation, confidence 0.90).

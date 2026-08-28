@@ -33,6 +33,10 @@ the reported mode is always the mode actually in force.
 
 ### Simulator determinism
 
+The twin is modeled on documented Razorpay API semantics + test-mode
+behaviors (docs/research.md) — no proprietary Razorpay infrastructure,
+routing, issuer, or network telemetry is used or implied.
+
 `SimulatedPaymentGateway(seed=...)` derives every outcome from
 `random.Random(f"{seed}:{entity-key}")`, so results depend only on the seed —
 not call order or wall clock (`base_ts` fixes timestamps). Two instances with
@@ -154,7 +158,7 @@ behaviour (e.g. late UPI authorization). The handlers therefore implement:
 - `backend/app/services/razorpay/errors.py` — typed errors + envelope mapping.
 - `backend/app/api/v1/webhooks.py` — webhook intake + handler registry.
 - `backend/tests/razorpay/` — MockTransport adapter tests, simulator
-  determinism tests, webhook API tests (46 tests).
+  determinism tests, webhook API tests (47 tests).
 
 ## 6. Sources
 

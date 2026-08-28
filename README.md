@@ -4,6 +4,9 @@
 
 > **Probabilistic AI proposes. Deterministic policy decides.**
 > Payment infrastructure executes. Verification proves.
+>
+> Claim-by-claim evidence audit (every number → run id / test / doc):
+> [docs/claim-matrix.md](docs/claim-matrix.md).
 
 PulseRecover watches a merchant's payment stream, detects success-rate
 degradations, diagnoses the root cause with an ML model, quantifies the
@@ -229,8 +232,9 @@ simpler model; headline numbers computed once on the untouched test block.
 exported from 60 simulator seeds — the model-selection study below; the
 **active artifact is now the exp07 random forest**
 `diagnosis_random_forest_v20260828T013109Z-77a4ef3b`, shipped through the
-pre-registered exp06 gate — span top-1 0.910 vs the LR's 0.878, unsafe-side
-error 0.567 → 0.093 — with the LR kept as rollback; see
+pre-registered campaign gate (clauses from exp05/exp06, applied in exp07 —
+exact-span top-1 0.910 vs the LR's 0.878, prod-frame unsafe-side error
+0.567 → 0.093 — with the LR kept as rollback; see
 [docs/ml.md](docs/ml.md) §10):
 
 | Model | Val macro-F1 | Test macro-F1 | Test top-1 | Test top-3 |
@@ -240,7 +244,9 @@ error 0.567 → 0.093 — with the LR kept as rollback; see
 | gradient_boosting | 0.8363 | 0.8320 | 0.9268 | 0.9927 |
 
 The three algorithms are within noise of each other; the documented
-validation rule ships the interpretable logistic regression. Honest caveats:
+validation rule ships the interpretable logistic regression in this §8
+study (the exp07 campaign later replaced it under the pre-registered gate
+described above). Honest caveats:
 `bank_downtime` is the weakest class (a single bank's failure share is close
 to organic noise; errors bias toward `no_fault` rather than a confident wrong
 cause — the intended failure mode), and these are simulator-measured numbers,
@@ -269,6 +275,23 @@ seed reproduces this run bit-for-bit on the same calendar day, and the
 same experiment on a one-day-shifted window on a later day (disclosed,
 with both anchors stated, in the doc).
 
+> **Metric card — every number in this section:**
+> run `run_b371e5b40dc9450a88d052deb03809fe` ("canonical-v2"), scenario
+> `standard`, seed 42, holdout 0.10, dataset anchored 2026-08-28 00:00 UTC,
+> diagnosis artifact `random_forest v20260828T013109Z-77a4ef3b`.
+> **Denominators:** recovery rates are over all 4,897 first-attempt failed
+> payment rows (364,686,600 paise), snapshotted before any action; lift
+> denominators are all first-attempt failures per group (ITT).
+> **Definitions:** "recovered" = webhook/inline-confirmed `RECOVERED` only
+> (UNKNOWN never counted); "unsafe" = no gate ALLOWED and no recorded human
+> approval; MTTD = simulator time; MTTR = wall clock.
+> **Gross vs incremental:** the recovery table is *gross* verified recovery;
+> the holdout table is *incremental* lift vs a randomized no-action control
+> (pre-registered estimand, Newcombe 95% CI).
+> **Basis:** simulator ground truth (synthetic data, documented priors) —
+> not Razorpay Test Mode, not production traffic; **canonical**, with the
+> 2026-08-27 readings published alongside in docs/evaluation.md §3b.
+
 **Detection** (scheduled 12h/6h passes, production defaults, detection v2):
 precision **0.333**, recall **0.667** (4/6 injected incidents found), F1
 0.444, MTTD **230 min**. The same engine scored 0.778 / 1.000 (6/6) on the
@@ -283,8 +306,8 @@ false positives) is in [docs/detection.md](docs/detection.md) and
 matched windows, all correct with the exp07 random-forest artifact. The
 two incidents the previous artifact misread are undetected (and therefore
 unscored) on this window, so the model-choice case rests on the
-pre-registered exp06 gate, not on this table
-([docs/ml.md](docs/ml.md) §10).
+pre-registered campaign gate (exp06 clauses, applied in exp07), not on
+this table ([docs/ml.md](docs/ml.md) §10).
 
 **Recovery** (verified = webhook/inline-confirmed `RECOVERED` only; both arms
 flow through the real signed-webhook path):
@@ -391,7 +414,10 @@ Real adapter and simulation twin behind one port
 
 - **The boundary is the `PaymentGateway` port.** `RazorpayGateway` speaks raw
   REST over `httpx` (no SDK) with HTTP Basic auth; `SimulatedPaymentGateway`
-  is a seeded, fully in-memory twin. `SIMULATION_MODE=true` or missing keys →
+  is a seeded, fully in-memory twin, modeled on documented Razorpay API
+  semantics + test-mode behaviors ([docs/research.md](docs/research.md)) —
+  it uses no proprietary Razorpay infrastructure, routing, issuer, or
+  network telemetry. `SIMULATION_MODE=true` or missing keys →
   the twin, always — the app can never accidentally hit the network without
   credentials. `/api/v1/system/health` reports which mode is actually in
   force.
@@ -439,22 +465,38 @@ npm run dev                   # http://localhost:3000 (use `npm run dev -- -p 31
 
 Or from the repo root: `make setup` / `make backend` / `make test`.
 
-### Regenerating the ML artifacts (important)
+### Regenerating the ML artifacts
 
-`backend/artifacts/` is **gitignored** — a fresh clone has no trained
-diagnosis model. The system still works: diagnosis falls back to the
-heuristic reasoner (confidences capped ≤ 0.7, flagged `heuristic=true`), and
-because the auto-execute floor is 0.85, **every** recovery then takes the
-human-approval lane — safe, but less autonomous. To reproduce the trained
-model (this is exactly how the shipped artifact was produced):
+`backend/artifacts/` is gitignored **except** the committed diagnosis
+models — `diagnosis_active.json`, the active joblib, and the previous
+logistic-regression joblib (kept for rollback) are allowlisted and
+committed, so a fresh clone already runs the real ML model. Regeneration
+is only needed to retrain. If the artifacts are missing, the system still
+works: diagnosis falls back to the heuristic reasoner (confidences capped
+≤ 0.7, flagged `heuristic=true`), and because the auto-execute floor is
+0.85, **every** recovery then takes the human-approval lane — safe, but
+less autonomous.
+
+To reproduce the §8 logistic-regression model (the current rollback
+artifact — this is exactly how it was produced):
 
 ```bash
 cd backend
 # 1) Export labeled feature windows from 60 simulator seeds (slow — tens of minutes)
 .venv/Scripts/python -m app.services.evaluation.export_training --out artifacts/sim_features.csv
 # 2) Train + honestly compare the three models; writes the artifact + active pointer
+#    (note: this repoints diagnosis_active.json at the LR it trains — restore the
+#    committed RF pair afterwards if you only meant to reproduce, not downgrade)
 .venv/Scripts/python scripts/train_models.py --input artifacts/sim_features.csv
 ```
+
+The **active** random-forest artifact (`v20260828T013109Z-77a4ef3b`) was
+trained on a larger frame mix (scheduled-pass production frames + tight
+ad-hoc frames + the §8 spans + a train-only augmentation). Its full
+pipeline — dataset builders, candidate scoring, the pre-registered ship
+gate, and `ship_candidate.py` — is recorded in
+`ml/experiments/diagnosis/exp07_tight_frame_v4/` and
+[docs/ml.md](docs/ml.md) §10.
 
 ## Deployment
 
@@ -468,9 +510,10 @@ docker compose -f deploy/docker-compose.yml up --build
 
 **Container diagnosis ships the real ML model.** The ACTIVE diagnosis
 artifact (`backend/artifacts/diagnosis_active.json` + the active joblib,
-~10 KB total) is committed to the repo and copied into the backend image
-(`.gitignore` / `.dockerignore` allowlist exactly those two files; every
-other artifact stays excluded). Container and local demos therefore run
+~9.8 MB total) is committed to the repo and copied into the backend image
+(`.gitignore` / `.dockerignore` allowlist exactly the pointer plus the
+active and rollback joblibs — three files; every other artifact stays
+excluded). Container and local demos therefore run
 identical, deterministic diagnosis — same model version, same confidences.
 Regenerating the model (see "Regenerating the ML artifacts") rewrites the
 pointer; commit the new pair to keep the image in sync.

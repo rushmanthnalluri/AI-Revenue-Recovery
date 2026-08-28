@@ -7,6 +7,12 @@ commerce tables (`merchants`, `customers`, `orders`, `payments`,
 `simulator_runs` + `simulator_ground_truth` — the ground truth that detection,
 diagnosis, and recovery are scored against.
 
+**Scope of realism:** the simulator is modeled on documented Razorpay API
+semantics + test-mode behaviors (`docs/research.md`, fetched 2026-08-26/27).
+It uses **no proprietary Razorpay infrastructure, routing, issuer, or network
+telemetry** — every distribution and failure rate in it is a synthetic,
+disclosed choice (below), not a measured Razorpay statistic.
+
 > Principle fit: the simulator plays the role of "payment infrastructure" and
 > "reality". What it injects is the *answer key*; PulseRecover's agents must
 > rediscover it from `payment_events` alone.
