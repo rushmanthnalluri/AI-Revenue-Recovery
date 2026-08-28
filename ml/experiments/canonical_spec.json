@@ -1,0 +1,62 @@
+{
+  "spec": "pulserecover-canonical-evaluation",
+  "version": 1,
+  "title": "Canonical evaluation — cross-day reproducible contract for the headline metrics in docs/evaluation.md §3",
+  "command": "cd backend && .venv/Scripts/python scripts/run_evaluation.py --scenario standard --seed 42 --end-date 2026-08-28 --name canonical-v2",
+  "parameters": {
+    "scenario": "standard",
+    "seed": 42,
+    "end_date": "2026-08-28",
+    "holdout_fraction": 0.10,
+    "days": 30,
+    "target_events": 65000,
+    "customers": 3000
+  },
+  "why_end_date_is_pinned": "With end_date unset the simulator anchors the 30-day window to *today* 00:00 UTC (app/simulator/engine.py), so the same seed yields a one-day-shifted dataset on a different calendar day (docs/evaluation.md §1). Pinning 2026-08-28 — the anchor the historical canonical run_b371e5b4 resolved to on its run day — freezes the window: same code + same spec reproduces the same dataset on any day.",
+  "dataset": {
+    "dataset_version": "sim_42_2b55f523ad@2026-08-28",
+    "simulator_run_id": "sim_42_2b55f523ad",
+    "anchor": "2026-08-28T00:00:00+00:00",
+    "historical_simulator_run_id": "sim_42_50f24b57d0",
+    "run_id_note": "The simulator_run_id embeds the config hash, which now includes the pinned end_date, so it differs from the historical unpinned run's sim_42_50f24b57d0. The dataset CONTENT is identical to run_b371e5b4's (same seed, same anchor): every data-derived metric matches exactly (see verification.expected). Entity ids embed the run id, so id-keyed randomization — holdout assignment (sha256 over customer id) and per-payment conversion draws — re-keys versus the historical run; draw-derived numbers (opportunity count, recovered revenue, lift point) legitimately differ from run_b371e5b4. The spec's bit-reproducibility claim is run-to-run of THIS spec, not bit-identity with the historical unpinned run."
+  },
+  "versions": {
+    "diagnosis_artifact": "random_forest v20260828T013109Z-77a4ef3b",
+    "policy": "1.0+sha256.5a6afe61d6db",
+    "harness": "313890f5f4bd526c12c7e26d864b4e8f1ff4e607",
+    "harness_note": "Verified on the working tree at this sha plus the additive --end-date/run-record changeset (scripts/run_evaluation.py, app/services/evaluation/runner.py, tests/evaluation/test_reproducibility.py); the changeset alters no simulator, detection, diagnosis, policy, or conversion logic. If any recorded version moves, expect metric movement and investigate — that is the spec doing its job."
+  },
+  "verification": {
+    "date_utc": "2026-08-28",
+    "method": "Three consecutive executions of `command`, each against its own scratch database (backend/artifacts/repro/canonical_{1,2,3.db}, gitignored), stored metrics diffed pairwise with only wall-clock MTTR stripped (metrics.mean_time_to_recover_minutes, metrics.arms.pulsecover.mttr_minutes).",
+    "runs": [
+      "run_4495b4460b314c16988b532828c304f2",
+      "run_f02fd0489191419ab89c0909f34abd06",
+      "run_33b4a0304d5f448b851bf92662f3ac18"
+    ],
+    "result": "Pairwise-identical stored metrics across all three runs with exactly two documented exception classes: (a) wall-clock MTTR (an operational pipeline measurement, not a simulator output; happened to coincide at 0.0005 min in all three runs), (b) last-bit float wobble in up to two stored diagnosis confidences per pair (e.g. 0.4796502975443439 vs 0.47965029754434385) — the same 17th-significant-digit serialization phenomenon docs/evaluation.md §1 already discloses. No draw, count, rate, revenue figure, or CI differs.",
+    "anchor_flow_proof": "Same harness, tiny scale (upi_outage_demo, seed 11, days 2, events 1200, customers 60), one run per --end-date into backend/artifacts/repro/anchor_flow.db: --end-date 2026-08-20 -> stored anchor 2026-08-20T00:00:00+00:00, dataset_version sim_11_75ecab6ca2@2026-08-20; --end-date 2026-08-21 -> stored anchor 2026-08-21T00:00:00+00:00, dataset_version sim_11_b4437152cf@2026-08-21. The stored record moves with the pin.",
+    "expected": {
+      "comment": "Data-derived values every spec run must reproduce while the recorded versions hold; draw-derived values (opportunities, recovered revenue, lift) are bit-stable across spec runs but NOT equal to the historical unpinned run (see dataset.run_id_note).",
+      "detection_precision": 0.333333,
+      "detection_recall": 0.666667,
+      "detection_f1": 0.444444,
+      "mttd_minutes": 230.0,
+      "detection_passes": 116,
+      "diagnosis_top1_accuracy": 1.0,
+      "diagnosis_top3_accuracy": 1.0,
+      "diagnosis_scored_incidents": 4,
+      "failed_payments_count": 4897,
+      "failed_amount_paise": 364686600,
+      "interventions_pulsecover": 100,
+      "approvals_required": 94,
+      "unsafe_action_count": 0,
+      "baseline_false_interventions": 421,
+      "holdout_isolation": {"holdout_opportunities_count": 0, "holdout_actions_count": 0},
+      "matches_historical_run_b371e5b4": "all of the above",
+      "draw_derived_this_spec": {"opportunities_count": 1457, "recovered_revenue_paise": 3670700, "raw_itt_lift": 0.022431, "raw_itt_lift_ci95": [-0.009443, 0.049552]},
+      "draw_derived_historical": {"opportunities_count": 1472, "recovered_revenue_paise": 2521400, "raw_itt_lift": -0.01, "raw_itt_lift_ci95": [-0.046, 0.021]}
+    }
+  },
+  "tests": "backend/tests/evaluation/test_reproducibility.py — end_date plumbing reaches the simulator config, the stored run record carries all version/anchor fields, two same-pin runs are bit-identical (wall-clock MTTR stripped)."
+}

@@ -79,7 +79,9 @@ fraction, estimand, CI method) and the lift summary in its results.
   different days share the run id and configuration but see a one-day-
   shifted dataset. Same seed + same day → bit-identical; same seed +
   different day → same experiment, shifted data. Cross-day comparisons in
-  this document always state both anchors (§3/§3b).
+  this document always state both anchors (§3/§3b). `run_evaluation.py
+  --end-date` pins the anchor explicitly; the canonical spec (§3c) uses it
+  to make the canonical evaluation reproducible on any day.
 - Verified at standard scale on 2026-08-28: two `--scenario standard
   --seed 42` runs (`canonical-v2` / `canonical-v2-repro`,
   `run_b371e5b4…` / `run_5d22f898…`) produce **bit-identical metrics**
@@ -237,8 +239,9 @@ random-forest artifact labels all four matched windows correctly
 previous logistic-regression artifact misread as `no_fault` on 2026-08-27
 are exactly the two this run does not detect, so they drop out of the
 scored set — on the four windows both runs share, the old artifact was
-also 4/4. The case for the RF swap rests on the pre-registered exp06
-gate (span top-1 0.910 vs 0.878; unsafe-side error 0.567 → 0.093), not
+also 4/4. The case for the RF swap rests on the pre-registered campaign
+gate (exp06 clauses, applied in exp07: exact-span top-1 0.910 vs 0.878;
+prod-frame unsafe-side error 0.567 → 0.093), not
 on this table — docs/ml.md §10.
 
 **Recovery (arm comparison):**
@@ -382,6 +385,248 @@ numbers in this document are always read alongside the holdout.)
 
 <!-- RESULTS-END -->
 
+### 3c. Canonical evaluation specification (pinned, cross-day reproducible)
+
+The canonical evaluation is now an explicit, machine-checkable contract:
+`ml/experiments/canonical_spec.json`. It pins every input the metrics
+depend on — scenario `standard`, seed 42, **`end_date` 2026-08-28** (the
+anchor `run_b371e5b4` resolved to on its run day, so the spec reproduces
+that run's dataset window), holdout 0.10, diagnosis artifact
+`random_forest v20260828T013109Z-77a4ef3b`, policy
+`1.0+sha256.5a6afe61d6db`, harness git sha — and records the exact
+command:
+
+```bash
+cd backend && .venv/Scripts/python scripts/run_evaluation.py \
+  --scenario standard --seed 42 --end-date 2026-08-28 --name canonical-v2
+```
+
+**Run-record completeness.** Every run now stores `metrics.dataset`
+(scenario, seed, `simulator_run_id`, pinned `end_date`, resolved `anchor`,
+and `dataset_version` = `<simulator_run_id>@<anchor-date>`) and
+`metrics.versions` (`diagnosis_artifact`, `policy` — the content-hashed
+policy file the gate evaluated with); the same blocks land in the
+`experiments` row's pre-registered config. Additive: older runs simply
+lack these keys.
+
+**Verified 2026-08-28 — three consecutive spec runs**
+(`run_4495b4460b314c16988b532828c304f2`,
+`run_f02fd0489191419ab89c0909f34abd06`,
+`run_33b4a0304d5f448b851bf92662f3ac18`, each against its own scratch
+database): stored metrics are **pairwise bit-identical** with only the two
+documented exception classes of §1 — wall-clock MTTR (which in fact
+coincided at 0.0005 min in all three) and the 17th-significant-digit float
+wobble in stored diagnosis confidences (0.4796502975443439 vs
+…4385; 0.7639152548558948 vs …8947 across pairs). No draw, count, rate,
+revenue figure, or CI differs. **Anchor flow is proven** by the stored
+records: the same harness at tiny scale with `--end-date 2026-08-20`
+records anchor `2026-08-20T00:00:00+00:00` /
+`sim_11_75ecab6ca2@2026-08-20`; with `--end-date 2026-08-21`,
+`2026-08-21T00:00:00+00:00` / `sim_11_b4437152cf@2026-08-21`.
+
+**How the pinned spec relates to `run_b371e5b4`.** Same seed + same
+2026-08-28 anchor ⇒ identical dataset content: detection 0.333/0.667/0.444,
+MTTD 230 min over 116 passes, diagnosis top-1/top-3 1.000 (4 scored),
+4,897 failed rows / 364,686,600 paise, 100 interventions / 94 approvals,
+421 baseline false interventions, 0 unsafe, 0/0 isolation — all match the
+§3 run exactly. But pinning `end_date` enters it into the config hash, so
+the pinned run's `simulator_run_id` is `sim_42_2b55f523ad` (vs the
+historical `sim_42_50f24b57d0`). Entity ids embed the run id, so the two
+id-keyed randomizations re-key: holdout assignment (sha256 over the
+customer id — realized 10.1% here vs 9.2% historically) and the
+per-payment conversion draws. Draw-derived numbers therefore legitimately
+differ from §3: opportunities 1,457 (vs 1,472), verified recovered
+3,670,700 paise (vs 2,521,400), raw ITT lift **+2.2 pp [−0.9, +5.0]**
+(vs −1.0 pp [−4.6, +2.1]) — same underpowered band and the same §3
+conclusion: the point estimate is noise in either direction at this policy
+envelope. The spec's guarantee is run-to-run bit-reproducibility of the
+pinned evaluation on any day, not retroactive bit-identity with the
+historical unpinned run.
+
+### 3d. Multi-anchor robustness: the canonical spec across 7 calendar anchors
+
+The §3c spec makes any single anchor reproducible; it says nothing about
+whether one anchor's numbers are representative. This section runs the
+identical canonical spec — scenario `standard`, seed 42, holdout 0.10,
+only `--end-date` moving — across **7 pre-committed anchors spanning
+exactly 3 weeks** (2026-08-07 → 2026-08-28, the canonical anchor
+included), via `backend/scripts/run_multi_anchor.py`. Every run is stored
+(run ids below; per-anchor dumps and the full analysis in
+`ml/experiments/multi_anchor/`; run rows in
+`backend/artifacts/multi_anchor/multi_anchor.db`). No anchor was tuned,
+dropped, or re-run selectively; the content fingerprint over `backend/app`
++ the policy file was stable across the batch (`77dc23ba90e2b122`), and
+the 2026-08-28 anchor reproduces the canonical spec's expected values
+exactly (18/18, draw-derived ones included). Anchors are calendar
+placements of the same generative process, not independent traffic: the
+30-day windows overlap, so this measures window sensitivity, honestly
+bounded — not generalization.
+
+**What the anchor set controls.** Right edges a whole number of weeks
+apart generate the *same dataset*, time-shifted and re-id'd (the
+simulator's RNG is seeded by the seed alone and day-of-week quotas repeat
+weekly; ids embed the `end_date`-keyed run id). Measured:
+{08-07, 08-14, 08-28} are one dataset (68,410 events / 4,897 failed rows),
+{08-18, 08-25} another (69,018 / 5,000), 08-10 and 08-22 unique — control
+groups verified identical on events, failed rows, amounts, per-class mix,
+and ground truth. Inside a control group every data-derived detection
+number is bit-identical and every difference is draw re-keying; across
+groups the calendar placement itself differs. The 7 anchors are therefore
+4 distinct datasets × re-keyed draws — which is what lets the analysis
+below separate *window* variance from *draw* variance.
+
+<!-- MULTI-ANCHOR-TABLES-START -->
+
+| anchor | run id | dataset version | wall |
+|---|---|---|---:|
+| 2026-08-07 | `run_0f7a34583dda43658d0ed51702a1efd7` | `sim_42_0269faaddc@2026-08-07` | 101s |
+| 2026-08-10 | `run_f9435560796f412dae91dcb79b50f1de` | `sim_42_f2f831008d@2026-08-10` | 125s |
+| 2026-08-14 | `run_c14f18d5ae2d472e9426c5063242f5bb` | `sim_42_cf55cc0d36@2026-08-14` | 94s |
+| 2026-08-18 | `run_e073cb39d2994cfd88e829da437ecade` | `sim_42_b716d31f2a@2026-08-18` | 86s |
+| 2026-08-22 | `run_e2db3506dffa4efc9d66c98a94e52d78` | `sim_42_7275c9dda3@2026-08-22` | 110s |
+| 2026-08-25 | `run_7ecacdcf50cd42e58b3ce9ae94a70a15` | `sim_42_d78d99fa2d@2026-08-25` | 195s |
+| 2026-08-28 | `run_9b86b04f86d64e628d36104731d052f1` | `sim_42_2b55f523ad@2026-08-28` | 250s |
+
+| anchor | det P | det R | det F1 | MTTD (min) | matched (of 6) | unmatched rows | diag top-1 | diag top-3 (scored) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2026-08-07 | 0.333 | 0.667 | 0.444 | 230 | 4 | 8 | 1.000 | 1.000 (4) |
+| 2026-08-10 | 0.385 | 0.833 | 0.526 | 563 | 5 | 8 | 0.800 | 1.000 (5) |
+| 2026-08-14 | 0.333 | 0.667 | 0.444 | 230 | 4 | 8 | 1.000 | 1.000 (4) |
+| 2026-08-18 | 0.714 | 0.833 | 0.769 | 635 | 5 | 2 | 0.800 | 1.000 (5) |
+| 2026-08-22 | 0.444 | 0.667 | 0.533 | 230 | 4 | 5 | 1.000 | 1.000 (4) |
+| 2026-08-25 | 0.714 | 0.833 | 0.769 | 635 | 5 | 2 | 0.800 | 1.000 (5) |
+| 2026-08-28 | 0.333 | 0.667 | 0.444 | 230 | 4 | 8 | 1.000 | 1.000 (4) |
+
+| anchor | opportunities | interventions | approvals | false int. (PR) | false int. (base) | unsafe | recovered, verified (paise) | baseline recovered (paise) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2026-08-07 | 1,424 | 100 | 95 | 6 | 421 | 0 | 2,258,400 | 100,041,200 |
+| 2026-08-10 | 1,588 | 100 | 100 | 6 | 438 | 0 | 2,666,200 | 91,150,100 |
+| 2026-08-14 | 1,433 | 100 | 95 | 8 | 421 | 0 | 2,187,500 | 98,345,100 |
+| 2026-08-18 | 935 | 70 | 70 | 7 | 438 | 0 | 1,403,600 | 96,776,700 |
+| 2026-08-22 | 1,090 | 90 | 90 | 4 | 415 | 0 | 1,455,300 | 96,761,200 |
+| 2026-08-25 | 934 | 70 | 70 | 6 | 438 | 0 | 1,735,700 | 93,386,700 |
+| 2026-08-28 | 1,457 | 100 | 94 | 8 | 421 | 0 | 3,670,700 | 92,398,100 |
+
+| anchor | treatment rate | holdout rate | raw ITT lift, pp [95% CI] | class-adj lift, pp [95% CI] | realized holdout |
+|---|---:|---:|---:|---:|---:|
+| 2026-08-07 | 0.147 | 0.135 | +1.2 [-2.0, +4.0] | +1.2 [-1.7, +4.0] | 0.100 |
+| 2026-08-10 | 0.144 | 0.148 | -0.5 [-3.9, +2.6] | -0.4 [-3.5, +2.7] | 0.101 |
+| 2026-08-14 | 0.144 | 0.128 | +1.7 [-1.5, +4.3] | +1.6 [-1.2, +4.4] | 0.109 |
+| 2026-08-18 | 0.146 | 0.159 | -1.3 [-4.8, +1.7] | -1.7 [-4.8, +1.5] | 0.105 |
+| 2026-08-22 | 0.150 | 0.157 | -0.7 [-4.2, +2.4] | -1.2 [-4.5, +2.0] | 0.107 |
+| 2026-08-25 | 0.142 | 0.154 | -1.2 [-4.9, +2.0] | -0.4 [-3.7, +2.8] | 0.091 |
+| 2026-08-28 | 0.144 | 0.122 | +2.2 [-0.9, +5.0] | +1.5 [-1.5, +4.5] | 0.101 |
+
+| incident kind | 08-07 | 08-10 | 08-14 | 08-18 | 08-22 | 08-25 | 08-28 | detected |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `gateway_degradation` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | 7/7 |
+| `method_outage` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | 7/7 |
+| `route_latency` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | 7/7 |
+| `customer_insufficient_funds_wave` | · | · | · | · | · | · | · | 0/7 |
+| `checkout_abandonment_spike` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | 7/7 |
+| `subscription_failure_spike` | · | ✓ | · | ✓ | · | ✓ | · | 3/7 |
+
+| metric | mean | min | max | stdev (sample) |
+|---|---:|---:|---:|---:|
+| detection precision | 0.465 | 0.333 | 0.714 | 0.175 |
+| detection recall | 0.738 | 0.667 | 0.833 | 0.089 |
+| detection F1 | 0.562 | 0.444 | 0.769 | 0.147 |
+| MTTD (min) | 393 | 230 | 635 | 205 |
+| matched incidents (of 6) | 4.428571 | 4 | 5 | 0.534522 |
+| unmatched incident rows | 5.857143 | 2 | 8 | 2.853569 |
+| diagnosis top-1 | 0.914 | 0.800 | 1.000 | 0.107 |
+| diagnosis top-3 | 1.000 | 1.000 | 1.000 | 0.000 |
+| opportunities | 1,265.857143 | 934 | 1,588 | 271.961657 |
+| interventions (PulseCover) | 90.0 | 70 | 100 | 14.142136 |
+| false interventions (PulseCover) | 6.428571 | 4 | 8 | 1.397276 |
+| false interventions (baseline) | 427.428571 | 415 | 438 | 10.11364 |
+| unsafe actions | 0.0 | 0 | 0 | 0.0 |
+| recovered revenue, verified (paise) | 2,196,771.428571 | 1,403,600 | 3,670,700 | 794,585.878963 |
+| baseline recovered (paise) | 95,551,300.0 | 91,150,100 | 100,041,200 | 3,289,597.454097 |
+| failed payment rows | 4,921.0 | 4,845 | 5,000 | 57.859024 |
+| treatment recovery rate | 0.145 | 0.142 | 0.150 | 0.003 |
+| holdout recovery rate | 0.143 | 0.122 | 0.159 | 0.015 |
+| raw ITT lift (pp) | +0.2 | -1.3 | +2.2 | +1.5 |
+| class-adjusted lift (pp) | +0.1 | -1.7 | +1.6 | +1.3 |
+
+<!-- MULTI-ANCHOR-TABLES-END -->
+
+**What moves, and why.** Attribution is read from each anchor's stored
+ground truth plus a detection probe (`--probe`) that re-runs the arm's
+exact 12h/6h pass schedule per anchor and scores per-incident MTTD and
+window composition; the probe's matched counts and mean MTTD reproduce
+the stored runs on 7/7 anchors.
+
+1. **Recall is per-kind stable, not per-window.** Four kinds
+   (`gateway_degradation`, `method_outage`, `route_latency`,
+   `checkout_abandonment_spike`) are found on 7/7 anchors, per-incident
+   MTTD flat at 215/215/155/335 min. The recall swing (0.667–0.833) is
+   exactly two kinds.
+2. **`customer_insufficient_funds_wave` is a stable blind spot at the
+   shipped operating point: 0/7** — despite being the largest injection
+   on every anchor (133–193 injected failures; 56–61% of all failures in
+   its 20h night window are insufficient-funds class). Mechanism, from
+   `ml/experiments/detection/exp003`: the `insufficient_fund_share`
+   signal flags only 1h buckets with share ≥ 0.90 at z ≥ 3 — floors set
+   to keep organic 0.71-share daytime clusters out. The wave's failures
+   spread across night-trough buckets and never concentrate into a
+   near-single-class hour on these 7 windows. exp003 tuned and validated
+   the signal on the 2026-08-27 anchor, where it *did* cross (§3b recall
+   6/6). Counting that anchor, the kind is caught **1/8** — the clearest
+   evidence in this section that a single-window detection headline
+   overstates recall, and a candidate follow-up (night-bucket floors),
+   disclosed rather than tuned here.
+3. **`subscription_failure_spike` is a knife-edge: exactly 5 injected
+   failures over its 48h window on every anchor, found 3/7** (08-10,
+   08-18, 08-25; 4/8 counting 2026-08-27). Window failure totals
+   (301–340) do not separate found from missed — the within-window
+   organic texture does; the kind sits at the detector's floor. When
+   found, it is found **1,895–2,255 min** after injection start (the 5
+   failures must accumulate), which fully decomposes the MTTD swing:
+   (215+215+155+335)/4 = **230 min** on 4-match anchors;
+   (920+1,895)/5 = **563**, (920+2,255)/5 = **635** on 5-match anchors.
+   MTTD's variance is composition, not detection speed.
+4. **Diagnosis top-3 is 1.000 on all 7 anchors; the only top-1 misses
+   are one recurring mode.** On the 3 anchors where the sparse
+   subscription window surfaces, the artifact labels it `no_fault`
+   (confidence 0.52–0.54, true label rank 2) — the exp07 artifact's
+   disclosed failure shape (docs/ml.md §10 tradeoffs; exp08
+   re-verification), not an anchor effect. Every other matched incident
+   is top-1 correct everywhere (top-1 1.000 on 4 anchors, 0.800 on the
+   three 5-match anchors).
+5. **Recovery economics are policy-pinned and draw-noised.** The gate's
+   wall-clock brakes bind on every anchor: interventions 70–100 against
+   934–1,588 opportunities (§1's rate-limit note), unsafe actions **0**
+   on every anchor, holdout isolation 0/0 on every anchor, verified
+   conversion on executed actions 25.7–38.0% vs the ~12–16% organic
+   group rates — "the actions that execute do work" holds everywhere.
+   Verified recovered revenue spans 1,403,600–3,670,700 paise — and the
+   identical-dataset triple alone spans 2,187,500–3,670,700 (1.7×) on
+   conversion-draw and holdout-exclusion re-keying only. A single run's
+   gross recovery figure carries at least that much noise.
+6. **The ITT lift point is window noise; the CI is the measurement.**
+   Raw lift spans −1.3…+2.2 pp (class-adjusted −1.7…+1.6); **all 7 raw
+   CIs bracket zero**; realized holdout 9.1–10.9%. §3's "the point
+   estimate is noise in either direction" — inferred there from two
+   anchors — is now measured across 7: at this policy envelope the
+   fleet-level effect never resolves out of the ±5 pp band, and inside
+   the identical-dataset triple the point still spans +1.2…+2.2 pp on
+   draws alone.
+
+**Bottom line.** The durable §3 claims survive every anchor: ~98%
+intervention reduction vs the baseline (97.9–98.6%), false interventions
+4–8 vs the baseline's 415–438, zero unsafe actions, 0/0 holdout
+isolation, and the underpowered-lift band. The window-sensitive claims
+are now quantified instead of anecdotal: recall 0.667–0.833 with the
+per-kind matrix above, precision 0.333–0.714 (2–8 unmatched organic-noise
+episodes per anchor), MTTD 230–635 min (composition), single-run
+recovered revenue ±1.7× on draws alone. Reproduce: `cd backend &&
+.venv/Scripts/python scripts/run_multi_anchor.py` (~20 min; `--probe`
+adds the per-incident detection detail); verify:
+`backend/.venv/Scripts/python ml/experiments/multi_anchor/cross_check.py`
+(re-checks files ↔ stored rows ↔ this section's tables, and the
+canonical-spec expected values).
+
 ## 4. Honest limitations
 
 - The customer conversion table — including `no_action` — is a documented
@@ -401,11 +646,16 @@ numbers in this document are always read alongside the holdout.)
   at precision 0.778 on the 2026-08-27 anchor and recall 4/6 at precision
   0.333 on the 2026-08-28 anchor (§3/§3b) — misses and false-positive
   volume move with the traffic the window happens to contain. Both
-  readings are stated and measured; multi-anchor replay is the follow-up.
-- **The dataset is calendar-day anchored** (§1): "same seed" reproduces
-  bit-for-bit only within a calendar day; cross-day runs share the
-  configuration, not the data. Pinning `end_date` for cross-day
-  bit-reproducibility is a disclosed follow-up, not done here.
+  readings are stated and measured; the multi-anchor replay shipped in
+  §3d quantifies the sensitivity across 7 anchors (per-kind recall is
+  stable; the insufficient-funds wave is a stable blind spot at the
+  shipped floors; precision swings 0.333–0.714 on organic-noise volume).
+- **The dataset is calendar-day anchored unless pinned** (§1): "same
+  seed" reproduces bit-for-bit within a calendar day; cross-day runs share
+  the configuration, not the data. `run_evaluation.py --end-date` pins the
+  anchor and the canonical spec (§3c) uses it — cross-day bit-
+  reproducibility is shipped for runs made through the spec. The §3/§3b
+  history predate the flag and stays as recorded.
 - SQLite-scale synchronous execution: `POST /api/v1/evaluation/run` blocks
   for the whole run (seconds at reduced scale; minutes at full preset
   scale). That is deliberate for the demo — the CLI is the full-scale path.
@@ -418,6 +668,8 @@ cd backend
 .venv/Scripts/python scripts/run_evaluation.py --scenario standard --seed 42
 # same, with a readable run name (how §3's canonical-v2 was produced)
 .venv/Scripts/python scripts/run_evaluation.py --scenario standard --seed 42 --name canonical-v2
+# cross-day reproducible: pin the window anchor (the canonical spec, §3c)
+.venv/Scripts/python scripts/run_evaluation.py --scenario standard --seed 42 --end-date 2026-08-28 --name canonical-v2
 # explicit holdout fraction / disabled holdout
 .venv/Scripts/python scripts/run_evaluation.py --scenario standard --seed 42 --holdout-fraction 0.10
 .venv/Scripts/python scripts/run_evaluation.py --scenario standard --seed 42 --holdout-fraction 0

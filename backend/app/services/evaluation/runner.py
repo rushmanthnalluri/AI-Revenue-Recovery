@@ -84,8 +84,10 @@ from app.ports import ActionType, PolicyOutcome, RecoveryStatus
 from app.schemas.detection import DetectionRunRequest
 from app.services.detection import run_detection
 from app.services.detection.series import latest_event_anchor
-from app.services.diagnosis.service import DiagnosisError, DiagnosisService
+from app.services.diagnosis.heuristic import HEURISTIC_VERSION
+from app.services.diagnosis.service import DEFAULT_ARTIFACTS_DIR, DiagnosisError, DiagnosisService
 from app.services.diagnosis.taxonomy import CauseLabel
+from app.services.diagnosis.training import ACTIVE_POINTER
 from app.services.evaluation.holdout import (
     CI_Z,
     DEFAULT_HOLDOUT_FRACTION,
@@ -94,6 +96,7 @@ from app.services.evaluation.holdout import (
     median,
     newcombe_ci,
 )
+from app.services.policy.config import PolicyConfigError, load_policy_config
 from app.services.razorpay.simulated import SimulatedPaymentGateway
 from app.services.recovery import OpportunityBuilder, RecoveryExecutor, StrategyGenerator
 from app.services.revenue.classify import FailureClass, classify_failure
@@ -200,6 +203,48 @@ def truth_cause(truth: dict[str, Any]) -> str:
     if kind == "method_outage" and (truth.get("params") or {}).get("bank"):
         return CauseLabel.BANK_DOWNTIME.value
     return KIND_TO_CAUSE.get(kind, CauseLabel.NO_FAULT.value)
+
+
+def resolve_anchor(config: SimulatorConfig) -> datetime:
+    """The window right edge the simulator engine will use for this config —
+    the pinned ``end_date`` or *today* 00:00 UTC when unset (mirrors
+    ``app/simulator/engine.py``). Recorded on every run so the dataset anchor
+    is never implicit."""
+    anchor = config.end_date
+    if anchor is None:
+        anchor = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    elif anchor.tzinfo is None:
+        anchor = anchor.replace(tzinfo=timezone.utc)
+    return anchor
+
+
+def dataset_version(config: SimulatorConfig, anchor: datetime) -> str:
+    """Anchor-qualified dataset version: the deterministic simulator run id
+    (seed + config hash) plus the resolved anchor date. Same seed on a
+    different anchor is a different dataset; this string separates them."""
+    return f"{config.run_id}@{anchor.date().isoformat()}"
+
+
+def _active_diagnosis_artifact_id(artifacts_dir: Path | str | None) -> str:
+    """``<algo> <model_version>`` of the artifact the DiagnosisService will
+    load (the active pointer), or the heuristic fallback version when no
+    pointer exists — exactly what the arm's predictions will carry."""
+    directory = Path(artifacts_dir) if artifacts_dir else DEFAULT_ARTIFACTS_DIR
+    try:
+        pointer = json.loads((directory / ACTIVE_POINTER).read_text(encoding="utf-8"))
+        return f"{pointer['algo']} {pointer['model_version']}"
+    except (OSError, ValueError, KeyError):
+        return HEURISTIC_VERSION
+
+
+def _policy_version() -> str:
+    """The policy file version the gate will evaluate with (content-hashed by
+    the loader). A broken file fails the run downstream in the executor; the
+    record notes it rather than crashing the bookkeeping."""
+    try:
+        return load_policy_config().policy_version
+    except PolicyConfigError as exc:
+        return f"error: {exc}"
 
 
 def _parse_ts(value: Any) -> datetime:
@@ -362,6 +407,7 @@ class EvaluationRunner:
         customers: int | None = None,
         evaluation_type: str = "end_to_end",
         holdout_fraction: float | None = None,
+        end_date: datetime | None = None,
     ) -> EvaluationRun:
         if scenario not in SCENARIOS:
             raise ValueError(
@@ -382,10 +428,27 @@ class EvaluationRunner:
                 "days": days,
                 "target_events": events,
                 "customers": customers,
+                "end_date": end_date,
             }.items()
             if v is not None
         }
         config = dataclasses.replace(base, **overrides)
+
+        # Run-record completeness: pin down every version/anchor the metrics
+        # depend on, so a stored run is fully reproducible from its own row.
+        anchor = resolve_anchor(config)
+        dataset = {
+            "scenario": scenario,
+            "seed": config.seed,
+            "simulator_run_id": config.run_id,
+            "end_date": config.end_date.isoformat() if config.end_date else None,
+            "anchor": anchor.isoformat(),
+            "dataset_version": dataset_version(config, anchor),
+        }
+        versions = {
+            "diagnosis_artifact": _active_diagnosis_artifact_id(self._artifacts_dir),
+            "policy": _policy_version(),
+        }
 
         run = EvaluationRun(
             name=name,
@@ -411,7 +474,10 @@ class EvaluationRunner:
                 "days": days,
                 "events": events,
                 "customers": customers,
+                "end_date": end_date.isoformat() if end_date else None,
                 "base_config": config.config_dict(),
+                "dataset": dataset,
+                "versions": versions,
                 "detection": {
                     "step_minutes": DETECTION_STEP_MINUTES,
                     "window_minutes": DETECTION_WINDOW_MINUTES,
@@ -446,6 +512,11 @@ class EvaluationRunner:
             baseline = self._run_baseline(config)
             pulsecover = self._run_pulsecover(config, holdout_fraction=fraction)
             metrics = self._assemble(baseline, pulsecover)
+            # Additive run-record completeness (older runs lack these keys):
+            # the dataset anchor/version and the model/policy versions the
+            # metrics depend on.
+            metrics["dataset"] = dataset
+            metrics["versions"] = versions
             run.status = "completed"
             run.metrics = metrics
             run.finished_at = utcnow()
@@ -1377,5 +1448,7 @@ __all__ = [
     "OPERATOR",
     "SELF_RESOLUTION_MAX_LAG_MINUTES",
     "ScopedFailure",
+    "dataset_version",
+    "resolve_anchor",
     "truth_cause",
 ]

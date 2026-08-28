@@ -21,6 +21,8 @@ from app.services.evaluation.runner import (
     SELF_RESOLUTION_MAX_LAG_MINUTES,
     EvaluationRunner,
     ScopedFailure,
+    dataset_version,
+    resolve_anchor,
     truth_cause,
 )
 
@@ -38,10 +40,12 @@ __all__ = [
     "SELF_RESOLUTION_MAX_LAG_MINUTES",
     "EvaluationRunner",
     "ScopedFailure",
+    "dataset_version",
     "holdout_token",
     "is_holdout",
     "median",
     "newcombe_ci",
+    "resolve_anchor",
     "truth_cause",
     "wilson_interval",
 ]
