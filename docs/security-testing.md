@@ -4,7 +4,7 @@ Companion to `docs/security-architecture.md` (design posture) and `docs/policy.m
 (threat model). This document records a dedicated break-it engagement: 13 attack
 vectors aimed at the **untested** surface, what broke, the fixes, and the proof.
 
-> Suite: `backend/tests/security/` (77 tests). Every fix below has a regression
+> Suite: `backend/tests/security/` (88 tests). Every fix below has a regression
 > test there; every "safe" verdict has a proof test, not an assertion of faith.
 
 ## Mandatory guarantees — verdict
@@ -85,6 +85,52 @@ vectors aimed at the **untested** surface, what broke, the fixes, and the proof.
   still passes NaN to the gate, which BLOCKs it — both surfaces fail closed.
 - **Regression:** `tests/security/test_input_abuse.py::TestExtremeNumericInputs`.
 
+### VULN-6 — `payment_link.paid` trusted `reference_id` without an amount cross-check (CONFIRMED, fixed)
+
+- **What:** the link-paid handler anchored on `reference_id ==
+  gateway_request_id` and marked the linked action RECOVERED on that identity
+  alone. The anchor proves WHICH action the link belongs to, not that the
+  paid amount is the amount we asked for — amount/currency drift (gateway-side
+  anomaly, or a forged payload from the sim-secret holder, accepted risk #1)
+  booked false recovered revenue. A partial payment counted as fully
+  recovered, too.
+- **Attack:** signature-valid `payment_link.paid` with a real `reference_id`
+  but `amount` ≠ `action.amount_paise`, mismatched `currency`,
+  `status: "partial_paid"`, `amount_paid < amount`, or no `amount` at all.
+- **Fix:** `app/services/recovery/webhook_handlers.py` — before RECOVERED the
+  handler now cross-checks the link entity against the action: integer
+  `amount` exactly equal to `amount_paise` (missing/non-integer fails closed
+  as `amount_unverifiable`), `currency` equal when present, and fully paid
+  (`status != "partial_paid"` and integer `amount_paid >= amount`).
+  **Partial payments never count as recovered.** Any mismatch holds the
+  action in its current open state (VERIFYING in the normal flow), sets
+  `last_error` with expected-vs-actual, and appends a
+  `verification.amount_mismatch` audit row. The event is marked processed
+  (the payload is immutable — reprocessing could only duplicate the hold), so
+  the reconcile sweep does not re-run it; the hold is NOT terminal for the
+  action — a later event carrying corrected amounts (e.g. the customer
+  completing a partial link) recovers it normally.
+- **Regression:** `tests/security/test_payment_link_verification.py::TestPaymentLinkAmountVerification`
+  (exact match recovers; amount/currency mismatch holds + audit + zero
+  recovered revenue; partial/underpaid/missing-amount holds; corrected
+  redelivery recovers; FAILED + late matching link-paid still recovers).
+
+### VULN-7 — Webhook ack `detail` echoed unbounded payload-derived text (CONFIRMED, fixed)
+
+- **What:** `dispatch_event` returned handler error text
+  (`handler error: …`) and handler notes (`unknown payment {id}…`) verbatim;
+  the API layer echoed that in the ack `detail` and stored it on
+  `webhook_events.error`. Exception text and ids are payload-derived, so a
+  signature holder could reflect arbitrary-length text back to themselves
+  (self-XSS-ish noise channel; bounded reach but unbounded size).
+- **Fix:** `app/services/recovery/webhook_handlers.py` — every `detail`
+  string returned by `dispatch_event` is capped at 200 chars
+  (`_DETAIL_MAX_CHARS`, `...[truncated]` suffix). The full error text remains
+  server-side in the structured logs (`logger.exception` with traceback).
+- **Regression:** `tests/security/test_payment_link_verification.py::TestAckDetailTruncation`
+  (handler error capped; 5000-char payload id capped in ack AND stored row;
+  short notes pass through verbatim).
+
 ## Attack matrix
 
 | # | Vector | Method | Result | Proof test |
@@ -103,6 +149,8 @@ vectors aimed at the **untested** surface, what broke, the fixes, and the proof.
 | 11 | Excessive amounts | ₹10,000 via agent tool, via direct strategy execute, via API execute | SAFE — all paths land PENDING_APPROVAL, zero autonomous gateway calls; human lane fires exactly once | `TestExcessiveAmounts` |
 | 12 | Unsafe AI recommendations | agenteval adversarial cases + new injection-via-data vectors (3) | SAFE | `test_prompt_injection.py`, agenteval |
 | 13 | Customer opt-out | opted-out customer × {retry, payment link, notify} via API path AND agent tool path | SAFE — hard BLOCKED (no approval lane), zero gateway calls, block mirrored to audit | `TestCustomerOptOut` |
+| 14 | `payment_link.paid` amount drift | signature-valid link-paid with a real `reference_id` but amount ±, wrong currency, `partial_paid`, `amount_paid < amount`, missing `amount` | **VULN-6** (fixed) — exact-amount + currency + fully-paid cross-check; mismatch holds VERIFYING with `verification.amount_mismatch` audit, zero recovered revenue; corrected redelivery still recovers | `test_payment_link_verification.py::TestPaymentLinkAmountVerification` |
+| 15 | Ack `detail` reflection | 5000-char payload-derived payment id (handler note) and 5000-char exception text (unit) | **VULN-7** (fixed) — every `dispatch_event` detail capped at 200 chars in ack and stored row; full text in server logs | `test_payment_link_verification.py::TestAckDetailTruncation` |
 | S | Secret-leakage sweep | Canaries in `RAZORPAY_KEY_SECRET` / webhook secret / API key / OpenAI key through a full seeded flow (bad sig, good sig, 401s, execute-vs-401-gateway, investigate); redaction unit tests; 500-envelope test | SAFE — canary appears nowhere: responses, audit JSON, agent reports, webhook_events, `last_error`, structured logs; authorization/secret-shaped keys redacted incl. nested; 500 envelope static | `test_secret_leakage.py` |
 
 ## Accepted risks (documented, not fixed here)
@@ -119,18 +167,14 @@ vectors aimed at the **untested** surface, what broke, the fixes, and the proof.
    actors.
 3. **In-memory rate limiting** is per-process; multi-worker deployments need a
    shared limiter. Webhook body cap (1 MiB) now bounds per-request memory.
-4. **Webhook ack `detail` echoes handler error text** (`handler error: …`) to
-   the caller. Reaching it requires a valid HMAC signature; exception text can
-   carry payload-derived values (attacker-influenceable but only visible to the
-   secret holder). Consider truncating/sanitizing in P2.
+4. ~~**Webhook ack `detail` echoes handler error text**~~ — **FIXED (VULN-7):**
+   all `dispatch_event` detail text is capped at 200 chars before it reaches
+   the ack or the stored event row; full text remains in server logs.
 5. **Single-writer SQLite** for the local demo (documented ceiling; Postgres
    path exists and is container-verified).
 
 ## Residual recommendations (P2, reported — not changed)
 
-- `payment_link.paid` verification trusts `reference_id` without an amount
-  cross-check against the action (identity is anchored; amount drift would be a
-  gateway-side anomaly — defense-in-depth candidate).
 - Detection-run and evaluation-run endpoints persist their own run records but
   do not append `audit_logs` rows; non-financial, acceptable today.
 - `PolicyDecisionRecord` persistence is flush-not-commit by design (caller's
@@ -140,6 +184,6 @@ vectors aimed at the **untested** surface, what broke, the fixes, and the proof.
 ## How to re-run
 
 ```bash
-cd backend && .venv/Scripts/python -m pytest tests/security -q   # 77 adversarial tests
+cd backend && .venv/Scripts/python -m pytest tests/security -q   # 88 adversarial tests
 cd backend && .venv/Scripts/python -m pytest -q                  # full suite
 ```

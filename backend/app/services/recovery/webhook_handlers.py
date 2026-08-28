@@ -21,6 +21,29 @@ Handlers must be idempotent and out-of-order safe:
   FAILED-linked recovery action can still transition to RECOVERED.
 - `captured` is terminal for payments: a late `payment.failed` is a no-op.
 
+`payment_link.paid` amount verification (financial safety): the `reference_id`
+anchor proves WHICH action the link belongs to, not that the paid amount is
+the amount we asked for. Before marking RECOVERED the handler cross-checks
+the link entity against the action:
+- `amount` must be an integer equal to `action.amount_paise` (exact match;
+  a missing/non-integer amount is unverifiable and fails closed);
+- `currency`, when present in the payload, must equal `action.currency`;
+- partial payments NEVER count as recovered: `status == "partial_paid"` or
+  an integer `amount_paid` below the link `amount` holds the action (only a
+  fully-paid link recovers; when the customer completes a partial link,
+  Razorpay fires a fresh `payment_link.paid` with the full `amount_paid`,
+  which then verifies and recovers — the hold is not terminal).
+Any mismatch holds the action in its current open state (VERIFYING in the
+normal flow), records `last_error`, and appends a `verification.amount_mismatch`
+audit row with expected vs actual. The event itself is still marked processed
+(handled): the payload is immutable, so reprocessing could only duplicate the
+hold — a LATER event carrying corrected amounts recovers the held action.
+
+Ack-detail hygiene: `dispatch_event` caps every returned detail string at
+`_DETAIL_MAX_CHARS`. Handler notes/errors can embed payload-derived text and
+the API layer echoes `detail` in the webhook ack (and stores it on the
+`webhook_events` row); the full error text is always in the server logs.
+
 Transaction boundary: like every service here, handlers flush but NEVER
 commit — the API layer (or the reconcile sweep's caller) owns the commit.
 """
@@ -42,6 +65,7 @@ from app.models import (
     RecoveryOpportunity,
 )
 from app.ports import ActionType, RecoveryStatus
+from app.services.policy import audit
 
 logger = get_logger(__name__)
 
@@ -52,6 +76,19 @@ _OPEN_ACTION_STATES = (
     RecoveryStatus.FAILED,  # failed is not terminal: late capture may still win
 )
 
+# Cap on the `detail` text `dispatch_event` returns — the API layer echoes it
+# in the webhook ack and stores it on the event row, and handler notes/errors
+# can embed payload-derived text (attacker-influenceable). The full text is
+# always available server-side in the structured logs; 200 chars keeps the
+# exception type plus a useful prefix.
+_DETAIL_MAX_CHARS = 200
+
+
+def _cap_detail(detail: str | None) -> str | None:
+    if detail is not None and len(detail) > _DETAIL_MAX_CHARS:
+        return detail[:_DETAIL_MAX_CHARS] + "...[truncated]"
+    return detail
+
 
 def dispatch_event(
     db: Session, event_type: str, payload: dict[str, Any]
@@ -60,10 +97,11 @@ def dispatch_event(
 
     Returns `(processed, detail)` — the caller persists them on the
     `webhook_events` row. `processed=False` keeps the event reconcilable.
+    `detail` is capped at `_DETAIL_MAX_CHARS` (see above).
     """
     handler = EVENT_HANDLERS.get(event_type)
     if handler is None:
-        return True, f"event {event_type!r} stored; no handler registered"
+        return True, _cap_detail(f"event {event_type!r} stored; no handler registered")
     try:
         detail = handler(db, payload)
     except Exception as exc:  # keep the stored event; reconcile later
@@ -71,8 +109,8 @@ def dispatch_event(
         logger.exception(
             "webhook handler failed", extra={"event_type": event_type}
         )
-        return False, f"handler error: {type(exc).__name__}: {exc}"
-    return detail is None, detail
+        return False, _cap_detail(f"handler error: {type(exc).__name__}: {exc}")
+    return detail is None, _cap_detail(detail)
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +187,11 @@ def _handle_payment_link_paid(db: Session, payload: dict[str, Any]) -> str | Non
     elif action.status is RecoveryStatus.RECOVERED:
         pass  # idempotent: already verified
     elif action.status in _OPEN_ACTION_STATES:
-        _mark_action(db, action, RecoveryStatus.RECOVERED, "payment_link.paid")
+        hold = _link_paid_verification_hold(action, link)
+        if hold is not None:
+            _flag_verification_hold(db, action, link, hold)
+        else:
+            _mark_action(db, action, RecoveryStatus.RECOVERED, "payment_link.paid")
     else:
         note = f"linked action {action.id} in state {action.status}; left unchanged"
     return note
@@ -276,6 +318,103 @@ def _mark_action(
             "from_status": from_status.value,
             "to_status": status.value,
             "trigger": trigger,
+        },
+    )
+
+
+def _as_int(value: Any) -> int | None:
+    """Payload int or None — JSON `true` is a bool (an int subclass), and
+    NaN/Infinity arrive as floats; neither is a paise amount."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _bounded(value: Any, limit: int) -> str | None:
+    """Short display form for a payload-derived string field (last_error and
+    audit details must not carry unbounded attacker-influenced text)."""
+    if value is None:
+        return None
+    return str(value)[:limit]
+
+
+def _link_paid_verification_hold(
+    action: RecoveryAction, link: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Cross-check a `payment_link.paid` entity against the linked action.
+
+    Returns None when the payload verifies (exact amount, matching currency,
+    fully paid). Otherwise a details dict whose `reason` is one of
+    `amount_unverifiable` | `amount_mismatch` | `currency_mismatch` |
+    `partial_payment` — the action must NOT be marked RECOVERED.
+    """
+    amount = _as_int(link.get("amount"))
+    amount_paid = _as_int(link.get("amount_paid"))
+    details: dict[str, Any] = {
+        "expected_paise": action.amount_paise,
+        "actual_paise": amount,
+        "expected_currency": action.currency,
+        "actual_currency": _bounded(link.get("currency"), 16),
+        "amount_paid_paise": amount_paid,
+        "link_status": _bounded(link.get("status"), 32),
+    }
+    if amount is None:
+        # Fail closed: without an integer amount the payload cannot prove the
+        # action's amount was paid.
+        return details | {"reason": "amount_unverifiable"}
+    if amount != action.amount_paise:
+        return details | {"reason": "amount_mismatch"}
+    currency = link.get("currency")
+    if currency is not None and currency != (action.currency or "INR"):
+        return details | {"reason": "currency_mismatch"}
+    # Partial payments never count as recovered: the link must be fully paid.
+    # (`payment_link.partially_paid` is a distinct event type with no handler
+    # here; this guards a `payment_link.paid` whose entity disagrees.)
+    if link.get("status") == "partial_paid" or (
+        amount_paid is not None and amount_paid < amount
+    ):
+        return details | {"reason": "partial_payment"}
+    return None
+
+
+def _flag_verification_hold(
+    db: Session,
+    action: RecoveryAction,
+    link: dict[str, Any],
+    details: dict[str, Any],
+) -> None:
+    """Hold a linked action on a failed amount/currency cross-check: do NOT
+    mark RECOVERED, keep the current open status, surface the hold in
+    `last_error`, and append a `verification.amount_mismatch` audit row with
+    expected vs actual. Flush-only; the caller's transaction commits."""
+    reason = str(details["reason"])
+    action.last_error = (
+        f"payment_link.paid verification hold ({reason}): "
+        f"expected {details['expected_paise']} {details['expected_currency']}, "
+        f"link amount={details['actual_paise']} "
+        f"currency={details['actual_currency']} "
+        f"amount_paid={details['amount_paid_paise']} "
+        f"status={details['link_status']}"
+    )
+    audit.record(
+        db,
+        actor="system:webhook",
+        action="verification.amount_mismatch",
+        entity_type="recovery_action",
+        entity_id=action.id,
+        details={
+            "trigger": "payment_link.paid",
+            **details,
+            "link_id": _bounded(link.get("id"), 64),
+            "reference_id": _bounded(link.get("reference_id"), 64),
+            "held_status": action.status.value,
+        },
+    )
+    logger.warning(
+        "payment_link.paid verification hold",
+        extra={
+            "action_id": action.id,
+            "reason": reason,
+            "expected_paise": details["expected_paise"],
+            "actual_paise": details["actual_paise"],
         },
     )
 
