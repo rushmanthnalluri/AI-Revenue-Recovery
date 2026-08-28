@@ -3,10 +3,10 @@
 POST /run executes the experiment SYNCHRONOUSLY: two simulator arms
 (baseline + PulseRecover) in isolated scratch SQLite databases, then one
 evaluation_runs row (+ one experiments row) persisted here. At the default
-scale (10 days / 12k events per arm) a run takes well under a minute; the
-synchronous contract keeps the demo story simple and is documented in
-docs/evaluation.md. GET endpoints serve STORED rows only — they never
-compute metrics on the fly.
+`standard` preset (30 days / ~65k events) a run takes roughly a minute or
+two on this machine; the synchronous contract keeps the demo story simple
+and is documented in docs/evaluation.md. GET endpoints serve STORED rows
+only — they never compute metrics on the fly.
 """
 
 import sqlalchemy as sa

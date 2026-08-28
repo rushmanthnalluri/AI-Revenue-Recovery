@@ -27,9 +27,10 @@ dist/
 *.db-wal
 *.sqlite3
 **/artifacts/*
-# The ACTIVE diagnosis model is tiny (~10 KB) and committed so local and
-# container demos run identical, deterministic diagnosis (no heuristic
-# fallback). Only these two exact files are allowlisted.
+# The ACTIVE diagnosis model plus its LR rollback predecessor are committed
+# (RF ~9.8 MB; LR ~10 KB) so local and container demos run identical,
+# deterministic diagnosis (no heuristic fallback). Only these exact files
+# are allowlisted.
 !backend/artifacts/diagnosis_active.json
 !backend/artifacts/diagnosis_logistic_regression_v20260826T234303Z-c5434878.joblib
 !backend/artifacts/diagnosis_random_forest_v20260828T013109Z-77a4ef3b.joblib

@@ -44,7 +44,14 @@ class Base(DeclarativeBase):
 
 
 def _connect_args(url: str) -> dict:
-    return {"check_same_thread": False} if url.startswith("sqlite") else {}
+    if url.startswith("sqlite"):
+        return {"check_same_thread": False}
+    if url.startswith("postgresql"):
+        # Fail fast (3s) instead of psycopg's indefinite retry when the DB is
+        # unreachable — readiness endpoints must answer `database: down`
+        # promptly (demo-chaos finding F1).
+        return {"connect_timeout": 3}
+    return {}
 
 
 def enable_sqlite_fk(engine: sa.engine.Engine) -> None:
