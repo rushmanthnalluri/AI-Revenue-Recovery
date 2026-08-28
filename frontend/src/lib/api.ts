@@ -7,8 +7,8 @@
  *   {"error": {"code", "message", "request_id"}}; network/timeout failures
  *   surface as ApiError with status 0 so the UI can show "backend unreachable"
  * - Timeout: 10s per request (AbortSignal.timeout); synchronous-long calls
- *   (demo.triggerScenario, evaluation.run) override to 120s
- *   (LONG_RUNNING_TIMEOUT_MS)
+ *   (demo.triggerScenario, evaluation.run, recovery.buildOpportunities)
+ *   override to 120s (LONG_RUNNING_TIMEOUT_MS)
  */
 
 import type {
@@ -17,6 +17,8 @@ import type {
   ApproveRequest,
   AuditListParams,
   AuditListResponse,
+  BuildRequest,
+  BuildResponse,
   CancelRequest,
   DashboardSummary,
   DashboardTimeseries,
@@ -233,6 +235,15 @@ export const api = {
     opportunities: (params: OpportunityListParams = {}) =>
       request<OpportunityListResponse>("/api/v1/recovery/opportunities", {
         query: { ...params },
+      }),
+    /** Idempotent incident → opportunities + strategies build. Synchronous
+        server-side (build + strategy generation), so it shares the
+        long-running timeout with demo.triggerScenario / evaluation.run. */
+    buildOpportunities: (body: BuildRequest) =>
+      request<BuildResponse>("/api/v1/recovery/opportunities/build", {
+        method: "POST",
+        body,
+        timeoutMs: LONG_RUNNING_TIMEOUT_MS,
       }),
     get: (opportunityId: string) =>
       request<OpportunityDetail>(`/api/v1/recovery/${enc(opportunityId)}`),

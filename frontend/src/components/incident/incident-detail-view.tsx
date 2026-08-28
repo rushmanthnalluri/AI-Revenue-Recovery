@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 
 import { api } from "@/lib/api";
-import type { IncidentDetail } from "@/lib/types";
+import { isOpenIncidentStatus, type IncidentDetail } from "@/lib/types";
 import { formatDateTime, formatINR, formatNumber, timeAgo } from "@/lib/format";
 import { ErrorPanel } from "@/components/error-panel";
 import { MetricStrip, type MetricStripItem } from "@/components/metric-strip";
@@ -29,6 +29,7 @@ import {
 } from "@/components/incident/incident-insights";
 import { IncidentDiagnosisCard } from "@/components/incident/incident-diagnosis-card";
 import { IncidentAuditTimeline } from "@/components/incident/incident-audit-timeline";
+import { BuildOpportunitiesAction } from "@/components/incident/build-opportunities-action";
 import {
   formatDeviation,
   formatMetricValue,
@@ -177,6 +178,10 @@ export function IncidentDetailView({ incidentId }: { incidentId: string }) {
             <StatusPill status={incident.status} pulse={incident.status === "INVESTIGATING"} />
           </div>
         </div>
+        {/* header action — build opportunities from this incident (open only) */}
+        {isOpenIncidentStatus(incident.status) ? (
+          <BuildOpportunitiesAction incidentId={incident.id} />
+        ) : null}
         <dl className="flex flex-wrap gap-x-6 gap-y-1 font-mono text-2xs tabular-nums text-text-3">
           <div className="flex gap-1.5">
             <dt className="uppercase tracking-[0.07em]">id</dt>

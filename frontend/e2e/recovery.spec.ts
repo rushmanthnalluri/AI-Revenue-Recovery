@@ -42,4 +42,22 @@ test("recovery pipeline and human approval flow", async ({ page }) => {
   const approvedRow = page.locator("tr", { hasText: opportunityId });
   await expect(approvedRow).toBeVisible({ timeout: 30_000 });
   await expect(approvedRow.getByText("APPROVED", { exact: true })).toBeVisible();
+
+  // Build affordance on Incident Intelligence — the UI path that replaced
+  // the old curl step. Global setup already built this incident's
+  // opportunities, so this two-step build is an idempotent re-run:
+  // everything must come back under "already existed", never duplicated.
+  const incidentId = seed.incidentId as string;
+  expect(incidentId, "global setup must seed an incident").toBeTruthy();
+  await page.goto(`/incidents/${incidentId}`);
+  const buildTrigger = page.getByRole("button", { name: "Build recovery opportunities" });
+  await expect(buildTrigger).toBeVisible();
+  await buildTrigger.click();
+  await expect(page.getByText(/idempotent/i)).toBeVisible();
+  await page.getByRole("button", { name: "Confirm build" }).click();
+  const buildResult = page.getByRole("status").filter({ hasText: "Build complete" });
+  await expect(buildResult).toContainText("already existed", { timeout: 60_000 });
+  await expect(
+    buildResult.getByRole("link", { name: /open recovery pipeline/i }),
+  ).toBeVisible();
 });

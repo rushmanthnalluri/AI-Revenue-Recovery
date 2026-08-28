@@ -28,6 +28,23 @@ export type IncidentStatus =
   | "CLOSED"
   | "FALSE_POSITIVE";
 
+/**
+ * Non-terminal incident states, mirroring the backend's
+ * OPEN_INCIDENT_STATUSES (backend/app/api/v1/dashboard.py). An "open"
+ * incident is still being worked — recovery opportunities can be (re)built
+ * for it.
+ */
+export const OPEN_INCIDENT_STATUSES: readonly IncidentStatus[] = [
+  "OPEN",
+  "INVESTIGATING",
+  "DIAGNOSED",
+  "RECOVERING",
+];
+
+export function isOpenIncidentStatus(status: IncidentStatus): boolean {
+  return OPEN_INCIDENT_STATUSES.includes(status);
+}
+
 export type RecoveryStatus =
   | "PROPOSED"
   | "POLICY_EVALUATED"
@@ -428,6 +445,23 @@ export interface ExecuteRequest {
 export interface CancelRequest {
   actor?: string;
   reason?: string | null;
+}
+
+export interface BuildRequest {
+  incident_id: string;
+  actor?: string;
+}
+
+/**
+ * Idempotent build report: `created_count` new opportunities,
+ * `existing_count` reused ones (re-runs never duplicate), and the full
+ * opportunity set now attached to the incident.
+ */
+export interface BuildResponse {
+  incident_id: string;
+  created_count: number;
+  existing_count: number;
+  opportunities: OpportunitySummary[];
 }
 
 // ---------------------------------------------------------------------------

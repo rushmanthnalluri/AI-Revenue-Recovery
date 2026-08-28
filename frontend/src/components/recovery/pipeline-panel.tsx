@@ -21,6 +21,7 @@ import {
   opportunityTypeLabel,
   parseOpportunityDetail,
 } from "@/components/recovery/recovery-contract";
+import { BuildFromIncidentAction } from "@/components/recovery/build-from-incident-action";
 import { OpportunityDrawer } from "@/components/recovery/opportunity-drawer";
 
 const PAGE_SIZE = 20;
@@ -41,7 +42,7 @@ const STATUSES: RecoveryStatus[] = [
 ];
 
 /** Opportunity types emitted by the backend OpportunityBuilder. */
-const OPPORTUNITY_TYPES = ["failed_payment_retry", "dropped_checkout"];
+const OPPORTUNITY_TYPES = ["failed_payment_retry", "dropped_checkout", "stuck_checkout_payment"];
 
 /**
  * Failure class is not part of the opportunity-summary contract — the
@@ -215,13 +216,17 @@ export function PipelinePanel() {
               skeletonRows={6}
               onRowClick={(row) => setSelectedId(row.id)}
               emptyTitle="No recovery opportunities"
-              emptyDescription="Opportunities are built from an incident's failed payments and dropped checkouts. Trigger a demo scenario from the Command Center, then run detection and investigate the incident."
+              emptyDescription="Opportunities are built from an open incident's failed payments and dropped checkouts — the build is idempotent and safe to re-run."
             />
             {query.data && query.data.items.length === 0 ? (
               <div className="mt-3 flex justify-center">
-                <Link href="/" className={buttonVariants({ variant: "secondary", size: "sm" })}>
-                  Open the Command Center
-                </Link>
+                {!status && !type ? (
+                  <BuildFromIncidentAction />
+                ) : (
+                  <Link href="/" className={buttonVariants({ variant: "secondary", size: "sm" })}>
+                    Open the Command Center
+                  </Link>
+                )}
               </div>
             ) : null}
             <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">

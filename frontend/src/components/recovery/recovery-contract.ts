@@ -246,6 +246,7 @@ export function actionTypeLabel(actionType: string): string {
 const OPPORTUNITY_TYPE_LABELS: Record<string, string> = {
   failed_payment_retry: "Failed payment retry",
   dropped_checkout: "Dropped checkout",
+  stuck_checkout_payment: "Stuck checkout",
 };
 
 export function opportunityTypeLabel(opportunityType: string): string {

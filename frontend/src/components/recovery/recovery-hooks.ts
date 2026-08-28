@@ -5,7 +5,9 @@
 "use client";
 
 import * as React from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+
+import { api } from "@/lib/api";
 
 /** Mutations are always attributed to the console operator. */
 export const CONSOLE_ACTOR = "human:console";
@@ -21,6 +23,27 @@ export function useInvalidateRecovery() {
     void queryClient.invalidateQueries({ queryKey: ["recovery"] });
     void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
   }, [queryClient]);
+}
+
+/**
+ * Build an incident's recovery opportunities (POST /recovery/opportunities/
+ * build). Idempotent server-side: payments/orders that already have an
+ * opportunity are reused and reported under `existing_count`, so a re-run
+ * never duplicates. On success the recovery surfaces plus the incident
+ * queries (header counts, latest-open lookup) are invalidated so every
+ * surface refreshes from truth.
+ */
+export function useBuildOpportunities() {
+  const queryClient = useQueryClient();
+  const invalidateRecovery = useInvalidateRecovery();
+  return useMutation({
+    mutationFn: (incidentId: string) =>
+      api.recovery.buildOpportunities({ incident_id: incidentId, actor: CONSOLE_ACTOR }),
+    onSuccess: () => {
+      invalidateRecovery();
+      void queryClient.invalidateQueries({ queryKey: ["incidents"] });
+    },
+  });
 }
 
 const FOCUSABLE =
