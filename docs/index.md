@@ -11,7 +11,8 @@ headline results.
 | [architecture.md](architecture.md) | System architecture: modular monolith, ports, component + sequence diagrams, the enforced dependency matrix (ADR 0010), request traceability, money convention, safety and observability models |
 | [data-flow.md](data-flow.md) | Every loop end to end: detection, AI investigation, opportunity build, execute lanes, webhook verification, UNKNOWN resolution, the reconciliation sweep (ADR 0011), demo/evaluation runs, transaction boundaries |
 | [security-architecture.md](security-architecture.md) | Trust boundaries (LLM / gateway / webhook), authN-Z posture, secrets handling, financial-action safety controls, AI-specific threat mitigations, accepted residual risks |
-| [security-testing.md](security-testing.md) | Adversarial break-it engagement: 13-vector attack matrix (method → result → proof test), vulnerabilities found and fixed, accepted risks, residual recommendations (`backend/tests/security/`) |
+| [security-testing.md](security-testing.md) | Adversarial break-it engagement: 15-vector attack matrix + secret-leakage sweep (method → result → proof test), vulnerabilities found and fixed, accepted risks, residual recommendations (`backend/tests/security/`) |
+| [claim-matrix.md](claim-matrix.md) | Evidence audit: every quantitative/normative claim in the docs mapped to its source (run id / test / doc), with reproducibility, currency, and corrections log |
 | [demo.md](demo.md) | The 5 deterministic demo scenarios: exact commands, verbatim expected outputs, and the proof suite that re-runs them |
 | [demo-script.md](demo-script.md) | The 5-minute live hiring-panel runbook for the compose stack: minute-by-minute clicks/API calls, rehearsed numbers, failure beats, fallbacks, pre-flight checklist |
 | [evaluation.md](evaluation.md) | Evaluation methodology and reproduced results: baseline-vs-PulseRecover harness, metric definitions, detection/diagnosis/recovery numbers, honest limitations, reproduction commands |
@@ -38,6 +39,7 @@ headline results.
 | Doc | What it is |
 |---|---|
 | [policy.md](policy.md) | The deterministic policy engine: threat model, full rule reference, configuration schema, persistence and audit-trail contracts (ADR 0003) |
+| [payment-invariants.md](payment-invariants.md) | The 12 payment-action invariants, each mapped to the exact tests that prove it (`backend/tests/invariants/` + referenced suites); includes the concurrent-execute Postgres race finding and fix |
 
 ## Reference
 

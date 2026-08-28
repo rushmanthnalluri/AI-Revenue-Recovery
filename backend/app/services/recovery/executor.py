@@ -144,6 +144,21 @@ class RecoveryExecutor:
             raise RecoveryNotFoundError(f"opportunity not found: {opportunity_id!r}")
         return opp
 
+    def _lock_opportunity(self, opportunity_id: str) -> RecoveryOpportunity:
+        """SELECT ... FOR UPDATE on the opportunity row (Postgres: serializes
+        concurrent executors — a racing duplicate execute waits for the
+        winner's commit, then sees the winner's action and is refused/blocked
+        instead of double-firing the gateway. Silently omitted on SQLite,
+        where writer serialization already orders the race)."""
+        opp = self._db.scalar(
+            sa.select(RecoveryOpportunity)
+            .where(RecoveryOpportunity.id == opportunity_id)
+            .with_for_update()
+        )
+        if opp is None:
+            raise RecoveryNotFoundError(f"opportunity not found: {opportunity_id!r}")
+        return opp
+
     def open_action_for(self, opportunity_id: str) -> RecoveryAction | None:
         """The action currently occupying the opportunity's execution slot."""
         stmt = (
@@ -193,7 +208,7 @@ class RecoveryExecutor:
         - Open action UNKNOWN: NO blind retry — re-query gateway truth instead.
         """
         rid = self._rid(request_id)
-        opp = self.get_opportunity(opportunity_id)
+        opp = self._lock_opportunity(opportunity_id)
         action = self.open_action_for(opp.id)
 
         if action is not None and action.status in IN_FLIGHT_STATES:
