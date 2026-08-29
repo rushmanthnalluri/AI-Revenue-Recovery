@@ -36,26 +36,32 @@ class TestList:
         make_opportunity(incident=incident)
         make_opportunity()  # different incident
 
-        resp = api_client.get("/api/v1/recovery/opportunities")
+        resp = api_client.get(
+            "/api/v1/recovery/opportunities", params={"environment": "research"}
+        )
         assert resp.status_code == 200
         assert resp.json()["total"] == 3
 
         resp = api_client.get(
-            "/api/v1/recovery/opportunities", params={"incident_id": incident.id}
+            "/api/v1/recovery/opportunities",
+            params={"incident_id": incident.id, "environment": "research"},
         )
         assert resp.json()["total"] == 2
 
         resp = api_client.get(
-            "/api/v1/recovery/opportunities", params={"status": "PROPOSED"}
+            "/api/v1/recovery/opportunities",
+            params={"status": "PROPOSED", "environment": "research"},
         )
         assert resp.json()["total"] == 3
         resp = api_client.get(
-            "/api/v1/recovery/opportunities", params={"status": "RECOVERED"}
+            "/api/v1/recovery/opportunities",
+            params={"status": "RECOVERED", "environment": "research"},
         )
         assert resp.json()["total"] == 0
 
         resp = api_client.get(
-            "/api/v1/recovery/opportunities", params={"page": 2, "page_size": 2}
+            "/api/v1/recovery/opportunities",
+            params={"page": 2, "page_size": 2, "environment": "research"},
         )
         body = resp.json()
         assert body["page"] == 2

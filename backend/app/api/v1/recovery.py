@@ -18,6 +18,8 @@ call; the gate's decision is persisted and linked on the action.
 """
 
 import sqlalchemy as sa
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -101,6 +103,7 @@ def _summary(opp: RecoveryOpportunity) -> OpportunitySummary:
         reason=opp.reason,
         created_at=opp.created_at,
         expires_at=opp.expires_at,
+        environment=opp.environment or "research",
     )
 
 
@@ -183,12 +186,13 @@ def list_opportunities(
     incident_id: str | None = Query(default=None),
     opportunity_type: str | None = Query(default=None),
     customer_id: str | None = Query(default=None),
+    environment: Literal["real_test", "research"] = Query(default="real_test"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),
 ) -> OpportunityListResponse:
     stmt = sa.select(RecoveryOpportunity)
     count_stmt = sa.select(sa.func.count()).select_from(RecoveryOpportunity)
-    filters = []
+    filters = [RecoveryOpportunity.environment == environment]
     if status is not None:
         filters.append(RecoveryOpportunity.status == status)
     if incident_id is not None:

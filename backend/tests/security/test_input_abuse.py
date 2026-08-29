@@ -91,7 +91,7 @@ class TestSqlInjectionShapedInputs:
             assert r.status_code == 200
             assert r.json()["items"] == [], f"payload {payload!r} bypassed the filter"
         # The table still exists and the row is intact.
-        r = client.get("/api/v1/recovery/opportunities")
+        r = client.get("/api/v1/recovery/opportunities", params={"environment": "research"})
         assert r.status_code == 200 and r.json()["total"] == 1
 
     def test_audit_filters_are_parameterized(self, client):

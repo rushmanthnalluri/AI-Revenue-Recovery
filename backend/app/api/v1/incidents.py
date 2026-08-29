@@ -11,6 +11,8 @@ Detail side effects (documented, judge-visible):
 
 import sqlalchemy as sa
 from datetime import datetime
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -65,6 +67,7 @@ def _summary(inc: Incident) -> IncidentSummary:
         affected_payments_count=inc.affected_payments_count,
         revenue_at_risk_paise=inc.revenue_at_risk_paise,
         currency=inc.currency or "INR",
+        environment=inc.environment or "research",
     )
 
 
@@ -76,10 +79,11 @@ def list_incidents(
     metric: str | None = Query(default=None),
     detected_from: datetime | None = Query(default=None),
     detected_to: datetime | None = Query(default=None),
+    environment: Literal["real_test", "research"] = Query(default="real_test"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),
 ) -> IncidentListResponse:
-    filters = []
+    filters = [Incident.environment == environment]
     if status is not None:
         filters.append(Incident.status == status)
     if severity is not None:

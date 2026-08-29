@@ -408,6 +408,8 @@ def _detect(
             "bucket_minutes": 10,
             "baseline_buckets": 6,
             "as_of": as_of.isoformat(),
+            # demo scenarios are simulator-seeded: the pass runs in research mode
+            "environment": "research",
         },
     )
     incidents = [

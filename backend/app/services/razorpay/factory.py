@@ -56,4 +56,19 @@ def get_gateway(settings: Settings) -> PaymentGateway:
     )
 
 
-__all__ = ["get_gateway", "use_simulator", "gateway_mode"]
+def get_real_gateway(settings: Settings) -> RazorpayGateway | None:
+    """The REAL Razorpay adapter for real_test execution, or None when real
+    keys are not configured (SIMULATION_MODE on / keys missing). Never returns
+    the simulator — the caller must fail honestly on None (the recovery
+    executor refuses with `razorpay_not_configured`)."""
+    if use_simulator(settings):
+        return None
+    return _real_gateway(
+        settings.RAZORPAY_KEY_ID,
+        settings.RAZORPAY_KEY_SECRET,
+        settings.RAZORPAY_BASE_URL,
+        settings.RAZORPAY_WEBHOOK_SECRET,
+    )
+
+
+__all__ = ["get_gateway", "get_real_gateway", "use_simulator", "gateway_mode"]

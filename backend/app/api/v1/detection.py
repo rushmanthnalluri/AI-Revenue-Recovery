@@ -48,6 +48,7 @@ def run_detection_endpoint(
         incidents_created=result.incidents_created,
         incidents_updated=result.incidents_updated,
         detail=result.detail,
+        environment=req.environment,
         incidents=[
             DetectionIncidentView(
                 incident_id=i.incident_id,

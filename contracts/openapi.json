@@ -150,6 +150,20 @@
             }
           },
           {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "real_test",
+                "research"
+              ],
+              "type": "string",
+              "default": "real_test",
+              "title": "Environment"
+            }
+          },
+          {
             "name": "page",
             "in": "query",
             "required": false,
@@ -204,6 +218,22 @@
         ],
         "summary": "Get Summary",
         "operationId": "get_summary_api_v1_dashboard_summary_get",
+        "parameters": [
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "real_test",
+                "research"
+              ],
+              "type": "string",
+              "default": "real_test",
+              "title": "Environment"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -211,6 +241,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DashboardSummary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -261,6 +301,20 @@
               "minimum": 1,
               "default": 24,
               "title": "Window Hours"
+            }
+          },
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "real_test",
+                "research"
+              ],
+              "type": "string",
+              "default": "real_test",
+              "title": "Environment"
             }
           }
         ],
@@ -736,6 +790,20 @@
             }
           },
           {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "real_test",
+                "research"
+              ],
+              "type": "string",
+              "default": "real_test",
+              "title": "Environment"
+            }
+          },
+          {
             "name": "page",
             "in": "query",
             "required": false,
@@ -825,6 +893,158 @@
         }
       }
     },
+    "/api/v1/payments": {
+      "get": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "List Payments",
+        "operationId": "list_payments_api_v1_payments_get",
+        "parameters": [
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "real_test",
+                "research"
+              ],
+              "type": "string",
+              "default": "real_test",
+              "title": "Environment"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "method",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Method"
+            }
+          },
+          {
+            "name": "source_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source Type"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 20,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/recovery/opportunities": {
       "get": {
         "tags": [
@@ -895,6 +1115,20 @@
                 }
               ],
               "title": "Customer Id"
+            }
+          },
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "real_test",
+                "research"
+              ],
+              "type": "string",
+              "default": "real_test",
+              "title": "Environment"
             }
           },
           {
@@ -1613,6 +1847,11 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "environment": {
+            "type": "string",
+            "title": "Environment",
+            "default": "research"
           }
         },
         "type": "object",
@@ -1867,6 +2106,11 @@
             },
             "type": "array",
             "title": "Recent Incidents"
+          },
+          "environment": {
+            "type": "string",
+            "title": "Environment",
+            "default": "real_test"
           }
         },
         "type": "object",
@@ -1899,6 +2143,11 @@
             },
             "type": "array",
             "title": "Points"
+          },
+          "environment": {
+            "type": "string",
+            "title": "Environment",
+            "default": "real_test"
           }
         },
         "type": "object",
@@ -2259,6 +2508,15 @@
             ],
             "title": "Suppress After Resolve Minutes",
             "default": 720
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "real_test",
+              "research"
+            ],
+            "title": "Environment",
+            "default": "real_test"
           }
         },
         "type": "object",
@@ -2332,6 +2590,11 @@
             "type": "integer",
             "title": "Anomalies Filtered",
             "default": 0
+          },
+          "environment": {
+            "type": "string",
+            "title": "Environment",
+            "default": "real_test"
           }
         },
         "type": "object",
@@ -3013,6 +3276,11 @@
             "title": "Currency",
             "default": "INR"
           },
+          "environment": {
+            "type": "string",
+            "title": "Environment",
+            "default": "research"
+          },
           "description": {
             "anyOf": [
               {
@@ -3306,6 +3574,11 @@
             "type": "string",
             "title": "Currency",
             "default": "INR"
+          },
+          "environment": {
+            "type": "string",
+            "title": "Environment",
+            "default": "research"
           }
         },
         "type": "object",
@@ -3855,6 +4128,11 @@
             ],
             "title": "Expires At"
           },
+          "environment": {
+            "type": "string",
+            "title": "Environment",
+            "default": "research"
+          },
           "constraints": {
             "additionalProperties": true,
             "type": "object",
@@ -4024,6 +4302,11 @@
               }
             ],
             "title": "Expires At"
+          },
+          "environment": {
+            "type": "string",
+            "title": "Environment",
+            "default": "research"
           }
         },
         "type": "object",
@@ -4035,6 +4318,186 @@
           "created_at"
         ],
         "title": "OpportunitySummary"
+      },
+      "PaymentListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PaymentSummary"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size",
+            "default": 20
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "PaymentListResponse"
+      },
+      "PaymentSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Id"
+          },
+          "gateway_payment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gateway Payment Id"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "gateway_order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gateway Order Id"
+          },
+          "merchant_id": {
+            "type": "string",
+            "title": "Merchant Id"
+          },
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Id"
+          },
+          "amount_paise": {
+            "type": "integer",
+            "title": "Amount Paise"
+          },
+          "currency": {
+            "type": "string",
+            "title": "Currency",
+            "default": "INR"
+          },
+          "method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Method"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Description"
+          },
+          "error_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Source"
+          },
+          "captured": {
+            "type": "boolean",
+            "title": "Captured",
+            "default": false
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "source_type": {
+            "type": "string",
+            "title": "Source Type",
+            "default": "simulator"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "merchant_id",
+          "amount_paise",
+          "status",
+          "created_at"
+        ],
+        "title": "PaymentSummary",
+        "description": "One payment row with its real (gateway-shaped) fields. ``source_type``\nis the provenance stamp the environment scope is derived from."
       },
       "PlatformCalloutView": {
         "properties": {

@@ -1,6 +1,7 @@
 """Detection schemas — on-demand anomaly detection runs."""
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -40,6 +41,12 @@ class DetectionRunRequest(BaseModel):
     # after an incident is RESOLVED/CLOSED/FALSE_POSITIVE, re-detection of the
     # same signature starting within this window is suppressed (reported as
     # action "suppressed", nothing persisted); None disables
+    # --- environment boundary (real_test = Razorpay Test Mode, research = simulator) ---
+    environment: Literal["real_test", "research"] = "real_test"
+    # Which environment's commerce rows the pass scores and stamps onto new
+    # incidents/evidence. NEW DEFAULT: 'real_test' (the merchant-facing mode);
+    # simulator callers (demo router, evaluation harness, scripts) must pass
+    # 'research' explicitly. A pass never sees the other environment's rows.
 
 
 class DetectionIncidentView(BaseModel):
@@ -76,3 +83,4 @@ class DetectionRunResponse(BaseModel):
     incidents_updated: list[str] = Field(default_factory=list)
     incidents: list[DetectionIncidentView] = Field(default_factory=list)
     anomalies_filtered: int = 0  # detector fires dropped by floors/suppression
+    environment: str = "real_test"  # the environment the pass scored/stamped

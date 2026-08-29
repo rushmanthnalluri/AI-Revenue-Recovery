@@ -10,13 +10,15 @@ capped at the 24h request limit). A second POST of the same scenario skips the
 seed (deterministic run id) and the detection pass UPSERTs the same incidents —
 no duplicates, ever.
 
-Reset clears ALL simulator-generated commerce rows and every derived table
+Reset clears simulator-generated commerce rows and the RESEARCH derived rows
 (incidents/evidence/diagnoses/opportunities/strategies/actions/
-policy_decisions/agent_reports/webhook_events). It deliberately KEEPS
-evaluation_runs, experiments and model_predictions — the scientific record a
-demo reset must not rewrite — and appends exactly ONE audit_logs row recording
-what was cleared (their incident/simulator references may dangle afterwards;
-that is accepted and documented in docs/evaluation.md).
+policy_decisions/agent_reports plus 'simulator'-sourced webhook_events). It
+deliberately KEEPS evaluation_runs, experiments and model_predictions — the
+scientific record a demo reset must not rewrite — and every real_test row
+(Razorpay Test Mode data is untouchable by reset). It appends exactly ONE
+audit_logs row (environment 'research') recording what was cleared (their
+incident/simulator references may dangle afterwards; that is accepted and
+documented in docs/evaluation.md).
 """
 
 from datetime import datetime
@@ -56,6 +58,7 @@ from app.schemas.demo import (
 from app.schemas.detection import DetectionRunRequest
 from app.services.detection import run_detection
 from app.services.policy import audit
+from app.models.base import ENVIRONMENT_RESEARCH, SOURCE_TYPE_SIMULATOR
 from app.simulator import SCENARIOS, list_scenarios
 from app.simulator.cli import run_idempotent
 from app.simulator.engine import SimResult
@@ -65,11 +68,14 @@ logger = get_logger("app.api.v1.demo")
 router = APIRouter(prefix="/api/v1/demo", tags=["demo"])
 
 # Bulk-delete order respects foreign keys without relying on PRAGMA
-# foreign_keys (SQLite) — children first, parents last.
+# foreign_keys (SQLite) — children first, parents last. policy_decisions is
+# deleted BEFORE recovery_actions: its environment scoping reads the linked
+# actions (soft reference), and the real FK recovery_actions.policy_decision_id
+# is declared ON DELETE SET NULL, so removing decisions first is safe.
 _RESET_TABLES: list[tuple[str, Any]] = [
+    ("policy_decisions", PolicyDecisionRecord),
     ("recovery_actions", RecoveryAction),
     ("recovery_strategies", RecoveryStrategy),
-    ("policy_decisions", PolicyDecisionRecord),
     ("recovery_opportunities", RecoveryOpportunity),
     ("agent_reports", AgentReport),
     ("diagnoses", Diagnosis),
@@ -86,6 +92,61 @@ _RESET_TABLES: list[tuple[str, Any]] = [
     ("simulator_runs", SimulatorRun),
 ]
 _KEPT_TABLES = ["evaluation_runs", "experiments", "model_predictions", "audit_logs"]
+
+# Demo reset is pinned to the RESEARCH environment: it deletes ONLY
+# simulator-sourced commerce rows and 'research'-environment derived rows.
+# real_test rows (Razorpay Test Mode data) are untouchable by reset.
+_ENV_DERIVED_TABLES = {
+    "recovery_actions",
+    "recovery_opportunities",
+    "agent_reports",
+    "diagnoses",
+    "incident_evidence",
+    "incidents",
+}
+_SIMULATOR_COMMERCE_TABLES = {
+    "payment_events",
+    "payments",
+    "orders",
+    "subscriptions",
+    "customers",
+    "merchants",
+}
+
+
+def _reset_statement(table: str, model: Any) -> Any:
+    """The environment-scoped DELETE for one reset table (see above)."""
+    if table in _ENV_DERIVED_TABLES:
+        return sa.delete(model).where(model.environment == ENVIRONMENT_RESEARCH)
+    if table in _SIMULATOR_COMMERCE_TABLES:
+        return sa.delete(model).where(model.source_type == SOURCE_TYPE_SIMULATOR)
+    if table == "recovery_strategies":
+        # No environment column: scope via the parent opportunity.
+        research_opps = sa.select(RecoveryOpportunity.id).where(
+            RecoveryOpportunity.environment == ENVIRONMENT_RESEARCH
+        )
+        return sa.delete(RecoveryStrategy).where(
+            RecoveryStrategy.opportunity_id.in_(research_opps)
+        )
+    if table == "policy_decisions":
+        # No environment column: scope via the linked action. Decisions with
+        # no action link (plan previews) are demo-time evaluations and are
+        # cleared as before; action-linked real_test decisions survive.
+        research_actions = sa.select(RecoveryAction.id).where(
+            RecoveryAction.environment == ENVIRONMENT_RESEARCH
+        )
+        return sa.delete(PolicyDecisionRecord).where(
+            sa.or_(
+                PolicyDecisionRecord.action_id.is_(None),
+                PolicyDecisionRecord.action_id.in_(research_actions),
+            )
+        )
+    if table == "webhook_events":
+        # The intake stamp IS the environment boundary: 'simulator' deliveries
+        # are research; 'razorpay' deliveries are real_test evidence.
+        return sa.delete(WebhookEvent).where(WebhookEvent.source == "simulator")
+    # simulator_runs / simulator_ground_truth are research-owned by definition.
+    return sa.delete(model)
 
 
 @router.get("/scenarios", response_model=ScenarioListResponse)
@@ -147,8 +208,9 @@ def _anchored_detection_pass(
     db: Session, gt_rows: list[SimulatorGroundTruth]
 ) -> tuple[dict[str, Any], str | None]:
     """One detection pass anchored at the latest ground-truth incident so the
-    injected anomaly is guaranteed inside the analysis window."""
-    req = DetectionRunRequest()
+    injected anomaly is guaranteed inside the analysis window. Demo scenarios
+    are simulator-seeded: the pass is pinned to the RESEARCH environment."""
+    req = DetectionRunRequest(environment="research")
     if gt_rows:
         def _end(row: SimulatorGroundTruth) -> datetime:
             return datetime.fromisoformat(str(row.truth["end"]))
@@ -161,6 +223,7 @@ def _anchored_detection_pass(
         req = DetectionRunRequest(
             as_of=_end(latest),
             window_minutes=min(24 * 60, max(60, duration_min + 90)),
+            environment="research",
         )
     result = run_detection(db, req)
     first = next(
@@ -192,7 +255,7 @@ def _anchored_detection_pass(
 def reset_demo(db: Session = Depends(get_db)) -> DemoResetResponse:
     cleared: dict[str, int] = {}
     for table, model in _RESET_TABLES:
-        cleared[table] = int(db.execute(sa.delete(model)).rowcount or 0)
+        cleared[table] = int(db.execute(_reset_statement(table, model)).rowcount or 0)
     entry = audit.record(
         db,
         actor="system:demo",
@@ -202,6 +265,10 @@ def reset_demo(db: Session = Depends(get_db)) -> DemoResetResponse:
         details={"cleared": cleared, "kept": list(_KEPT_TABLES)},
         request_id=request_id_ctx.get(),
     )
+    # The reset audit row is research-tagged: it can never appear in a
+    # real_test audit query (the ORM default is already 'research'; explicit
+    # here because this row IS the environment boundary's self-record).
+    entry.environment = ENVIRONMENT_RESEARCH
     db.commit()
     logger.info("demo environment reset", extra={"cleared": cleared})
     return DemoResetResponse(

@@ -44,6 +44,49 @@ SOURCE_TYPE_RAZORPAY_LIVE = "razorpay_live"
 SIMULATOR_SOURCE_SYSTEM = "pulserecover-simulator"
 RAZORPAY_SOURCE_SYSTEM = "razorpay"
 
+# Environment vocabulary — the strict boundary between REAL MERCHANT mode
+# (Razorpay Test Mode data) and RESEARCH mode (simulator data). Commerce rows
+# carry no environment column; their environment is DERIVED from source_type
+# via this mapping. Derived tables (incidents, recovery, audit, ...) carry the
+# environment column directly (migration b4e7a1c2d305).
+ENVIRONMENT_REAL_TEST = "real_test"
+ENVIRONMENT_RESEARCH = "research"
+KNOWN_ENVIRONMENTS: tuple[str, ...] = (ENVIRONMENT_REAL_TEST, ENVIRONMENT_RESEARCH)
+
+_ENVIRONMENT_SOURCE_TYPES: dict[str, tuple[str, ...]] = {
+    ENVIRONMENT_REAL_TEST: (SOURCE_TYPE_RAZORPAY_TEST, SOURCE_TYPE_RAZORPAY_LIVE),
+    ENVIRONMENT_RESEARCH: (SOURCE_TYPE_SIMULATOR,),
+}
+
+
+def source_types_for_environment(environment: str) -> tuple[str, ...]:
+    """Commerce ``source_type`` values belonging to an environment — the only
+    sanctioned mapping between the two provenance axes."""
+    try:
+        return _ENVIRONMENT_SOURCE_TYPES[environment]
+    except KeyError:
+        raise ValueError(
+            f"unknown environment {environment!r} (known: {', '.join(KNOWN_ENVIRONMENTS)})"
+        ) from None
+
+
+class EnvironmentMixin:
+    """Which environment a derived row belongs to: ``real_test`` (REAL
+    MERCHANT mode, Razorpay Test Mode data) or ``research`` (simulator data).
+
+    The 'research' default is the safe failure direction: a writer that
+    forgets to stamp lands in the research sandbox and can never leak into a
+    real_test query; every existing row predates real ingestion and is
+    honestly simulator-derived (docs/data-provenance.md)."""
+
+    environment: Mapped[str] = mapped_column(
+        sa.String(16),
+        default=ENVIRONMENT_RESEARCH,
+        server_default=ENVIRONMENT_RESEARCH,
+        nullable=False,
+        index=True,
+    )
+
 
 class ProvenanceMixin:
     """Data provenance: which source wrote this row (docs/data-provenance.md).

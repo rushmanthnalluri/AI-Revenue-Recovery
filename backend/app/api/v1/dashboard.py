@@ -2,6 +2,11 @@
 revenue engine, and recovery actions. Empty database -> zeros + empty series;
 no number on this surface is ever fabricated.
 
+Every aggregate is scoped to ONE environment (query param `environment`,
+default 'real_test'): commerce reads filter payments by the environment's
+source_type set, derived reads filter on the environment column. A research
+row can never leak into a real_test aggregate, or vice versa.
+
 Definitions (documented in docs/evaluation.md and the OpenAPI descriptions):
 - current success window: the hour ending at the latest terminal payment event
   (data-anchored, so a seeded demo DB shows real numbers regardless of wall
@@ -22,7 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_db, utcnow
-from app.models import Incident, RecoveryAction
+from app.models import Incident, RecoveryAction, source_types_for_environment
 from app.ports import IncidentStatus, RecoveryStatus
 from app.schemas.common import TimeSeriesPoint
 from app.schemas.dashboard import DashboardSummary, DashboardTimeseries
@@ -90,6 +95,7 @@ def _incident_summary(inc: Incident) -> IncidentSummary:
         affected_payments_count=inc.affected_payments_count,
         revenue_at_risk_paise=inc.revenue_at_risk_paise,
         currency=inc.currency or "INR",
+        environment=inc.environment or "research",
     )
 
 
@@ -102,7 +108,7 @@ def refresh_revenue_at_risk(
     commits — the caller owns the transaction."""
     point = report.observed_loss.point_paise
     if point is not None and point != incident.revenue_at_risk_paise:
-        audit.record(
+        entry = audit.record(
             db,
             actor=actor,
             action="incident.revenue_at_risk_refreshed",
@@ -114,21 +120,49 @@ def refresh_revenue_at_risk(
                 "basis": report.observed_loss.basis,
             },
         )
+        entry.environment = incident.environment or "research"
         incident.revenue_at_risk_paise = point
     return point
 
 
+def _recovered_total(db: Session, environment: str) -> int:
+    """Measured recovered revenue for one environment — the same semantics as
+    RevenueService.recovered_revenue over the all-time window (RECOVERED
+    actions only, coalesce(verified_at, completed_at) timestamp), scoped to
+    the environment stamped on the actions."""
+    ts_col = sa.func.coalesce(RecoveryAction.verified_at, RecoveryAction.completed_at)
+    return int(
+        db.scalar(
+            sa.select(sa.func.coalesce(sa.func.sum(RecoveryAction.amount_paise), 0)).where(
+                RecoveryAction.status == RecoveryStatus.RECOVERED,
+                RecoveryAction.environment == environment,
+                ts_col >= _EPOCH,
+                ts_col < utcnow() + timedelta(days=1),
+            )
+        )
+        or 0
+    )
+
+
 @router.get("/summary", response_model=DashboardSummary)
-def get_summary(db: Session = Depends(get_db)) -> DashboardSummary:
-    summary = DashboardSummary()
+def get_summary(
+    db: Session = Depends(get_db),
+    environment: Literal["real_test", "research"] = Query(default="real_test"),
+) -> DashboardSummary:
+    summary = DashboardSummary(environment=environment)
+    source_types = source_types_for_environment(environment)
 
     # --- payment success rate: baseline vs current window ------------------
-    anchor = latest_event_anchor(db)
+    anchor = latest_event_anchor(db, source_types=source_types)
     if anchor is not None:
         current_start = anchor - timedelta(hours=1)
         baseline_start = anchor - timedelta(hours=25)
-        current, n_current = _rate(load_outcomes(db, current_start, anchor))
-        baseline, n_baseline = _rate(load_outcomes(db, baseline_start, current_start))
+        current, n_current = _rate(
+            load_outcomes(db, current_start, anchor, source_types=source_types)
+        )
+        baseline, n_baseline = _rate(
+            load_outcomes(db, baseline_start, current_start, source_types=source_types)
+        )
         summary.payments_success_rate = round(current, 6)
         summary.payments_observed = n_current
         if n_baseline:
@@ -137,7 +171,10 @@ def get_summary(db: Session = Depends(get_db)) -> DashboardSummary:
     # --- incidents -----------------------------------------------------------
     open_incidents = list(
         db.scalars(
-            sa.select(Incident).where(Incident.status.in_(OPEN_INCIDENT_STATUSES))
+            sa.select(Incident).where(
+                Incident.status.in_(OPEN_INCIDENT_STATUSES),
+                Incident.environment == environment,
+            )
         )
     )
     summary.open_incidents = len(open_incidents)
@@ -162,12 +199,14 @@ def get_summary(db: Session = Depends(get_db)) -> DashboardSummary:
     summary.revenue_at_risk_low_confidence = low_confidence
 
     # --- recovered (measured, verified) + lost (terminal incidents) ---------
-    recovered = revenue.recovered_revenue(_EPOCH, utcnow() + timedelta(days=1))
-    summary.recovered_revenue_paise = recovered.total_recovered_paise
+    summary.recovered_revenue_paise = _recovered_total(db, environment)
 
     lost = 0
     for inc in db.scalars(
-        sa.select(Incident).where(Incident.status.in_(TERMINAL_INCIDENT_STATUSES))
+        sa.select(Incident).where(
+            Incident.status.in_(TERMINAL_INCIDENT_STATUSES),
+            Incident.environment == environment,
+        )
     ):
         report = revenue.revenue_at_risk(inc.id)
         lost += max(0, (report.observed_loss.point_paise or 0) - report.actual_recovered_paise)
@@ -183,7 +222,10 @@ def get_summary(db: Session = Depends(get_db)) -> DashboardSummary:
         db.scalar(
             sa.select(sa.func.count())
             .select_from(RecoveryAction)
-            .where(RecoveryAction.status.in_(ACTIVE_ACTION_STATUSES))
+            .where(
+                RecoveryAction.status.in_(ACTIVE_ACTION_STATUSES),
+                RecoveryAction.environment == environment,
+            )
         )
         or 0
     )
@@ -191,7 +233,10 @@ def get_summary(db: Session = Depends(get_db)) -> DashboardSummary:
         db.scalar(
             sa.select(sa.func.count())
             .select_from(RecoveryAction)
-            .where(RecoveryAction.status == RecoveryStatus.PENDING_APPROVAL)
+            .where(
+                RecoveryAction.status == RecoveryStatus.PENDING_APPROVAL,
+                RecoveryAction.environment == environment,
+            )
         )
         or 0
     )
@@ -200,6 +245,7 @@ def get_summary(db: Session = Depends(get_db)) -> DashboardSummary:
         _incident_summary(inc)
         for inc in db.scalars(
             sa.select(Incident)
+            .where(Incident.environment == environment)
             .order_by(Incident.detected_at.desc(), Incident.id.desc())
             .limit(_RECENT_INCIDENTS)
         )
@@ -214,6 +260,7 @@ def get_timeseries(
     metric: str = Query(default="payment_success_rate"),
     granularity: Literal["minute", "hour", "day"] = Query(default="hour"),
     window_hours: int = Query(default=24, ge=1, le=24 * 30),
+    environment: Literal["real_test", "research"] = Query(default="real_test"),
 ) -> DashboardTimeseries:
     known = tuple(KNOWN_METRICS) + _EXTRA_METRICS
     if metric not in known:
@@ -221,8 +268,9 @@ def get_timeseries(
             status_code=400,
             detail=f"unknown metric: {metric!r} (supported: {', '.join(known)})",
         )
+    source_types = source_types_for_environment(environment)
     bucket_minutes = _BUCKET_MINUTES[granularity]
-    anchor = latest_event_anchor(db) or utcnow()
+    anchor = latest_event_anchor(db, source_types=source_types) or utcnow()
     window_end = floor_bucket(anchor, bucket_minutes) + timedelta(minutes=bucket_minutes)
     window_start = window_end - timedelta(hours=window_hours)
 
@@ -232,6 +280,7 @@ def get_timeseries(
         actions = db.scalars(
             sa.select(RecoveryAction).where(
                 RecoveryAction.status == RecoveryStatus.RECOVERED,
+                RecoveryAction.environment == environment,
                 ts_col >= window_start,
                 ts_col < window_end,
             )
@@ -245,7 +294,7 @@ def get_timeseries(
             buckets[key] = buckets.get(key, 0) + action.amount_paise
         points = [TimeSeriesPoint(ts=k, value=float(v)) for k, v in sorted(buckets.items())]
     else:
-        outcomes = load_outcomes(db, window_start, window_end)
+        outcomes = load_outcomes(db, window_start, window_end, source_types=source_types)
         if metric in KNOWN_METRICS:
             # Rates: buckets without observations carry no information -> skip.
             # Attempt/share-based detection metrics (e.g. checkout_abandonment_rate,
@@ -281,4 +330,6 @@ def get_timeseries(
                 TimeSeriesPoint(ts=k, value=float(v[idx]))
                 for k, v in sorted(counts.items())
             ]
-    return DashboardTimeseries(metric=metric, granularity=granularity, points=points)
+    return DashboardTimeseries(
+        metric=metric, granularity=granularity, points=points, environment=environment
+    )

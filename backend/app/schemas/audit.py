@@ -17,6 +17,8 @@ class AuditLogEntry(BaseModel):
     details: dict[str, Any] = Field(default_factory=dict)
     request_id: str | None = None
     created_at: datetime
+    # --- additive (backwards compatible) ---
+    environment: str = "research"  # real_test | research
 
 
 class AuditListResponse(Paginated[AuditLogEntry]):

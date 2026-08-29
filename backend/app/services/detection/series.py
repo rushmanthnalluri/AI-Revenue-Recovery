@@ -145,17 +145,23 @@ def payment_segments(payment: Payment) -> dict[str, str]:
     }
 
 
-def latest_event_anchor(db: Session) -> datetime | None:
+def latest_event_anchor(db: Session, source_types: tuple[str, ...] | None = None) -> datetime | None:
     """Most recent terminal event time — the default right edge of a window.
 
     Anchoring to the data (not wall-clock now) makes detection runs
     deterministic and idempotent: the same data yields the same window.
+    ``source_types`` restricts the anchor to one environment's commerce rows
+    (the real_test/research boundary — a pass must never anchor on the other
+    environment's events).
     """
-    return db.scalar(
-        sa.select(sa.func.max(PaymentEvent.occurred_at)).where(
-            PaymentEvent.to_status.in_(TERMINAL_STATUSES)
-        )
+    stmt = sa.select(sa.func.max(PaymentEvent.occurred_at)).where(
+        PaymentEvent.to_status.in_(TERMINAL_STATUSES)
     )
+    if source_types is not None:
+        stmt = stmt.join(Payment, PaymentEvent.payment_id == Payment.id).where(
+            Payment.source_type.in_(source_types)
+        )
+    return db.scalar(stmt)
 
 
 def load_outcomes(
@@ -163,10 +169,13 @@ def load_outcomes(
     window_start: datetime,
     window_end: datetime,
     segment: dict[str, str] | None = None,
+    source_types: tuple[str, ...] | None = None,
 ) -> list[PaymentOutcome]:
     """Resolve one terminal outcome per payment inside the window.
 
-    Optionally restricted to a segment slice, e.g. ``{"method": "upi"}``.
+    Optionally restricted to a segment slice, e.g. ``{"method": "upi"}``, and
+    to an environment via ``source_types`` (payments whose ``source_type`` is
+    in the environment's set — see app.models.base.source_types_for_environment).
     Failures carry the deciding event's ``error_reason`` (payload first, then
     the payment row) for the error-share metric.
     """
@@ -180,6 +189,8 @@ def load_outcomes(
         )
         .order_by(PaymentEvent.occurred_at.asc())
     )
+    if source_types is not None:
+        stmt = stmt.where(Payment.source_type.in_(source_types))
     rows = db.execute(stmt).all()
 
     # Latest terminal event per payment wins (failed -> captured happens).
@@ -214,6 +225,7 @@ def load_checkout_attempts(
     segment: dict[str, str] | None = None,
     *,
     inactivity_minutes: int = 30,
+    source_types: tuple[str, ...] | None = None,
 ) -> list[CheckoutAttempt]:
     """Resolve every payment *created* in the window against the inactivity
     threshold, as of the pass's knowledge edge (``window_end``).
@@ -222,6 +234,7 @@ def load_checkout_attempts(
     of view and is never consulted. ``abandoned`` is tri-state (see
     :class:`CheckoutAttempt`): attempts whose threshold horizon falls beyond
     the window edge are right-censored (``None``), not counted as abandoned.
+    ``source_types`` restricts the pass to one environment's payments.
     """
     created_col = sa.func.coalesce(Payment.gateway_created_at, Payment.created_at)
     stmt = (
@@ -229,6 +242,8 @@ def load_checkout_attempts(
         .where(created_col >= window_start, created_col < window_end)
         .order_by(created_col.asc())
     )
+    if source_types is not None:
+        stmt = stmt.where(Payment.source_type.in_(source_types))
     payments = list(db.scalars(stmt))
     if not payments:
         return []

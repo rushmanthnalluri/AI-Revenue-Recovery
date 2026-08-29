@@ -58,7 +58,7 @@ def test_dashboard_reflects_seeded_payments(client, db_session):
         )
     db_session.commit()
 
-    r = client.get("/api/v1/dashboard/summary")
+    r = client.get("/api/v1/dashboard/summary", params={"environment": "research"})
     assert r.status_code == 200
     body = r.json()
     assert body["payments_observed"] == 10
@@ -67,7 +67,12 @@ def test_dashboard_reflects_seeded_payments(client, db_session):
 
     r = client.get(
         "/api/v1/dashboard/timeseries",
-        params={"metric": "payments_failed", "granularity": "hour", "window_hours": 2},
+        params={
+            "metric": "payments_failed",
+            "granularity": "hour",
+            "window_hours": 2,
+            "environment": "research",
+        },
     )
     assert r.status_code == 200
     points = r.json()["points"]

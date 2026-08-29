@@ -52,7 +52,7 @@ from sqlalchemy.orm import Session
 from app import ids
 from app.db import utcnow
 from app.logging import get_logger
-from app.models import Incident, IncidentEvidence
+from app.models import Incident, IncidentEvidence, source_types_for_environment
 from app.ports import IncidentStatus, Severity
 from app.schemas.detection import DetectionRunRequest
 from app.services.detection.detectors import (
@@ -236,9 +236,14 @@ def run_detection(db: Session, req: DetectionRunRequest) -> DetectionRunResult:
         )
     detectors = all_detectors() if req.detector == "all" else [get_detector(req.detector)]
 
+    # Environment boundary: the pass scores ONLY this environment's commerce
+    # rows and stamps it onto every incident/evidence it persists.
+    environment = req.environment
+    source_types = source_types_for_environment(environment)
+
     result = DetectionRunResult(run_id=run_id, status="completed", started_at=started_at)
 
-    anchor = req.as_of or latest_event_anchor(db)
+    anchor = req.as_of or latest_event_anchor(db, source_types=source_types)
     if anchor is None:
         result.finished_at = utcnow()
         result.detail = "no terminal payment events in scope; nothing to detect"
@@ -252,7 +257,7 @@ def run_detection(db: Session, req: DetectionRunRequest) -> DetectionRunResult:
     # floor the start onto the same grid so repeated runs are identical
     window_start = floor_bucket(window_start, req.bucket_minutes)
 
-    outcomes = load_outcomes(db, window_start, window_end, req.segment)
+    outcomes = load_outcomes(db, window_start, window_end, req.segment, source_types)
     if not outcomes and not any(m in ATTEMPT_BASED_METRICS for m in metrics):
         result.finished_at = utcnow()
         result.detail = "no terminal payment outcomes inside the window"
@@ -267,6 +272,7 @@ def run_detection(db: Session, req: DetectionRunRequest) -> DetectionRunResult:
                 window_end,
                 req.segment,
                 inactivity_minutes=ABANDONMENT_INACTIVITY_MINUTES,
+                source_types=source_types,
             )
         else:
             records = outcomes
@@ -308,6 +314,7 @@ def run_detection(db: Session, req: DetectionRunRequest) -> DetectionRunResult:
                 params=params,
                 req=req,
                 now=started_at,
+                environment=environment,
             )
             if report is not None:
                 admitted_detectors.add(detector.name)
@@ -329,6 +336,7 @@ def run_detection(db: Session, req: DetectionRunRequest) -> DetectionRunResult:
                 window_end=window_end,
                 req=req,
                 now=started_at,
+                environment=environment,
             )
 
     if not req.dry_run:
@@ -444,6 +452,7 @@ def _admit(
     params: DetectorParams,
     req: DetectionRunRequest,
     now: datetime,
+    environment: str,
     extra_meta: dict | None = None,
 ) -> IncidentReport | None:
     """The admission gate between a detector fire and an incident: floors,
@@ -490,6 +499,7 @@ def _admit(
         now=now,
         dedup_cooldown_minutes=req.dedup_cooldown_minutes,
         suppress_after_resolve_minutes=req.suppress_after_resolve_minutes,
+        environment=environment,
         extra_meta=extra_meta,
     )
     result.incidents.append(report)
@@ -560,6 +570,7 @@ def _scan_latency_routes(
     window_end: datetime,
     req: DetectionRunRequest,
     now: datetime,
+    environment: str,
 ) -> None:
     """Per-route capture-latency scan — the route_latency blind-spot cover.
 
@@ -636,6 +647,7 @@ def _scan_latency_routes(
                 params=params,
                 req=req,
                 now=now,
+                environment=environment,
                 extra_meta={"segment_scan": True},
             )
 
@@ -836,15 +848,20 @@ def _persist(
     now: datetime,
     dedup_cooldown_minutes: int | None,
     suppress_after_resolve_minutes: int | None,
+    environment: str,
     extra_meta: dict | None = None,
 ) -> IncidentReport:
     fingerprint = _segment_fingerprint(segment)
+    # Dedup/merge/suppression candidates are environment-scoped: a real_test
+    # pass must never merge into (or be suppressed by) a research incident
+    # with the same signature, and vice versa.
     candidates = [
         i
         for i in db.scalars(
             sa.select(Incident).where(
                 Incident.metric == metric,
                 Incident.detection_method == detector_name,
+                Incident.environment == environment,
             )
         ).all()
         if (i.meta or {}).get("segment_fingerprint") == fingerprint
@@ -951,6 +968,7 @@ def _persist(
         series=series,
         localization=localization,
         now=now,
+        environment=environment,
     )
 
     if match is None:
@@ -961,6 +979,7 @@ def _persist(
             severity=severity,
             metric=metric,
             detection_method=detector_name,
+            environment=environment,
             baseline_value=round(anomaly.baseline, 6),
             observed_value=round(anomaly.observed, 6),
             deviation_pct=round(anomaly.deviation_pct, 2),
@@ -1027,11 +1046,13 @@ def _build_evidence(
     series: list[Bucket],
     localization: dict[str, list[dict]],
     now: datetime,
+    environment: str,
 ) -> list[IncidentEvidence]:
     snapshot = IncidentEvidence(
         incident_id=incident_id or "",
         evidence_type="metric_series",
         title=f"{metric} bucketed series snapshot",
+        environment=environment,
         payload={
             "metric": metric,
             "buckets": [
@@ -1050,6 +1071,7 @@ def _build_evidence(
         incident_id=incident_id or "",
         evidence_type="segment_breakdown",
         title="Top contributing segments",
+        environment=environment,
         payload={"dimensions": localization},
         collector=COLLECTOR,
         collected_at=now,

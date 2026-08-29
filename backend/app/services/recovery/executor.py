@@ -35,6 +35,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from app import ids
+from app.config import settings
 from app.db import utcnow
 from app.logging import get_logger, request_id_ctx
 from app.models import (
@@ -45,6 +46,7 @@ from app.models import (
     RecoveryOpportunity,
     RecoveryStrategy,
 )
+from app.models.base import ENVIRONMENT_REAL_TEST, ENVIRONMENT_RESEARCH
 from app.ports import (
     ActionContext,
     ActionType,
@@ -60,6 +62,7 @@ from app.services.policy.engine import (
     META_STRATEGY_ID,
 )
 from app.services.policy.history import SqlPolicyHistory
+from app.services.razorpay import factory as gateway_factory
 from app.services.razorpay.errors import (
     GatewayClientError,
     GatewayNotFoundError,
@@ -118,8 +121,24 @@ class InvalidStateError(RecoveryError):
     code = "invalid_state"
 
 
+class GatewayNotConfiguredError(RecoveryError):
+    """A real_test execution was requested but no real Razorpay keys are
+    configured. The executor refuses: NEVER a fake execution, NEVER the
+    simulator for a real_test opportunity."""
+
+    status_code = 409
+    code = "razorpay_not_configured"
+
+
 class RecoveryExecutor:
-    """Drives recovery actions through policy, gateway, and verification."""
+    """Drives recovery actions through policy, gateway, and verification.
+
+    Gateway-by-environment: ``research`` opportunities execute against the
+    injected gateway (the simulation twin in every current deployment);
+    ``real_test`` opportunities execute against the REAL Razorpay adapter —
+    ``real_gateway`` when injected (test seam), else the configured adapter,
+    else an honest :class:`GatewayNotConfiguredError` refusal.
+    """
 
     def __init__(
         self,
@@ -127,12 +146,31 @@ class RecoveryExecutor:
         gateway: PaymentGateway,
         *,
         policy_engine: PolicyEngine | None = None,
+        real_gateway: PaymentGateway | None = None,
     ) -> None:
         self._db = session
         self._gw = gateway
+        self._real_gateway = real_gateway
         self._policy = policy_engine or PolicyEngine.from_file(session=session)
         self._history = SqlPolicyHistory(session)
         self._strategies = StrategyGenerator(session)
+
+    def _gateway_for(self, opp: RecoveryOpportunity | None) -> PaymentGateway:
+        """Route the gateway call by the opportunity's environment stamp."""
+        environment = (opp.environment if opp is not None else None) or ENVIRONMENT_RESEARCH
+        if environment != ENVIRONMENT_REAL_TEST:
+            return self._gw
+        if self._real_gateway is not None:
+            return self._real_gateway
+        real = gateway_factory.get_real_gateway(settings)
+        if real is None:
+            raise GatewayNotConfiguredError(
+                f"razorpay_not_configured: opportunity {opp.id} is environment "
+                "'real_test' but RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET are not "
+                "configured (or SIMULATION_MODE is on) — refusing to execute; "
+                "a real_test action never touches the simulator"
+            )
+        return real
 
     # ------------------------------------------------------------------
     # reads
@@ -407,12 +445,13 @@ class RecoveryExecutor:
             )
 
         evidence: dict[str, Any] = {}
+        gw = self._gateway_for(action.opportunity)  # real_test re-queries the real adapter
         try:
             # Path 1: the entity this action created (id captured before the
             # outcome was lost — rare, but then it is decisive).
             created_id = (action.gateway_response or {}).get("id")
             if action.action_type is ActionType.RETRY_PAYMENT and created_id:
-                order = self._gw.fetch_order(created_id)
+                order = gw.fetch_order(created_id)
                 evidence["order_status"] = order.get("status")
                 evidence["order_amount_paid"] = order.get("amount_paid")
                 if order.get("id") != created_id:
@@ -428,7 +467,7 @@ class RecoveryExecutor:
             payment = self._linked_payment(action)
             if payment is not None and payment.gateway_payment_id:
                 try:
-                    remote = self._gw.fetch_payment(payment.gateway_payment_id)
+                    remote = gw.fetch_payment(payment.gateway_payment_id)
                 except GatewayNotFoundError:
                     evidence["linked_payment"] = "not_found_at_gateway"
                 else:
@@ -444,7 +483,7 @@ class RecoveryExecutor:
             action.last_error = f"resolve re-query inconclusive: {exc}"
             evidence["error"] = str(exc)
 
-        audit.record(
+        entry = audit.record(
             self._db,
             actor=actor,
             action="recovery.action.resolve_check",
@@ -453,6 +492,7 @@ class RecoveryExecutor:
             details={"result": "still_unknown", **evidence},
             request_id=rid,
         )
+        entry.environment = action.environment or ENVIRONMENT_RESEARCH
         logger.info(
             "recovery action still UNKNOWN after re-query",
             extra={"action_id": action.id, "evidence": evidence},
@@ -506,6 +546,9 @@ class RecoveryExecutor:
             amount_paise=opp.amount_paise,
             currency=opp.currency or "INR",
             confidence=strategy.confidence,
+            # Actions inherit the opportunity's environment — gateway routing
+            # and read-API scoping both key off exactly this stamp.
+            environment=opp.environment or ENVIRONMENT_RESEARCH,
             # Idempotency key for the gateway call; unique column. 36 chars,
             # inside Razorpay's 40-char receipt/reference_id limit.
             gateway_request_id=ids.new_id("gwr_"),
@@ -514,7 +557,7 @@ class RecoveryExecutor:
         )
         self._db.add(action)
         self._db.flush()
-        audit.record(
+        entry = audit.record(
             self._db,
             actor=actor,
             action="recovery.action.proposed",
@@ -531,6 +574,7 @@ class RecoveryExecutor:
             },
             request_id=request_id,
         )
+        entry.environment = action.environment
         self._sync_opportunity(opp, action)
         return action
 
@@ -678,7 +722,13 @@ class RecoveryExecutor:
     def _dispatch_gateway(
         self, action: RecoveryAction, opp: RecoveryOpportunity
     ) -> dict[str, Any]:
-        """Map the action type to exactly one gateway mutation (or none)."""
+        """Map the action type to exactly one gateway mutation (or none).
+
+        The gateway is chosen by the opportunity's environment: research ->
+        the injected (simulated) twin; real_test -> the real Razorpay adapter
+        or an honest razorpay_not_configured refusal (raised BEFORE any
+        mutation attempt)."""
+        gw = self._gateway_for(opp)
         if action.action_type is ActionType.RETRY_PAYMENT:
             # Razorpay has no "retry" call: a fresh order with our idempotency
             # key as receipt gives the customer a new payable attempt.
@@ -689,7 +739,7 @@ class RecoveryExecutor:
             delay = self._delay_seconds(action)
             if delay:
                 notes["requested_delay_seconds"] = str(delay)
-            return self._gw.create_order(
+            return gw.create_order(
                 amount_paise=action.amount_paise,
                 currency=action.currency or "INR",
                 idempotency_key=action.gateway_request_id,
@@ -710,7 +760,7 @@ class RecoveryExecutor:
                     }.items()
                     if v
                 } or None
-            return self._gw.create_payment_link(
+            return gw.create_payment_link(
                 amount_paise=action.amount_paise,
                 currency=action.currency or "INR",
                 customer=customer_payload,
@@ -830,7 +880,7 @@ class RecoveryExecutor:
         if to in TERMINAL_STATES or to is RecoveryStatus.RECOVERED:
             action.completed_at = now
         self._db.flush()
-        audit.record(
+        entry = audit.record(
             self._db,
             actor=actor,
             action=f"recovery.action.{to.value.lower()}",
@@ -843,6 +893,7 @@ class RecoveryExecutor:
             },
             request_id=request_id,
         )
+        entry.environment = action.environment or ENVIRONMENT_RESEARCH
         if action.opportunity is not None:
             self._sync_opportunity(action.opportunity, action)
         logger.info(
@@ -878,7 +929,7 @@ class RecoveryExecutor:
         frm = opp.status
         opp.status = to
         self._db.flush()
-        audit.record(
+        entry = audit.record(
             self._db,
             actor=actor,
             action=f"recovery.opportunity.{to.value.lower()}",
@@ -891,6 +942,7 @@ class RecoveryExecutor:
             },
             request_id=request_id,
         )
+        entry.environment = opp.environment or ENVIRONMENT_RESEARCH
 
     def _sync_opportunity(
         self, opp: RecoveryOpportunity, action: RecoveryAction
@@ -907,6 +959,7 @@ class RecoveryExecutor:
 
 __all__ = [
     "CANCELLABLE_STATES",
+    "GatewayNotConfiguredError",
     "IN_FLIGHT_STATES",
     "InvalidStateError",
     "OPEN_STATES",

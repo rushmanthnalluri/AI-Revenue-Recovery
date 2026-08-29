@@ -8,10 +8,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app import ids
 from app.db import Base, TZDateTime
-from app.models.base import TimestampMixin
+from app.models.base import EnvironmentMixin, TimestampMixin
 
 
-class AuditLog(Base):
+class AuditLog(EnvironmentMixin, Base):
     """Append-only audit trail. No updated_at — rows are immutable."""
 
     __tablename__ = "audit_logs"

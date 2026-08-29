@@ -1,7 +1,13 @@
 """Audit endpoints — read-only, newest-first window over the append-only
-`audit_logs` trail written by app.services.policy.audit.record."""
+`audit_logs` trail written by app.services.policy.audit.record.
+
+The `environment` filter (default 'real_test') scopes the trail to one
+environment: research rows (demo.reset, simulator-derived recovery) can never
+surface in a real_test query."""
 
 import sqlalchemy as sa
+from typing import Literal
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
@@ -17,10 +23,11 @@ def list_audit(
     db: Session = Depends(get_db),
     entity_type: str | None = Query(default=None),
     entity_id: str | None = Query(default=None),
+    environment: Literal["real_test", "research"] = Query(default="real_test"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
 ) -> AuditListResponse:
-    filters = []
+    filters = [AuditLog.environment == environment]
     if entity_type:
         filters.append(AuditLog.entity_type == entity_type)
     if entity_id:
@@ -47,6 +54,7 @@ def list_audit(
                 details=dict(row.details or {}),
                 request_id=row.request_id,
                 created_at=row.created_at,
+                environment=row.environment or "research",
             )
             for row in rows
         ],

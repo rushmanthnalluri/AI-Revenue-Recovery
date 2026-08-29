@@ -55,11 +55,15 @@ def test_full_loop_incident_to_verified_recovery(make_client, db_session):
         assert incident_id, f"no incident detected: {trigger['detection']}"
 
         # 2. incidents list contains it, with filters + pagination working
-        r = client.get("/api/v1/incidents", params={"page_size": 50})
+        r = client.get(
+            "/api/v1/incidents", params={"page_size": 50, "environment": "research"}
+        )
         assert r.status_code == 200
         ids = [i["id"] for i in r.json()["items"]]
         assert incident_id in ids
-        r = client.get("/api/v1/incidents", params={"severity": "CRITICAL"})
+        r = client.get(
+            "/api/v1/incidents", params={"severity": "CRITICAL", "environment": "research"}
+        )
         assert all(i["severity"] == "CRITICAL" for i in r.json()["items"])
 
         # 3. detail: auto-diagnosis ran, revenue breakdown + timeline present
@@ -164,7 +168,7 @@ def test_full_loop_incident_to_verified_recovery(make_client, db_session):
         }
         assert "recovery.action.recovered" in audit_actions
 
-        r = client.get("/api/v1/dashboard/summary")
+        r = client.get("/api/v1/dashboard/summary", params={"environment": "research"})
         assert r.status_code == 200
         summary = r.json()
         assert summary["recovered_revenue_paise"] > 0
@@ -181,11 +185,13 @@ def test_full_loop_incident_to_verified_recovery(make_client, db_session):
                 "metric": "payment_success_rate",
                 "granularity": "hour",
                 "window_hours": 48,
+                "environment": "research",
             },
         )
         assert r.status_code == 200
         assert len(r.json()["points"]) > 0
         r = client.get(
-            "/api/v1/dashboard/timeseries", params={"metric": "recovered_revenue_paise"}
+            "/api/v1/dashboard/timeseries",
+            params={"metric": "recovered_revenue_paise", "environment": "research"},
         )
         assert r.status_code == 200

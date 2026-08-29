@@ -138,3 +138,75 @@ Backfill semantics (existing rows, all of which predate real ingestion):
   otherwise (`payment_events` has no upstream id column).
 - `ingested_at` = migration time (honest: the true ingestion time of legacy
   rows was not recorded).
+
+## Environment model (migration `b4e7a1c2d305`)
+
+The strict boundary between **REAL MERCHANT mode** (Razorpay Test Mode data)
+and **RESEARCH mode** (simulator data). Every read surface and every writer
+respects exactly one environment per query/pass/action; a research row can
+never surface through a real_test query.
+
+### Vocabulary and mapping
+
+| Environment | Meaning | Commerce `source_type` set |
+|---|---|---|
+| `real_test` | REAL MERCHANT mode — data from Razorpay Test Mode (API or webhook) | `razorpay_test`, `razorpay_live` |
+| `research` | RESEARCH mode — simulator output (engine + simulated gateway) | `simulator` |
+
+`app.models.base.source_types_for_environment` is the only sanctioned mapping
+between the two provenance axes. Commerce tables carry **no** environment
+column — their environment is *derived* from `source_type`. Derived tables
+carry the column directly.
+
+### The `environment` column
+
+`environment VARCHAR(16) NOT NULL DEFAULT 'research'` (indexed) on:
+`incidents`, `incident_evidence`, `recovery_opportunities`,
+`recovery_actions`, `diagnoses`, `agent_reports`, `audit_logs`.
+
+The `'research'` default is the safe failure direction: a writer that forgets
+to stamp lands in the research sandbox and can never leak into a real_test
+query. Every pre-existing row is simulator-derived, so the backfill is honest.
+
+Writer stamping chain (enforced by `backend/tests/environment/`):
+
+- Detection runs take `environment` on `DetectionRunRequest` (default
+  `real_test`); the pass scores only payments whose `source_type` belongs to
+  that environment and stamps incidents + evidence. Dedup/merge/suppression
+  candidates are environment-scoped, so the same signature can exist once per
+  environment.
+- The opportunity builder stamps opportunities with the incident's
+  environment and scopes candidate payments/orders to it.
+- The recovery executor stamps actions with the opportunity's environment.
+- Simulator callers (demo router, evaluation harness, demo scripts) pass
+  `environment='research'` explicitly; real ingestion (a later wave's sync
+  service + real webhooks) produces `real_test` rows.
+
+### Gateway-by-environment execution
+
+`RecoveryExecutor` routes gateway calls by the opportunity's stamp:
+`research` → the injected gateway (the simulated twin in every current
+deployment); `real_test` → the REAL Razorpay adapter (`real_gateway` seam for
+tests, else the configured adapter). If real keys are absent the executor
+refuses honestly — `GatewayNotConfiguredError` → HTTP 409
+`razorpay_not_configured` — never a fake execution, never the simulator.
+
+### Sync-service tables (contract for the ingestion wave)
+
+- `sync_runs` (`sr_`-prefixed ids): one row per real-ingestion sync pass —
+  `started_at`, `finished_at`, `status` (`running`/`completed`/`failed`),
+  `entity_counts` JSON, `error`, `actor`, `request_id`, `created_at`.
+- `connection_state` (singleton id `'merchant'`): `sync_enabled`,
+  `last_sync_at`, `last_webhook_at`, `last_sync_status`, `updated_at`.
+
+### Read-API scoping
+
+`GET /api/v1/dashboard/summary` + `/timeseries`, `GET /api/v1/incidents`,
+`GET /api/v1/recovery/opportunities`, `GET /api/v1/audit`, and
+`GET /api/v1/payments` take an `environment` query param **defaulting to
+`real_test`** (the merchant-facing mode; documented behavior change). Detail
+endpoints (`/incidents/{id}`, `/recovery/{id}`, `/recovery/{id}/plan`) stay
+addressed by id and follow the row's own environment. `POST /api/v1/demo/reset`
+deletes only simulator-sourced commerce rows and research-environment derived
+rows — real_test rows are untouchable — and its own audit row is
+research-tagged.

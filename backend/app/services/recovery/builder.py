@@ -42,6 +42,7 @@ from sqlalchemy.orm import Session
 from app.db import utcnow
 from app.logging import get_logger
 from app.models import Incident, Order, Payment, RecoveryOpportunity
+from app.models.base import ENVIRONMENT_RESEARCH, source_types_for_environment
 from app.ports import RecoveryStatus
 from app.services.policy import audit
 
@@ -101,12 +102,17 @@ class OpportunityBuilder:
 
         win_end = incident.window_end or incident.detected_at
         win_start = incident.window_start or (win_end - _DEFAULT_WINDOW)
+        # Environment boundary: candidate payments/orders come ONLY from the
+        # incident's own environment, and every opportunity inherits it.
+        source_types = source_types_for_environment(
+            incident.environment or ENVIRONMENT_RESEARCH
+        )
 
         already = self._existing_index(incident.id)
         result = BuildResult(incident_id=incident.id)
         knowledge_edge = utcnow()
 
-        for payment in self._failed_payments(win_start, win_end):
+        for payment in self._failed_payments(win_start, win_end, source_types):
             if payment.id in already["payments"]:
                 result.existing.append(already["payments"][payment.id])
                 continue
@@ -128,7 +134,7 @@ class OpportunityBuilder:
             result.created.append(opp)
             already["payments"][payment.id] = opp
 
-        for payment in self._stuck_created_payments(win_start, win_end, knowledge_edge):
+        for payment in self._stuck_created_payments(win_start, win_end, knowledge_edge, source_types):
             if payment.id in already["payments"]:
                 result.existing.append(already["payments"][payment.id])
                 continue
@@ -163,7 +169,7 @@ class OpportunityBuilder:
             if payment.order_id:
                 already["orders"][payment.order_id] = opp
 
-        for order in self._abandoned_orders(win_start, win_end):
+        for order in self._abandoned_orders(win_start, win_end, source_types):
             if order.id in already["orders"]:
                 result.existing.append(already["orders"][order.id])
                 continue
@@ -199,19 +205,20 @@ class OpportunityBuilder:
     # selection queries
     # ------------------------------------------------------------------
 
-    def _failed_payments(self, start, end) -> list[Payment]:
+    def _failed_payments(self, start, end, source_types) -> list[Payment]:
         stmt = (
             sa.select(Payment)
             .where(
                 Payment.status == _FAILED_STATUS,
                 Payment.created_at >= start,
                 Payment.created_at < end,
+                Payment.source_type.in_(source_types),
             )
             .order_by(Payment.created_at, Payment.id)
         )
         return list(self._db.scalars(stmt))
 
-    def _stuck_created_payments(self, start, end, knowledge_edge) -> list[Payment]:
+    def _stuck_created_payments(self, start, end, knowledge_edge, source_types) -> list[Payment]:
         """Payments created inside the window that are STILL in `created` and
         have been so for at least STUCK_CREATED_THRESHOLD as of the build's
         knowledge edge. A payment that resolved (captured/failed) is covered
@@ -225,12 +232,13 @@ class OpportunityBuilder:
                 Payment.created_at >= start,
                 Payment.created_at < end,
                 Payment.created_at <= stuck_before,
+                Payment.source_type.in_(source_types),
             )
             .order_by(Payment.created_at, Payment.id)
         )
         return list(self._db.scalars(stmt))
 
-    def _abandoned_orders(self, start, end) -> list[Order]:
+    def _abandoned_orders(self, start, end, source_types) -> list[Order]:
         """Orders still in `created` state with NO payment rows at all. An
         order with a failed or stuck-created payment is already covered by
         that payment's own opportunity — counting both would double the
@@ -244,6 +252,7 @@ class OpportunityBuilder:
                 Order.status == _ORDER_OPEN_STATUS,
                 Order.created_at >= start,
                 Order.created_at < end,
+                Order.source_type.in_(source_types),
                 ~has_payment,
             )
             .order_by(Order.created_at, Order.id)
@@ -300,10 +309,13 @@ class OpportunityBuilder:
             reason=reason,
             expires_at=now + OPPORTUNITY_TTL,
             meta={k: v for k, v in meta.items() if v is not None},
+            # Opportunities inherit the incident's environment — the executor
+            # routes the gateway by exactly this stamp.
+            environment=incident.environment or ENVIRONMENT_RESEARCH,
         )
         self._db.add(opp)
         self._db.flush()
-        audit.record(
+        entry = audit.record(
             self._db,
             actor=actor,
             action="recovery.opportunity_created",
@@ -316,6 +328,7 @@ class OpportunityBuilder:
                 "amount_paise": amount_paise,
             },
         )
+        entry.environment = opp.environment
         return opp
 
 

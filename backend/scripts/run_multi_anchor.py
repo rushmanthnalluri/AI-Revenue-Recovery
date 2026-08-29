@@ -380,6 +380,8 @@ def probe_detection(config: SimulatorConfig) -> dict[str, Any]:
                         DetectionRunRequest(
                             as_of=min(as_of, anchor),
                             window_minutes=DETECTION_WINDOW_MINUTES,
+                            # probe DBs are simulator-seeded: research mode.
+                            environment="research",
                         ),
                     )
                     passes += 1

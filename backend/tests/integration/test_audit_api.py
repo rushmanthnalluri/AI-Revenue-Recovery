@@ -46,7 +46,7 @@ def test_audit_empty_db(client):
 
 def test_audit_lists_all_newest_first(client, db_session):
     rows = _seed(db_session)
-    r = client.get("/api/v1/audit")
+    r = client.get("/api/v1/audit", params={"environment": "research"})
     assert r.status_code == 200
     body = r.json()
     assert body["total"] == 5
@@ -70,7 +70,9 @@ def test_audit_lists_all_newest_first(client, db_session):
 
 def test_audit_filter_by_entity_type(client, db_session):
     _seed(db_session)
-    r = client.get("/api/v1/audit", params={"entity_type": "incident"})
+    r = client.get(
+        "/api/v1/audit", params={"entity_type": "incident", "environment": "research"}
+    )
     assert r.status_code == 200
     body = r.json()
     assert body["total"] == 3
@@ -80,7 +82,8 @@ def test_audit_filter_by_entity_type(client, db_session):
 def test_audit_filter_by_entity_id(client, db_session):
     _seed(db_session)
     r = client.get(
-        "/api/v1/audit", params={"entity_type": "incident", "entity_id": "inc_1"}
+        "/api/v1/audit",
+        params={"entity_type": "incident", "entity_id": "inc_1", "environment": "research"},
     )
     assert r.status_code == 200
     body = r.json()
@@ -93,7 +96,7 @@ def test_audit_filter_by_entity_id(client, db_session):
 
 def test_audit_filter_no_match(client, db_session):
     _seed(db_session)
-    r = client.get("/api/v1/audit", params={"entity_id": "nope"})
+    r = client.get("/api/v1/audit", params={"entity_id": "nope", "environment": "research"})
     assert r.status_code == 200
     body = r.json()
     assert body["total"] == 0
@@ -102,7 +105,7 @@ def test_audit_filter_no_match(client, db_session):
 
 def test_audit_pagination(client, db_session):
     rows = _seed(db_session)
-    r = client.get("/api/v1/audit", params={"page": 1, "page_size": 2})
+    r = client.get("/api/v1/audit", params={"page": 1, "page_size": 2, "environment": "research"})
     assert r.status_code == 200
     body = r.json()
     assert body["total"] == 5
@@ -111,11 +114,11 @@ def test_audit_pagination(client, db_session):
     page1_ids = [it["id"] for it in body["items"]]
     assert page1_ids == [rows[4].id, rows[3].id]
 
-    r = client.get("/api/v1/audit", params={"page": 3, "page_size": 2})
+    r = client.get("/api/v1/audit", params={"page": 3, "page_size": 2, "environment": "research"})
     body = r.json()
     assert [it["id"] for it in body["items"]] == [rows[0].id]
 
-    r = client.get("/api/v1/audit", params={"page": 4, "page_size": 2})
+    r = client.get("/api/v1/audit", params={"page": 4, "page_size": 2, "environment": "research"})
     assert r.json()["items"] == []
 
 

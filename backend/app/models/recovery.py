@@ -14,11 +14,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app import ids
 from app.db import Base, TZDateTime
-from app.models.base import TimestampMixin, enum_col
+from app.models.base import EnvironmentMixin, TimestampMixin, enum_col
 from app.ports import ActionType, PolicyOutcome, RecoveryStatus
 
 
-class RecoveryOpportunity(TimestampMixin, Base):
+class RecoveryOpportunity(EnvironmentMixin, TimestampMixin, Base):
     __tablename__ = "recovery_opportunities"
 
     id: Mapped[str] = mapped_column(sa.String(64), primary_key=True, default=ids.opportunity_id)
@@ -82,7 +82,7 @@ class RecoveryStrategy(TimestampMixin, Base):
     opportunity: Mapped[RecoveryOpportunity] = relationship(back_populates="strategies")
 
 
-class RecoveryAction(TimestampMixin, Base):
+class RecoveryAction(EnvironmentMixin, TimestampMixin, Base):
     """One attempted recovery. Status follows the RecoveryStatus state machine:
     PROPOSED -> POLICY_EVALUATED -> PENDING_APPROVAL -> APPROVED -> EXECUTING ->
     VERIFYING -> RECOVERED | FAILED | UNKNOWN; side exits REJECTED / CANCELLED /

@@ -23,6 +23,8 @@ class IncidentSummary(BaseModel):
     affected_payments_count: int = 0
     revenue_at_risk_paise: int = 0
     currency: str = "INR"
+    # --- additive (backwards compatible) ---
+    environment: str = "research"  # real_test | research
 
 
 class IncidentListResponse(Paginated[IncidentSummary]):

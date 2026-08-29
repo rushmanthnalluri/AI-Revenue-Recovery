@@ -764,7 +764,11 @@ class EvaluationRunner:
             run_detection(
                 db,
                 DetectionRunRequest(
-                    as_of=min(as_of, anchor), window_minutes=DETECTION_WINDOW_MINUTES
+                    as_of=min(as_of, anchor),
+                    window_minutes=DETECTION_WINDOW_MINUTES,
+                    # The harness runs the RESEARCH environment: every row in
+                    # its scratch DBs is simulator-derived.
+                    environment="research",
                 ),
             )
             passes += 1

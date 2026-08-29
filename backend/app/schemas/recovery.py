@@ -26,6 +26,8 @@ class OpportunitySummary(BaseModel):
     reason: str | None = None
     created_at: datetime
     expires_at: datetime | None = None
+    # --- additive (backwards compatible) ---
+    environment: str = "research"  # real_test | research
 
 
 class OpportunityListResponse(Paginated[OpportunitySummary]):

@@ -33,6 +33,9 @@ class DashboardSummary(BaseModel):
     revenue_at_risk_low_confidence: bool = False
     # Newest incidents by detected_at (max 5) for the dashboard feed.
     recent_incidents: list[IncidentSummary] = Field(default_factory=list)
+    # The environment every aggregate on this summary is scoped to
+    # (query param, default 'real_test').
+    environment: str = "real_test"
 
 
 class DashboardTimeseries(BaseModel):
@@ -41,3 +44,5 @@ class DashboardTimeseries(BaseModel):
     granularity: Literal["minute", "hour", "day"] = "hour"
     currency: str = "INR"
     points: list[TimeSeriesPoint] = Field(default_factory=list)
+    # The environment the series is scoped to (query param, default 'real_test').
+    environment: str = "real_test"

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app import ids
 from app.db import Base, TZDateTime
-from app.models.base import TimestampMixin
+from app.models.base import EnvironmentMixin, TimestampMixin
 
 
 class Experiment(TimestampMixin, Base):
@@ -106,7 +106,7 @@ class SimulatorGroundTruth(TimestampMixin, Base):
     simulator_run: Mapped[SimulatorRun] = relationship(back_populates="ground_truth")
 
 
-class AgentReport(TimestampMixin, Base):
+class AgentReport(EnvironmentMixin, TimestampMixin, Base):
     """Persisted output of an AI/heuristic agent run (investigation, strategy...)."""
 
     __tablename__ = "agent_reports"

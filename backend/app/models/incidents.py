@@ -8,11 +8,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app import ids
 from app.db import Base, TZDateTime
-from app.models.base import TimestampMixin, enum_col
+from app.models.base import EnvironmentMixin, TimestampMixin, enum_col
 from app.ports import IncidentStatus, Severity
 
 
-class Incident(TimestampMixin, Base):
+class Incident(EnvironmentMixin, TimestampMixin, Base):
     __tablename__ = "incidents"
 
     id: Mapped[str] = mapped_column(sa.String(64), primary_key=True, default=ids.incident_id)
@@ -52,7 +52,7 @@ class Incident(TimestampMixin, Base):
     )
 
 
-class IncidentEvidence(TimestampMixin, Base):
+class IncidentEvidence(EnvironmentMixin, TimestampMixin, Base):
     __tablename__ = "incident_evidence"
 
     id: Mapped[str] = mapped_column(sa.String(64), primary_key=True, default=ids.evidence_id)
@@ -69,7 +69,7 @@ class IncidentEvidence(TimestampMixin, Base):
     incident: Mapped[Incident] = relationship(back_populates="evidence")
 
 
-class Diagnosis(TimestampMixin, Base):
+class Diagnosis(EnvironmentMixin, TimestampMixin, Base):
     """ML/root-cause diagnosis for an incident. Multiple versions allowed."""
 
     __tablename__ = "diagnoses"

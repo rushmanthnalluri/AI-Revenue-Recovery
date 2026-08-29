@@ -354,7 +354,10 @@ def test_webhook_recovery_syncs_opportunity_status_for_filtered_list(
     assert action.status == RecoveryStatus.RECOVERED
     assert opp.status == RecoveryStatus.RECOVERED
 
-    r = client.get("/api/v1/recovery/opportunities", params={"status": "RECOVERED"})
+    r = client.get(
+        "/api/v1/recovery/opportunities",
+        params={"status": "RECOVERED", "environment": "research"},
+    )
     assert r.status_code == 200
     payload = r.json()
     assert payload["total"] >= 1
