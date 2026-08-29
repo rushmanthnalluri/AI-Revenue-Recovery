@@ -11,10 +11,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app import ids
 from app.db import Base, TZDateTime
-from app.models.base import TimestampMixin
+from app.models.base import ProvenanceMixin, TimestampMixin
 
 
-class Merchant(TimestampMixin, Base):
+class Merchant(ProvenanceMixin, TimestampMixin, Base):
     __tablename__ = "merchants"
 
     id: Mapped[str] = mapped_column(sa.String(64), primary_key=True, default=ids.merchant_id)
@@ -27,7 +27,7 @@ class Merchant(TimestampMixin, Base):
     customers: Mapped[list["Customer"]] = relationship(back_populates="merchant")
 
 
-class Customer(TimestampMixin, Base):
+class Customer(ProvenanceMixin, TimestampMixin, Base):
     __tablename__ = "customers"
 
     id: Mapped[str] = mapped_column(sa.String(64), primary_key=True, default=ids.customer_id)
@@ -45,7 +45,7 @@ class Customer(TimestampMixin, Base):
     merchant: Mapped[Merchant] = relationship(back_populates="customers")
 
 
-class Order(TimestampMixin, Base):
+class Order(ProvenanceMixin, TimestampMixin, Base):
     __tablename__ = "orders"
 
     id: Mapped[str] = mapped_column(sa.String(64), primary_key=True, default=ids.order_id)
@@ -63,8 +63,14 @@ class Order(TimestampMixin, Base):
     meta: Mapped[dict[str, Any]] = mapped_column(sa.JSON, default=dict, nullable=False)
 
 
-class Payment(TimestampMixin, Base):
+class Payment(ProvenanceMixin, TimestampMixin, Base):
     __tablename__ = "payments"
+    # Dedup per upstream source: the same Razorpay/simulator payment id can
+    # never be stored twice under one source_type (NULL external_id rows are
+    # always distinct, matching the gateway_payment_id unique semantics).
+    __table_args__ = (
+        sa.UniqueConstraint("source_type", "external_id", name="uq_payments_source_external"),
+    )
 
     id: Mapped[str] = mapped_column(sa.String(64), primary_key=True, default=ids.payment_id)
     merchant_id: Mapped[str] = mapped_column(
@@ -96,7 +102,7 @@ class Payment(TimestampMixin, Base):
     )
 
 
-class PaymentEvent(TimestampMixin, Base):
+class PaymentEvent(ProvenanceMixin, TimestampMixin, Base):
     """Append-only event stream per payment — the raw signal for detection."""
 
     __tablename__ = "payment_events"
@@ -116,7 +122,7 @@ class PaymentEvent(TimestampMixin, Base):
     payment: Mapped[Payment] = relationship(back_populates="events")
 
 
-class Subscription(TimestampMixin, Base):
+class Subscription(ProvenanceMixin, TimestampMixin, Base):
     __tablename__ = "subscriptions"
 
     id: Mapped[str] = mapped_column(sa.String(64), primary_key=True, default=ids.subscription_id)

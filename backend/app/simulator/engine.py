@@ -23,6 +23,8 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from app.models import (
+    SIMULATOR_SOURCE_SYSTEM,
+    SOURCE_TYPE_SIMULATOR,
     Customer,
     Merchant,
     Order,
@@ -103,6 +105,17 @@ _FLUSH_ORDER = (
     PaymentEvent,
     SimulatorGroundTruth,
 )
+
+
+def _sim_provenance(external_id: str | None = None) -> dict[str, Any]:
+    """Provenance fields for every simulator-written row: this engine IS the
+    research simulator — its rows must never masquerade as gateway data
+    (docs/data-provenance.md)."""
+    return {
+        "source_type": SOURCE_TYPE_SIMULATOR,
+        "source_system": SIMULATOR_SOURCE_SYSTEM,
+        "external_id": external_id,
+    }
 
 
 class _BulkWriter:
@@ -262,17 +275,19 @@ class SimulatorEngine:
     # ------------------------------------------------------------------
 
     def _gen_merchant(self) -> None:
+        gw_account = f"acc_sim{self.cfg.seed:06d}"
         self.writer.add(
             Merchant,
             {
                 "id": self.merchant_id,
                 "name": self.cfg.merchant_name,
                 "email": "ops@pulserecover-demo.example.com",
-                "gateway_account_id": f"acc_sim{self.cfg.seed:06d}",
+                "gateway_account_id": gw_account,
                 "is_active": True,
                 "meta": {"simulator_run_id": self.run_id, "scenario": self.cfg.scenario},
                 "created_at": self.start,
                 "updated_at": self.start,
+                **_sim_provenance(gw_account),
             },
         )
 
@@ -287,6 +302,7 @@ class SimulatorEngine:
             acquired_day = self.rng.randrange(max(self.cfg.days - 5, 1))
             opted_out = self.rng.random() < CUSTOMER_OPT_OUT_RATE
             phone_suffix = self.rng.randrange(999_999_999)
+            gw_customer = f"cust_S{self.cfg.seed}_{self._gw_tag}{i:08d}"
             self._cust_ids.append(cid)
             self._cust_reliability.append(reliability)
             self._cust_method.append(preferred)
@@ -299,7 +315,7 @@ class SimulatorEngine:
                     "email": f"user{i}s{self.cfg.seed}@example.com",
                     "phone": f"+91{9_000_000_000 + phone_suffix}",
                     "name": f"Sim User {i}",
-                    "gateway_customer_id": f"cust_S{self.cfg.seed}_{self._gw_tag}{i:08d}",
+                    "gateway_customer_id": gw_customer,
                     "opted_out": opted_out,
                     "meta": {
                         "city": city,
@@ -308,6 +324,7 @@ class SimulatorEngine:
                     },
                     "created_at": self.start + timedelta(days=acquired_day),
                     "updated_at": self.start + timedelta(days=acquired_day),
+                    **_sim_provenance(gw_customer),
                 },
             )
         self._cust_weight = WeightedIndex(weights)
@@ -477,6 +494,7 @@ class SimulatorEngine:
         )
         last_ts = events[-1]["occurred_at"]
 
+        gw_payment = f"pay_S{self.cfg.seed}_{self._gw_tag}{self._seq['pay']:011d}"
         self.writer.add(
             Payment,
             {
@@ -484,7 +502,7 @@ class SimulatorEngine:
                 "merchant_id": self.merchant_id,
                 "order_id": order_id,
                 "customer_id": self._cust_ids[cust_idx],
-                "gateway_payment_id": f"pay_S{self.cfg.seed}_{self._gw_tag}{self._seq['pay']:011d}",
+                "gateway_payment_id": gw_payment,
                 "amount_paise": amount_paise,
                 "currency": "INR",
                 "method": method,
@@ -498,6 +516,7 @@ class SimulatorEngine:
                 "meta": meta,
                 "created_at": ts,
                 "updated_at": last_ts,
+                **_sim_provenance(gw_payment),
             },
         )
         for ev in events:
@@ -593,6 +612,7 @@ class SimulatorEngine:
                 "occurred_at": at,
                 "created_at": at,
                 "updated_at": at,
+                **_sim_provenance(),
             }
 
         events = [mk("payment.created", None, "created", ts)]
@@ -667,13 +687,14 @@ class SimulatorEngine:
             order_status = "created"
         else:
             order_status = "attempted"
+        gw_order = f"order_S{self.cfg.seed}_{self._gw_tag}{self._seq['ord']:011d}"
         self.writer.add(
             Order,
             {
                 "id": order_id,
                 "merchant_id": self.merchant_id,
                 "customer_id": self._cust_ids[cust_idx],
-                "gateway_order_id": f"order_S{self.cfg.seed}_{self._gw_tag}{self._seq['ord']:011d}",
+                "gateway_order_id": gw_order,
                 "amount_paise": amount,
                 "currency": "INR",
                 "status": order_status,
@@ -681,6 +702,7 @@ class SimulatorEngine:
                 "meta": {"channel": "checkout", "attempts": attempts},
                 "created_at": order_created,
                 "updated_at": order_created,
+                **_sim_provenance(gw_order),
             },
         )
         for r in pay_rows:
@@ -773,11 +795,12 @@ class SimulatorEngine:
                     halted = True
             retry_count = attempts_used
 
+            gw_order = f"order_S{self.cfg.seed}_{self._gw_tag}{self._seq['ord']:011d}"
             order_row = {
                 "id": order_id,
                 "merchant_id": self.merchant_id,
                 "customer_id": self._cust_ids[cust_idx],
-                "gateway_order_id": f"order_S{self.cfg.seed}_{self._gw_tag}{self._seq['ord']:011d}",
+                "gateway_order_id": gw_order,
                 "amount_paise": plan_amount,
                 "currency": "INR",
                 "status": "paid" if final == "captured" else "attempted",
@@ -786,6 +809,7 @@ class SimulatorEngine:
                          "cycle": ci, "attempts": attempts_used + 1},
                 "created_at": self.start + timedelta(days=day),
                 "updated_at": self.start + timedelta(days=day),
+                **_sim_provenance(gw_order),
             }
             pay_rows: list[dict] = []
             ev_rows: list[dict] = []
@@ -824,13 +848,14 @@ class SimulatorEngine:
             self._sub_summary["active"] += 1
 
         period_start = self.start + timedelta(days=last_cycle_day)
+        gw_sub = f"sub_S{self.cfg.seed}_{self._gw_tag}{self._seq['sub']:06d}"
         self.writer.add(
             Subscription,
             {
                 "id": sub_id,
                 "merchant_id": self.merchant_id,
                 "customer_id": self._cust_ids[cust_idx],
-                "gateway_subscription_id": f"sub_S{self.cfg.seed}_{self._gw_tag}{self._seq['sub']:06d}",
+                "gateway_subscription_id": gw_sub,
                 "plan_id": f"plan_sim_{period}_{plan_amount}",
                 "status": status,
                 "amount_paise": plan_amount,
@@ -842,6 +867,7 @@ class SimulatorEngine:
                 "meta": {"payment_method": method, "cycles_in_window": len(cycle_days)},
                 "created_at": self.start + timedelta(days=anchor_day),
                 "updated_at": period_start,
+                **_sim_provenance(gw_sub),
             },
         )
         if halted and spike_hits:

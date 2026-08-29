@@ -55,6 +55,7 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.db import utcnow
 from app.logging import get_logger, request_id_ctx
 from app.models import (
@@ -64,8 +65,15 @@ from app.models import (
     RecoveryAction,
     RecoveryOpportunity,
 )
+from app.models.base import (
+    RAZORPAY_SOURCE_SYSTEM,
+    SIMULATOR_SOURCE_SYSTEM,
+    SOURCE_TYPE_RAZORPAY_TEST,
+    SOURCE_TYPE_SIMULATOR,
+)
 from app.ports import ActionType, RecoveryStatus
 from app.services.policy import audit
+from app.services.razorpay.factory import use_simulator
 
 logger = get_logger(__name__)
 
@@ -233,6 +241,26 @@ def _event_ts(payload: dict[str, Any]) -> datetime:
     return utcnow()
 
 
+def _webhook_provenance(entity: dict[str, Any]) -> dict[str, Any]:
+    """Provenance fields for a webhook-derived event row: tag it by the
+    gateway the deployment is actually wired to (`factory.use_simulator` is
+    the single source of truth, mirrored by the webhook ingress' own
+    `source` stamp). A simulated-gateway delivery must stay honest
+    'simulator'; only real Razorpay Test Mode traffic earns 'razorpay_test'.
+    """
+    if use_simulator(settings):
+        return {
+            "source_type": SOURCE_TYPE_SIMULATOR,
+            "source_system": SIMULATOR_SOURCE_SYSTEM,
+            "external_id": entity.get("id"),
+        }
+    return {
+        "source_type": SOURCE_TYPE_RAZORPAY_TEST,
+        "source_system": RAZORPAY_SOURCE_SYSTEM,
+        "external_id": entity.get("id"),
+    }
+
+
 def _transition_payment(
     db: Session,
     payment: Payment,
@@ -251,6 +279,7 @@ def _transition_payment(
             source="webhook",
             payload=entity,
             occurred_at=occurred_at,
+            **_webhook_provenance(entity),
         )
     )
 

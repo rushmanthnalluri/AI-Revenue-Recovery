@@ -34,3 +34,36 @@ class TimestampMixin:
     updated_at: Mapped[datetime] = mapped_column(
         TZDateTime(), default=utcnow, onupdate=utcnow, nullable=False
     )
+
+
+# Provenance source_type values — plain strings, same style as
+# PaymentEvent.source (see docs/data-provenance.md).
+SOURCE_TYPE_SIMULATOR = "simulator"
+SOURCE_TYPE_RAZORPAY_TEST = "razorpay_test"
+SOURCE_TYPE_RAZORPAY_LIVE = "razorpay_live"
+SIMULATOR_SOURCE_SYSTEM = "pulserecover-simulator"
+RAZORPAY_SOURCE_SYSTEM = "razorpay"
+
+
+class ProvenanceMixin:
+    """Data provenance: which source wrote this row (docs/data-provenance.md).
+
+    source_type is 'simulator' | 'razorpay_test' | 'razorpay_live'; the
+    'simulator' server default keeps pre-provenance rows honestly tagged.
+    external_id is the upstream id (Razorpay pay_/order_/sub_ id or the
+    simulator's deterministic gateway id). ingested_at is when the row
+    entered this database (created_at may be a simulated-window timestamp).
+    """
+
+    source_type: Mapped[str] = mapped_column(
+        sa.String(32),
+        default=SOURCE_TYPE_SIMULATOR,
+        server_default=SOURCE_TYPE_SIMULATOR,
+        nullable=False,
+        index=True,
+    )
+    source_system: Mapped[str | None] = mapped_column(sa.String(64))
+    external_id: Mapped[str | None] = mapped_column(sa.String(64))
+    ingested_at: Mapped[datetime] = mapped_column(
+        TZDateTime(), default=utcnow, nullable=False
+    )

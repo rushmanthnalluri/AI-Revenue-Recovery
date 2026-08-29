@@ -79,7 +79,11 @@ def _projection(result: dict) -> dict:
     if result.get("diagnosis"):
         projected["diagnosis"] = {
             "label": result["diagnosis"]["label"],
-            "confidence": result["diagnosis"]["confidence"],
+            # sklearn predict_proba jitters in the 17th significant digit
+            # depending on process state (disclosed exception:
+            # docs/evaluation.md §1, claim-matrix 4.14). 12 decimals keep the
+            # key number and drop the last-ulp noise.
+            "confidence": round(result["diagnosis"]["confidence"], 12),
             "model_name": result["diagnosis"]["model_name"],
         }
     for key in ("executions",):

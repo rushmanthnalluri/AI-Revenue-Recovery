@@ -1,6 +1,14 @@
 """All SQLAlchemy models — import this package to register every table on
 `app.db.Base.metadata` (alembic env.py relies on that)."""
 
+from app.models.base import (
+    RAZORPAY_SOURCE_SYSTEM,
+    SIMULATOR_SOURCE_SYSTEM,
+    SOURCE_TYPE_RAZORPAY_LIVE,
+    SOURCE_TYPE_RAZORPAY_TEST,
+    SOURCE_TYPE_SIMULATOR,
+    ProvenanceMixin,
+)
 from app.models.commerce import (
     Customer,
     Merchant,
@@ -48,4 +56,10 @@ __all__ = [
     "SimulatorRun",
     "SimulatorGroundTruth",
     "AgentReport",
+    "ProvenanceMixin",
+    "SOURCE_TYPE_SIMULATOR",
+    "SOURCE_TYPE_RAZORPAY_TEST",
+    "SOURCE_TYPE_RAZORPAY_LIVE",
+    "SIMULATOR_SOURCE_SYSTEM",
+    "RAZORPAY_SOURCE_SYSTEM",
 ]
