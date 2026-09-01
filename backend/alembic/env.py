@@ -7,11 +7,14 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from app.config import settings
-from app.db import Base
+from app.db import Base, _normalize_url
 import app.models  # noqa: F401  (registers all tables on Base.metadata)
 
 config = context.config
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# Normalize like the app runtime (demo-chaos F4): bare postgresql:// and
+# postgres:// URLs (Render/Neon style) must select the shipped psycopg v3
+# driver, not the absent psycopg2.
+config.set_main_option("sqlalchemy.url", _normalize_url(settings.DATABASE_URL))
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

@@ -4,12 +4,9 @@
 # Render provisions all three resources below; secrets marked `sync: false`
 # are prompted for interactively at apply time (never committed).
 #
-# After apply, two manual values to wire (both in the Render dashboard):
-#   1. Copy pulserecover-api's generated API_KEY into pulserecover-web's
-#      NEXT_PUBLIC_API_KEY (the console sends it as X-API-Key).
-#   2. If Render assigned different hostnames than the defaults below,
-#      update CORS_ORIGINS (api) and NEXT_PUBLIC_API_BASE_URL (web) to match,
-#      then redeploy both services (NEXT_PUBLIC_* is build-time inlined).
+# After apply, if Render assigned different hostnames than the defaults
+# below, update CORS_ORIGINS (api) and NEXT_PUBLIC_API_BASE_URL (web) to
+# match, then redeploy both services (NEXT_PUBLIC_* is build-time inlined).
 #
 # Razorpay webhook (Dashboard -> Settings -> Webhooks):
 #   URL:    https://pulserecover-api.onrender.com/webhooks/razorpay
@@ -26,10 +23,11 @@ services:
     plan: free
     healthCheckPath: /healthz
     envVars:
+      # Neon serverless Postgres — paste the pooled connection string
+      # (postgresql://...pooler...neon.tech/neondb?sslmode=require...).
+      # The app normalizes the scheme to postgresql+psycopg:// at boot.
       - key: DATABASE_URL
-        fromDatabase:
-          name: pulserecover-db
-          property: connectionString
+        sync: false
       # "prod" disables the demo/detection API-key exemptions; the console
       # always sends X-API-Key, so the UI keeps working.
       - key: APP_ENV
@@ -44,7 +42,7 @@ services:
       - key: RAZORPAY_WEBHOOK_SECRET
         sync: false # must equal the secret in the Razorpay webhook config
       - key: API_KEY
-        generateValue: true
+        sync: false # invent a strong key; enter the SAME value for NEXT_PUBLIC_API_KEY below
       - key: CORS_ORIGINS
         value: '["https://pulserecover-web.onrender.com"]'
       - key: POLICY_FILE
@@ -69,8 +67,3 @@ services:
       - key: NEXT_PUBLIC_API_KEY
         sync: false # paste the SAME value as pulserecover-api's API_KEY
 
-databases:
-  - name: pulserecover-db
-    plan: free
-    databaseName: pulserecover
-    user: pulserecover
