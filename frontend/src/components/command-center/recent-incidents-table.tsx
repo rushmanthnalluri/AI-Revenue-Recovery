@@ -3,17 +3,11 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 
-import type { IncidentSummary } from "@/lib/types";
+import type { IncidentSummary, Environment } from "@/lib/types";
 import { formatINR, timeAgo } from "@/lib/format";
 import { DataTable, type ColumnDef } from "@/components/data-table";
+import { formatDeviation } from "@/components/incident/incident-metric";
 import { StatusPill } from "@/components/status-pill";
-
-/** deviation_pct is stored in percent units (e.g. -14.08 ⇒ "-14.1%"). */
-function formatDeviation(value: number | null | undefined): string {
-  if (value === null || value === undefined || Number.isNaN(value)) return "—";
-  const sign = value > 0 ? "+" : value < 0 ? "−" : "";
-  return `${sign}${Math.abs(value).toFixed(1)}%`;
-}
 
 const columns: ColumnDef<IncidentSummary>[] = [
   {
@@ -80,13 +74,14 @@ const columns: ColumnDef<IncidentSummary>[] = [
 interface RecentIncidentsTableProps {
   incidents: IncidentSummary[] | undefined;
   loading: boolean;
+  environment: Environment;
 }
 
 /**
  * Recent degradation events — rows are keyboard-activatable (Enter/Space via
  * DataTable) and route to the incident detail screen.
  */
-export function RecentIncidentsTable({ incidents, loading }: RecentIncidentsTableProps) {
+export function RecentIncidentsTable({ incidents, loading, environment }: RecentIncidentsTableProps) {
   const router = useRouter();
 
   return (
@@ -96,7 +91,11 @@ export function RecentIncidentsTable({ incidents, loading }: RecentIncidentsTabl
       getRowId={(row) => row.id}
       isLoading={loading}
       emptyTitle="No incidents detected"
-      emptyDescription="Detection has not flagged any payment degradation. Trigger a demo scenario below to watch the pipeline fire end-to-end."
+      emptyDescription={
+        environment === "real_test"
+          ? "Detection has not flagged any payment degradation. Once payments are observed from Razorpay Test Mode, anomalies appear here."
+          : "Detection has not flagged any degradation in the research dataset. Run a scenario from the Research Lab to watch the pipeline fire end-to-end."
+      }
       onRowClick={(row) => router.push(`/incidents/${row.id}`)}
       skeletonRows={4}
     />

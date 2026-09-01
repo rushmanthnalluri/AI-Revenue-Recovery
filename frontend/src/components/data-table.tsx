@@ -28,6 +28,11 @@ interface DataTableProps<T> {
   emptyDescription?: string;
   /** Row click handler — rows become keyboard-focusable buttons. */
   onRowClick?: (row: T) => void;
+  /**
+   * ARIA role for clickable rows: "link" when the click navigates (default),
+   * "button" when it opens an in-page layer such as a drawer or dialog.
+   */
+  rowRole?: "link" | "button";
   skeletonRows?: number;
   className?: string;
 }
@@ -45,6 +50,7 @@ export function DataTable<T>({
   emptyTitle = "Nothing here yet",
   emptyDescription,
   onRowClick,
+  rowRole = "link",
   skeletonRows = 5,
   className,
 }: DataTableProps<T>) {
@@ -82,7 +88,7 @@ export function DataTable<T>({
             <TableRow
               key={id}
               tabIndex={clickable ? 0 : undefined}
-              role={clickable ? "link" : undefined}
+              role={clickable ? rowRole : undefined}
               className={cn(clickable && "cursor-pointer")}
               onClick={onRowClick ? () => onRowClick(row) : undefined}
               onKeyDown={

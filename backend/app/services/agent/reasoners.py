@@ -29,6 +29,7 @@ from app.services.agent.report import (
     HEURISTIC_REASONER_VERSION,
     LLM_REASONER_VERSION,
     NON_AUTO_CONFIDENCE_CAP,
+    RANKED_CANDIDATE_LIMIT,
     THIN_EVIDENCE_WINDOW_FLOOR,
     AiInference,
     AlternativeHypothesis,
@@ -41,6 +42,7 @@ from app.services.agent.report import (
 from app.services.agent.tools import AgentTools, ToolError, ToolNotAllowed, ToolResult
 from app.services.agent.validation import (
     collect_numbers,
+    collect_target_ids,
     extract_json,
     validate_llm_payload,
 )
@@ -320,23 +322,24 @@ class HeuristicReasoner:
 
         f_customer: str | None = None
         # Check the opt-out flag of the customers behind the top candidates
-        # BEFORE a target is chosen: recommending an action on an opted-out
+        # BEFORE targets are chosen: recommending an action on an opted-out
         # customer headlines a recommendation the gate hard-blocks
-        # (never_auto_execute.customer_opted_out). Lazy: stop at the first
-        # eligible candidate; bounded at 3 reads total.
+        # (never_auto_execute.customer_opted_out). Lazy: stop once
+        # RANKED_CANDIDATE_LIMIT eligible candidates are ranked; bounded at 3
+        # customer-history reads total.
         customer_opted_out: dict[str, bool] = {}
-        eligible_target: dict[str, Any] | None = None
+        eligible_candidates: list[dict[str, Any]] = []
         for cand in sorted(cand_list, key=lambda c: c["amount_paise"], reverse=True):
-            if eligible_target is not None:
+            if len(eligible_candidates) >= RANKED_CANDIDATE_LIMIT:
                 break
             cid = cand.get("customer_id")
             if not cid:
                 # no customer to check — eligible as far as we can tell
-                eligible_target = cand
-                break
+                eligible_candidates.append(cand)
+                continue
             if cid in customer_opted_out:
                 if not customer_opted_out[cid]:
-                    eligible_target = cand
+                    eligible_candidates.append(cand)
                 continue
             if len(customer_opted_out) >= 3:
                 break
@@ -358,9 +361,8 @@ class HeuristicReasoner:
                     "opted_out": hd["opted_out"],
                 },
             )
-            if not customer_opted_out[cid] and eligible_target is None:
-                eligible_target = cand
-                break
+            if not customer_opted_out[cid]:
+                eligible_candidates.append(cand)
 
         # -- inferences -------------------------------------------------------
         inferences: list[AiInference] = []
@@ -481,7 +483,8 @@ class HeuristicReasoner:
             )
 
         def _preview(action_type: ActionType, rationale: str, conf: float,
-                     target: dict[str, Any] | None = None) -> RecommendedAction:
+                     target: dict[str, Any] | None = None,
+                     *, per_target_expected: bool = True) -> RecommendedAction:
             args: dict[str, Any] = {"action_type": action_type.value, "confidence": conf}
             if target is not None:
                 args["payment_id"] = target.get("payment_id")
@@ -489,7 +492,7 @@ class HeuristicReasoner:
             preview = self._tools.call("propose_recovery_strategy", args)
             expected = None
             eff = rev_d.get("expected_recovery_by_strategy", {}).get(action_type.value)
-            if eff and target is not None:
+            if eff and target is not None and per_target_expected:
                 expected = eff["point_paise"]
             return _action_from_policy_preview(
                 preview, rationale=rationale, expected_recovery_paise=expected
@@ -503,6 +506,7 @@ class HeuristicReasoner:
             )
 
         actions: list[RecommendedAction] = []
+        alternates: list[RecommendedAction] = []
         if escalated:
             actions.append(_escalate_action())
         elif no_fault:
@@ -510,8 +514,7 @@ class HeuristicReasoner:
                 _preview(ActionType.NO_ACTION, _RATIONALE_BY_ACTION[ActionType.NO_ACTION], confidence)
             )
         else:
-            target = eligible_target
-            if target is None:
+            if not eligible_candidates:
                 escalated = True
                 escalation_reasons.append(
                     "the top recovery candidates belong to opted-out customers"
@@ -521,8 +524,33 @@ class HeuristicReasoner:
                 dominant = dist_d.get("dominant_failure_class") or "unknown"
                 action_type = _ACTION_BY_FAILURE_CLASS.get(dominant, ActionType.NOTIFY_CUSTOMER)
                 actions.append(
-                    _preview(action_type, _RATIONALE_BY_ACTION[action_type], gate_confidence, target)
+                    _preview(action_type, _RATIONALE_BY_ACTION[action_type], gate_confidence, eligible_candidates[0])
                 )
+                # Ranked alternates: the next-largest eligible candidates, each
+                # dry-run through the same policy gate. The revenue engine
+                # prices strategies incident-wide, so alternates carry no
+                # per-candidate expected recovery (never an invented split).
+                for rank, alt in enumerate(eligible_candidates[1:], start=2):
+                    alternates.append(
+                        _preview(
+                            action_type,
+                            (
+                                f"rank {rank} alternate candidate — "
+                                f"{_RATIONALE_BY_ACTION[action_type]}; "
+                                f"target is the #{rank} largest eligible failed "
+                                f"payment ({alt['amount_paise']} paise)"
+                            ),
+                            gate_confidence,
+                            alt,
+                            per_target_expected=False,
+                        ).model_copy(update={"rank": rank})
+                    )
+
+        # Ranked candidate list: rank 1 is always the headline proposal
+        # (identical to recommended_next_step), followed by the alternates.
+        ranked_candidates: list[RecommendedAction] = (
+            [actions[0].model_copy(update={"rank": 1}), *alternates] if actions else []
+        )
 
         what_happened = (
             f"Detection fired on '{inc_d['metric']}' ({inc_d['severity']}): "
@@ -550,6 +578,7 @@ class HeuristicReasoner:
             revenue_implications=_revenue_implications(revenue),
             recommended_actions=actions,
             recommended_next_step=actions[0] if actions else None,
+            recommended_candidates=ranked_candidates,
             uncertainties=uncertainties,
             confidence=confidence,
             escalated=escalated,
@@ -772,9 +801,12 @@ class LlmReasoner:
         tools_called = [c.name for c in run_calls]
         known_evidence: set[str] = set()
         tool_numbers: set[float] = set()
+        known_targets: set[str] = set()
         for c in run_calls:
             known_evidence.update(c.evidence_ids)
             tool_numbers.update(collect_numbers(c.data))
+            known_targets.update(collect_target_ids(c.data))
+        known_targets |= known_evidence
 
         try:
             payload = extract_json(text)
@@ -787,6 +819,7 @@ class LlmReasoner:
             tools_called=set(tools_called),
             known_evidence_ids=known_evidence,
             tool_numbers=tool_numbers,
+            known_target_ids=known_targets,
         )
         if result.draft is None:
             raise LlmError("; ".join(result.errors) or "llm output failed validation")
@@ -990,6 +1023,11 @@ class LlmReasoner:
             escalation_reasons.append("no actionable recommendation survived validation")
             next_step = _safe_headline(ActionType.ESCALATE_HUMAN)
         actions: list[RecommendedAction] = [a for a in (next_step, secondary) if a is not None]
+        # The LLM proposes a single candidate; the ranked list mirrors what was
+        # actually previewed: headline at rank 1, the kept-secondary at rank 2.
+        ranked_candidates = [
+            a.model_copy(update={"rank": r}) for r, a in enumerate(actions, start=1)
+        ]
 
         run_calls = self._tools.calls[start_idx:]
         tools_called = [c.name for c in run_calls]
@@ -1003,6 +1041,7 @@ class LlmReasoner:
             revenue_implications=revenue_implications,
             recommended_actions=actions,
             recommended_next_step=next_step,
+            recommended_candidates=ranked_candidates,
             uncertainties=uncertainties,
             confidence=confidence,
             escalated=escalated,

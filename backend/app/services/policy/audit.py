@@ -19,6 +19,10 @@ Contract:
   but NEVER commits — the caller owns the transaction boundary.
 - Rows are immutable by convention: there is deliberately no update/delete
   helper here. `audit_logs` is an append-only trail.
+- Every inserted row is hash-chained transparently by the model-layer
+  `before_flush` hook in app.models.system (previous_hash + entry_hash) —
+  writers do nothing extra; `app.services.audit.verify.verify_chain` /
+  `GET /api/v1/audit/verify` detects after-the-fact edits, gaps, and forks.
 - `details` is coerced to a JSON-safe dict (non-serializable values become
   strings) so auditing can never crash the audited operation.
 """

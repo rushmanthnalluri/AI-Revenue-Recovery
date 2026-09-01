@@ -27,7 +27,9 @@ function describe(err: ApiError): { headline: string; detail: string } {
       headline: "Backend unreachable",
       detail:
         err.code === "timeout"
-          ? "The API did not respond within 10 seconds."
+          ? // ApiError.message carries the real wait (10s default, 120s for
+            // long-running endpoints) — never hardcode a duration here.
+            err.message
           : `The PulseRecover API is not responding. Start the backend (uvicorn on ${apiHost()}) and retry.`,
     };
   }

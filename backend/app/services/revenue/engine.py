@@ -25,7 +25,14 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from app.logging import get_logger
-from app.models import Incident, Payment, RecoveryAction, RecoveryOpportunity
+from app.models import (
+    ENVIRONMENT_RESEARCH,
+    Incident,
+    Payment,
+    RecoveryAction,
+    RecoveryOpportunity,
+    source_types_for_environment,
+)
 from app.ports import ActionType, RecoveryStatus
 from app.services.revenue.classify import FailureClass, classify_failure
 from app.services.revenue.config import DEFAULT_CONFIG, RevenueConfig
@@ -131,9 +138,14 @@ class RevenueService:
         base_end = win_start
         base_start = base_end - self._cfg.baseline_window
 
-        baseline_payments = self._payments_between(base_start, base_end)
-        window_payments = self._payments_between(win_start, win_end)
-        returning = self._returning_customer_ids(base_start)
+        # Environment boundary: baseline/window populations come ONLY from the
+        # incident's own environment (commerce rows derive it from source_type).
+        source_types = source_types_for_environment(
+            incident.environment or ENVIRONMENT_RESEARCH
+        )
+        baseline_payments = self._payments_between(base_start, base_end, source_types)
+        window_payments = self._payments_between(win_start, win_end, source_types)
+        returning = self._returning_customer_ids(base_start, source_types)
 
         baseline_stats = self._segment_stats(baseline_payments, returning)
         window_groups: dict[tuple[str, str, str], list[Payment]] = defaultdict(list)
@@ -247,10 +259,16 @@ class RevenueService:
             if payment is not None:
                 cls = classify_failure(payment)
                 cls_source = "payment"
-        if cls is FailureClass.UNKNOWN and cls_source != "payment":
-            cls = self._cfg.opportunity_class_defaults.get(
+        if cls is FailureClass.UNKNOWN:
+            # A payment with no classifiable signal (e.g. a stuck checkout's
+            # empty error telemetry) falls back to the opportunity-type class
+            # default instead of pricing at the unknown floor (docs/recovery.md).
+            fallback = self._cfg.opportunity_class_defaults.get(
                 opportunity.opportunity_type, FailureClass.UNKNOWN
             )
+            if fallback is not FailureClass.UNKNOWN:
+                cls = fallback
+                cls_source = "opportunity_type_default"
 
         factor = self._cfg.recoverability[cls]
         amount = opportunity.amount_paise
@@ -350,15 +368,23 @@ class RevenueService:
     # internals
     # ------------------------------------------------------------------
 
-    def _payments_between(self, start: datetime, end: datetime) -> list[Payment]:
+    def _payments_between(
+        self, start: datetime, end: datetime, source_types: tuple[str, ...]
+    ) -> list[Payment]:
         stmt = (
             sa.select(Payment)
-            .where(Payment.created_at >= start, Payment.created_at < end)
+            .where(
+                Payment.created_at >= start,
+                Payment.created_at < end,
+                Payment.source_type.in_(source_types),
+            )
             .order_by(Payment.id)
         )
         return list(self._session.scalars(stmt))
 
-    def _returning_customer_ids(self, before: datetime) -> set[str]:
+    def _returning_customer_ids(
+        self, before: datetime, source_types: tuple[str, ...]
+    ) -> set[str]:
         """Customers with at least one captured payment before the baseline
         window — the 'returning' half of new-vs-returning segmentation."""
         stmt = (
@@ -366,6 +392,7 @@ class RevenueService:
             .where(
                 Payment.customer_id.is_not(None),
                 Payment.created_at < before,
+                Payment.source_type.in_(source_types),
                 sa.or_(
                     Payment.captured.is_(True),
                     Payment.status.in_(_CAPTURED_STATUSES),

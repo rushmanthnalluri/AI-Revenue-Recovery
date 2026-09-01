@@ -103,6 +103,14 @@ class StoppingRuleConfig(_Strict):
     max_consecutive_failed_recoveries_per_strategy: int = Field(3, ge=1)
 
 
+class ApprovalConfig(_Strict):
+    # Optional approval TTL (docs/policy.md §3): a PENDING_APPROVAL action
+    # whose wait EXCEEDS this many hours lapses back to PROPOSED on read
+    # (executor lapse-on-read, actor system:approval_ttl). Absent = disabled:
+    # approvals then wait for an explicit approve/reject, indefinitely.
+    pending_approval_ttl_hours: int | None = Field(default=None, ge=1)
+
+
 class PolicyConfig(_Strict):
     """Validated, immutable-by-convention policy configuration."""
 
@@ -117,6 +125,7 @@ class PolicyConfig(_Strict):
     duplicate_protection: DuplicateProtectionConfig = Field(
         default_factory=DuplicateProtectionConfig
     )
+    approval: ApprovalConfig = Field(default_factory=ApprovalConfig)
     # Set by the loader from the file hash; "unknown" for programmatic configs.
     policy_version: str = "unknown"
 
@@ -212,6 +221,7 @@ def failsafe_config(reason: str = "policy configuration unavailable") -> PolicyC
 
 __all__ = [
     "ActionsConfig",
+    "ApprovalConfig",
     "AutoExecuteConfig",
     "DuplicateProtectionConfig",
     "KillSwitchConfig",

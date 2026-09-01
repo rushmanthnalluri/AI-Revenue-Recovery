@@ -3,6 +3,7 @@ build, the approve->execute loop, and webhook-driven verification end to end.
 """
 
 import pytest
+import sqlalchemy as sa
 from fastapi.testclient import TestClient
 
 import app.models as models
@@ -141,6 +142,31 @@ class TestPlan:
         assert [s["id"] for s in first["strategies"]] == [
             s["id"] for s in second["strategies"]
         ]
+
+    def test_plan_persists_strategies_and_policy_preview(
+        self, api_client, db_session, make_opportunity
+    ):
+        """REGRESSION: get_plan used to flush-only, so its strategies and the
+        plan-preview policy decision rolled back with the request session. The
+        endpoint commits — the rows survive a rollback."""
+        opp = make_opportunity()
+        resp = api_client.get(f"/api/v1/recovery/{opp.id}/plan")
+        assert resp.status_code == 200
+
+        db_session.rollback()  # discards anything left uncommitted
+        strategies = db_session.scalars(
+            sa.select(models.RecoveryStrategy).where(
+                models.RecoveryStrategy.opportunity_id == opp.id
+            )
+        ).all()
+        assert len(strategies) == 6
+        decision = db_session.scalar(
+            sa.select(models.PolicyDecisionRecord).where(
+                models.PolicyDecisionRecord.actor == "system:plan_preview"
+            )
+        )
+        assert decision is not None
+        assert decision.action_id is None  # preview: no action link
 
 
 class TestDetail:

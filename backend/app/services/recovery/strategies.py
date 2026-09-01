@@ -34,7 +34,7 @@ from app.ports import ActionType
 from app.services.policy import audit
 from app.services.revenue import RevenueService
 from app.services.revenue.classify import FailureClass, classify_failure
-from app.services.recovery.builder import STUCK_CHECKOUT_PAYMENT_TYPE
+from app.services.recovery.builder import STUCK_CHECKOUT_PAYMENT_TYPE, SUBSCRIPTION_HALTED_TYPE
 from app.models import Payment
 
 logger = get_logger(__name__)
@@ -329,6 +329,24 @@ class StrategyGenerator:
                 "network rules discourage resubmitting never-approve (hard) declines"
             )
             delay_reason = retry_reason
+
+        if amount < MIN_PAYMENT_LINK_PAISE:
+            link_reason = f"amount {amount} paise is below the payment-link minimum"
+        elif opportunity.opportunity_type == SUBSCRIPTION_HALTED_TYPE:
+            # Arrears lane: the subscription is stuck (pending/halted) and
+            # Razorpay's own dunning retries have stopped — a fresh link for
+            # the subscription's outstanding amount is the recovery vehicle.
+            link_reason = (
+                "arrears collection: the subscription is stuck "
+                f"({(opportunity.meta or {}).get('subscription_status', 'pending/halted')}) "
+                "and Razorpay's dunning retries have stopped; send a fresh "
+                "payment link for the subscription's outstanding amount"
+            )
+        else:
+            link_reason = (
+                f"send a fresh payment link (reference_id = idempotency key); "
+                f"strongest tool for {cls} when the customer must re-attempt"
+            )
         return [
             _Candidate(
                 ActionType.RETRY_PAYMENT,
@@ -351,12 +369,7 @@ class StrategyGenerator:
                 _LINK_FIT[failure_class],
                 "low",
                 amount >= MIN_PAYMENT_LINK_PAISE,
-                (
-                    f"send a fresh payment link (reference_id = idempotency key); "
-                    f"strongest tool for {cls} when the customer must re-attempt"
-                ) if amount >= MIN_PAYMENT_LINK_PAISE else (
-                    f"amount {amount} paise is below the payment-link minimum"
-                ),
+                link_reason,
                 {},
             ),
             _Candidate(

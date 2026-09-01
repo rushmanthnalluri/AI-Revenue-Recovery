@@ -35,10 +35,15 @@ class SyncRun(Base):
     )
     started_at: Mapped[datetime] = mapped_column(TZDateTime(), nullable=False, default=utcnow)
     finished_at: Mapped[datetime | None] = mapped_column(TZDateTime())
-    # running | completed | failed
-    status: Mapped[str] = mapped_column(sa.String(16), default="running", nullable=False)
+    # running | completed | failed. Python default + server_default mirror
+    # migration b4e7a1c2d305 (same pattern as EnvironmentMixin.environment).
+    status: Mapped[str] = mapped_column(
+        sa.String(16), default="running", server_default="running", nullable=False
+    )
     # per-entity pull counts, e.g. {"payments": 42, "orders": 40}
-    entity_counts: Mapped[dict[str, Any]] = mapped_column(sa.JSON, default=dict, nullable=False)
+    entity_counts: Mapped[dict[str, Any]] = mapped_column(
+        sa.JSON, default=dict, server_default="{}", nullable=False
+    )
     error: Mapped[str | None] = mapped_column(sa.Text)
     actor: Mapped[str] = mapped_column(sa.String(128), nullable=False)
     request_id: Mapped[str | None] = mapped_column(sa.String(64))

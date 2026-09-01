@@ -116,6 +116,29 @@ def test_get_investigation_returns_latest(client, agent_seed):
     assert r2.json()["summary"] == r1.json()["report"]["summary"]
 
 
+def test_investigation_view_exposes_ranked_candidates(client, agent_seed):
+    """The typed view carries the ranked multi-candidate proposals additively:
+    recommended_candidates[0] IS the headline recommendation, and the legacy
+    fields (recommended_actions / recommended_next_step) are unchanged."""
+    incident = agent_seed["incident"]
+    r = client.post(f"/api/v1/incidents/{incident.id}/investigate", json={}, headers=API_KEY)
+    assert r.status_code == 200, r.text
+    report = r.json()["report"]
+
+    candidates = report["recommended_candidates"]
+    assert candidates, "typed view must carry the ranked candidate list"
+    assert candidates[0] == report["recommended_next_step"]
+    for c in candidates:
+        assert c["policy_preview"]["outcome"] in {"ALLOWED", "BLOCKED", "REQUIRES_APPROVAL"}
+    # legacy fields byte-identical: recommended_actions still holds only the headline
+    assert report["recommended_actions"] == [report["recommended_next_step"]]
+
+    # the persisted (GET) view carries the same list
+    r2 = client.get(f"/api/v1/incidents/{incident.id}/investigation")
+    assert r2.status_code == 200
+    assert r2.json()["recommended_candidates"] == candidates
+
+
 def test_investigate_requires_api_key(client, agent_seed):
     r = client.post(f"/api/v1/incidents/{agent_seed['incident'].id}/investigate", json={})
     assert r.status_code == 401

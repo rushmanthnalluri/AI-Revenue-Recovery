@@ -30,8 +30,8 @@ src/
     ui/         shadcn-style primitives (button, card, badge, skeleton,
                 table, input, select)
     app-shell / sidebar / topbar (env badge + live health indicator)
-    stat-card, delta-badge, status-pill, section-card, data-table,
-    timeline, confidence-bar, error-panel, empty-state, trend-chart,
+    delta-badge, status-pill, section-card, data-table,
+    timeline, confidence-bar, error-panel, empty-state,
     page-header
     views/      per-route client views
   app/          routes: / /incidents /incidents/[id] /recovery /audit

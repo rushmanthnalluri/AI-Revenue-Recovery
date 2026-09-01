@@ -142,7 +142,15 @@ class TestMalformedGatewayResponses:
 
 class TestTimeoutsBounded:
     """A hanging gateway must never cause an unbounded wait — on execute
-    (already proven), on resolve, and across the whole reconcile sweep."""
+    (already proven), on resolve, and across the whole reconcile sweep.
+
+    Load-proofing note: bounded behaviour is asserted via deterministic
+    interaction/attempt COUNTS, never via tight wall-clock budgets. The
+    remaining wall-clock bounds in this class are hang-guards only (they turn
+    a true hang into a failure instead of a stalled suite), sized with
+    generous headroom after the 2026-09-01 incident in which a host under
+    resource exhaustion (the OS was failing to spawn processes) inflated a
+    1.6s-idle sweep to a 60.8s measurement. They are not perf assertions."""
 
     def test_httpx_client_has_explicit_timeout(self):
         gw = RazorpayGateway(key_id="k", key_secret="s")
@@ -172,8 +180,11 @@ class TestTimeoutsBounded:
             gw.fetch_payment("pay_x")
         elapsed = time.perf_counter() - start
         # The idempotent GET retries a bounded number of times, then gives up.
+        # The attempt count is the real bounded-wait coverage (deterministic
+        # under any host load); the wall-clock bound is only a hang-guard,
+        # not a perf assertion — see TestTimeoutsBounded's class docstring.
         assert attempts == 3, f"expected 3 bounded attempts, saw {attempts}"
-        assert elapsed < 1.5, f"unbounded wait: {elapsed:.2f}s"
+        assert elapsed < 30.0, f"unbounded wait: {elapsed:.2f}s"
 
     def test_mutating_call_never_retried_on_timeout(self):
         attempts = 0
@@ -200,6 +211,18 @@ class TestTimeoutsBounded:
     def test_reconcile_sweep_completes_with_hanging_gateway(
         self, db_session, make_payment, make_opportunity, make_unknown_action
     ):
+        """The sweep over UNKNOWN actions must terminate after bounded,
+        GET-only gateway work and never fire a mutation.
+
+        Load-proofing choice: the real coverage is the interaction counts
+        below — exactly one GET per UNKNOWN action (no sweep-level retries)
+        and zero mutations — which is deterministic under any host load.
+        The wall-clock bound is kept ONLY as a hang-guard so a true hang
+        fails instead of stalling the suite; 120s is ~75x the idle
+        measurement (1.6s) and ~2x the worst observed (60.8s on 2026-09-01,
+        when the host OS was failing to spawn processes under resource
+        exhaustion). It is not a perf assertion.
+        """
         gateway = HangingGateway()
         actions = []
         for i in range(3):
@@ -215,10 +238,15 @@ class TestTimeoutsBounded:
         assert report.resolved == 0
         assert report.still_unknown == 3
         assert all(a.status is RecoveryStatus.UNKNOWN for a in actions)
-        # The doubles raise immediately; the assertion that matters is that
-        # the sweep TERMINATES and never mutates the gateway.
-        assert elapsed < 10.0
+        # The doubles raise immediately; the assertions that matter are that
+        # the sweep TERMINATES after bounded, GET-only work and never mutates
+        # the gateway. One fetch_payment per UNKNOWN action (the created-order
+        # path needs a gateway_response id these actions never got); no order
+        # fetches, no mutations, no retries at the sweep level.
+        assert gateway.requested_payment_ids == [f"pay_hang_{i}" for i in range(3)]
+        assert gateway.requested_order_ids == []
         assert gateway.mutation_calls == 0
+        assert elapsed < 120.0, f"reconcile sweep appears hung: {elapsed:.2f}s"
 
     def test_sweep_audit_row_written_even_when_gateway_hangs(
         self, db_session, make_opportunity, make_unknown_action

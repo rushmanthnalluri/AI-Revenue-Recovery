@@ -1,0 +1,30 @@
+{
+  "experiment_id": "exp04_ranked_candidates_injection",
+  "track": "agent-reasoning",
+  "date_utc": "2026-09-01",
+  "corpus_version": "agent-corpus-1.1",
+  "corpus_cases": 38,
+  "corpus_breakdown": {
+    "standard": 14,
+    "edge": 12,
+    "adversarial": 12
+  },
+  "reasoner_versions": {
+    "heuristic": "heuristic-1.2",
+    "llm": "llm-1.2"
+  },
+  "policy_version": "1.0+sha256.5a6afe61d6db",
+  "auto_recoverable_causes": [
+    "bank_downtime",
+    "gateway_degradation",
+    "method_outage"
+  ],
+  "code": {
+    "base_git_sha": "9ee35c173343d1120d114338f329833241806893",
+    "tree_note": "uncommitted changes present (158 paths)"
+  },
+  "commands": [
+    "cd backend && .venv/Scripts/python scripts/agent_eval.py --exp-id exp04_ranked_candidates_injection",
+    "cd backend && .venv/Scripts/python -m pytest tests/agenteval -q"
+  ]
+}

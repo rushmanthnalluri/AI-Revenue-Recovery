@@ -4,7 +4,7 @@ Companion to `docs/security-architecture.md` (design posture) and `docs/policy.m
 (threat model). This document records a dedicated break-it engagement: 15 attack
 vectors (rows 1–15 below, plus a secret-leakage sweep) aimed at the
 **untested** surface, what broke, the fixes, and the proof.
-> Suite: `backend/tests/security/` (88 tests). Every fix below has a regression
+> Suite: `backend/tests/security/` (107 tests). Every fix below has a regression
 > test there; every "safe" verdict has a proof test, not an assertion of faith.
 
 ## Mandatory guarantees — verdict
@@ -19,6 +19,7 @@ vectors (rows 1–15 below, plus a secret-leakage sweep) aimed at the
 | Safe stopping | **HOLDS** (semantics match docs) | `test_safety_invariants.py` |
 | Human escalation when required | **HOLDS** | injection suite + agenteval regression |
 | Complete audit trail | **HOLDS** | block-mirror + reset + reconcile asserts |
+| Audit trail tamper-evident | **HOLDS** (hash chain + verify) | `test_audit_chain.py` |
 
 ## Vulnerabilities found and fixed
 
@@ -153,6 +154,93 @@ vectors (rows 1–15 below, plus a secret-leakage sweep) aimed at the
 | 15 | Ack `detail` reflection | 5000-char payload-derived payment id (handler note) and 5000-char exception text (unit) | **VULN-7** (fixed) — every `dispatch_event` detail capped at 200 chars in ack and stored row; full text in server logs | `test_payment_link_verification.py::TestAckDetailTruncation` |
 | S | Secret-leakage sweep | Canaries in `RAZORPAY_KEY_SECRET` / webhook secret / API key / OpenAI key through a full seeded flow (bad sig, good sig, 401s, execute-vs-401-gateway, investigate); redaction unit tests; 500-envelope test | SAFE — canary appears nowhere: responses, audit JSON, agent reports, webhook_events, `last_error`, structured logs; authorization/secret-shaped keys redacted incl. nested; 500 envelope static | `test_secret_leakage.py` |
 
+## Audit trail tamper-evidence — hash-chained `audit_logs`
+
+Shipped as product-strategy P2 item 11. Design and honest limits:
+
+- **Chain.** Every new `audit_logs` row is stamped by a session-level
+  `before_flush` hook in `app/models/system.py`: `previous_hash` = the chain
+  head's `entry_hash`, `entry_hash` = sha256 over the canonical fields
+  (id, ts, actor, action, entity, details, previous_hash). Every ORM writer
+  (`audit.record`, the direct constructions in webhook/executor paths, test
+  seeds) chains transparently — there is no un-chained ORM write path.
+- **Verify.** `app/services/audit/verify.py::verify_chain` replays the whole
+  table in chain order (`created_at, id`), recomputing digests and checking
+  linkage. `GET /api/v1/audit/verify` (read-only, open-GET posture) returns
+  `{valid, checked, chained, legacy, first_bad_id}`. Pre-chain rows (NULL
+  hashes) verify as legacy-valid; an unhashed row appearing AFTER chain
+  genesis (raw-SQL insert, stripped hash) is flagged.
+- **Detected:** field edits on a stored row (`first_bad_id` = the edited
+  row); edits whose hash the attacker recomputed without cascading
+  (`first_bad_id` = the successor); mid-chain row deletion (`first_bad_id` =
+  the successor); smuggled unhashed rows.
+- **NOT detected (honest limits):** an attacker with full DB write access can
+  recompute the entire chain — this is tamper-EVIDENCE, not tamper-proof;
+  there is no external anchor. Deletion of the current head row is silent for
+  the same reason. A production deployment would periodically notarize the
+  head hash externally (signed witness log, WORM storage).
+- **Single-node assumption:** the hook reads the chain head with a flush-time
+  query inside the writer's own transaction — exact for the single-writer
+  SQLite deployment (and single-node Postgres); concurrent writers on
+  separate connections would need a DB sequence or external anchor. Chain
+  order also assumes monotonic per-row timestamps across flushes; all in-app
+  writers stamp a fresh `utcnow()` per row.
+
+Regression: `tests/security/test_audit_chain.py` (10 tests) — mixed-writer
+chaining, digest determinism across reload, localized tamper/forgery/
+deletion detection, legacy NULL rows, post-genesis smuggled rows, endpoint
+shape + honesty.
+
+## KYA-lite principal binding for recovery mutations
+
+Shipped as product-strategy P2 item 14. Approver identity used to be a purely
+self-declared `actor` string; now every mutating recovery call also carries a
+key-derived principal. Design and honest limits:
+
+- **Principal derivation.** `app/api/deps.py` maps known API keys to stable
+  principal ids (`PRINCIPAL_BY_API_KEY`) and exposes `get_principal`, a
+  FastAPI dependency bound on `POST …/execute|approve|reject|escalate|cancel`.
+  The ApiKeyMiddleware still owns authentication (fail-closed); this layer
+  only attributes an already-authenticated key. Key material is never logged
+  or persisted — only the principal id is.
+- **Attribution.** The executor receives the principal-attributed actor
+  string: `"<actor>@kya:<principal-id>"` for non-default keys (the `@kya:`
+  marker keeps email-shaped actors like `human:ops@pulserecover.demo` from
+  misparsing as principals). The shared demo key maps to the DEFAULT cohort
+  principal and passes actor strings through unchanged: a cohort key adds no
+  per-caller discrimination, and rewriting every actor would falsify existing
+  audit consumers (`approved_by`, policy actors, concurrency invariants).
+- **Audit binding.** Each successful mutation appends one additive
+  `recovery.principal_bound` row (same append-only shape, environment
+  stamped, hash-chained like every other row) keyed to the opportunity, with
+  `{principal_id, declared_actor, endpoint, authenticated, action_id}` in
+  details. Refused calls (409/rollback) bind nothing.
+- **Separation of duties (warning, not enforcement).** Approve re-gates the
+  action through the policy engine with `proposer_principal` /
+  `approver_principal` metadata (engine rule R10, opt-in, outcome-neutral
+  `_WARN` severity — default-preserving for every other caller). A match
+  records `separation_of_duties.self_approval` on a persisted
+  `PolicyDecisionRecord`; the approval is never blocked by it. An
+  unattributed proposer resolves to the approver's own principal — the
+  conservative worst case under a shared key, so the check fails toward a
+  warning, never toward silence.
+- **NOT (the demo-grade boundary):** this is not SSO, OIDC, or per-user
+  identity. One shared static key identifies the demo operator COHORT — the
+  system cannot distinguish two humans behind it, which is exactly why SoD is
+  a warning rather than a block. There is no per-principal authorization
+  (every key holder can do everything the key allows). Production path:
+  per-operator keys added to `PRINCIPAL_BY_API_KEY` (attribution and precise
+  SoD switch on automatically) or OIDC with role-bound actors per
+  `docs/security-architecture.md` §2.
+
+Regression: `tests/recovery/test_principal_binding.py` (14 tests) — binding
+row shape/environment stamp on all five verbs, default-cohort pass-through
+compat, non-default-key attribution end to end, refused-call rollback;
+`tests/security/test_kya_separation_of_duties.py` (7 tests) — engine R10
+units (warning recorded, outcome unchanged, single-sided metadata inert,
+safe-action placement) and API-level same-cohort warning vs
+different-principal silence.
+
 ## Accepted risks (documented, not fixed here)
 
 1. **Well-known simulator webhook secret.** `DEFAULT_WEBHOOK_SECRET =
@@ -161,10 +249,13 @@ vectors (rows 1–15 below, plus a secret-leakage sweep) aimed at the
    No real money moves in sim mode. Real mode fails closed: an empty
    `RAZORPAY_WEBHOOK_SECRET` rejects every webhook. Mitigation for shared demo
    deployments: set `RAZORPAY_WEBHOOK_SECRET`.
-2. **Demo-grade authN/Z** (single shared `X-API-Key`, self-declared approver
-   identity, open GETs, demo/detection exemption outside prod) — as designed in
-   `docs/security-architecture.md` §2; production path is OIDC + role-bound
-   actors.
+2. **Demo-grade authN/Z** (single shared `X-API-Key`, open GETs, demo/detection
+   exemption outside prod) — as designed in `docs/security-architecture.md`
+   §2; production path is OIDC + role-bound actors. The self-declared approver
+   identity half is now mitigated by KYA-lite principal binding (section
+   above): the presented key binds a cohort principal into the audit trail
+   and self-/same-cohort approvals are flagged by the policy gate — still a
+   shared key, so still not per-user identity.
 3. **In-memory rate limiting** is per-process; multi-worker deployments need a
    shared limiter. Webhook body cap (1 MiB) now bounds per-request memory.
 4. ~~**Webhook ack `detail` echoes handler error text**~~ — **FIXED (VULN-7):**
@@ -175,8 +266,14 @@ vectors (rows 1–15 below, plus a secret-leakage sweep) aimed at the
 
 ## Residual recommendations (P2, reported — not changed)
 
-- Detection-run and evaluation-run endpoints persist their own run records but
-  do not append `audit_logs` rows; non-financial, acceptable today.
+- ~~Detection-run and evaluation-run endpoints persist their own run records but
+  do not append `audit_logs` rows; non-financial, acceptable today.~~ — **FIXED:**
+  both endpoints now append one row per persisted run (`detection.run`, stamped
+  with the environment the pass scored; `evaluation.run`, research-stamped —
+  the arms are simulator-derived scratch DBs). Dry runs and rejected requests
+  write nothing, and a failed evaluation run keeps its own `status=failed` row
+  + notes as its record. Covered by
+  `backend/tests/integration/test_run_auditing.py`.
 - `PolicyDecisionRecord` persistence is flush-not-commit by design (caller's
   transaction owns durability); a commit-independent audit sink is a documented
   flag in `docs/policy.md` §4.
@@ -184,6 +281,6 @@ vectors (rows 1–15 below, plus a secret-leakage sweep) aimed at the
 ## How to re-run
 
 ```bash
-cd backend && .venv/Scripts/python -m pytest tests/security -q   # 88 adversarial tests
+cd backend && .venv/Scripts/python -m pytest tests/security -q   # 98 adversarial tests
 cd backend && .venv/Scripts/python -m pytest -q                  # full suite
 ```

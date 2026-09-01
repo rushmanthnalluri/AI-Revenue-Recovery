@@ -8,6 +8,10 @@ Middleware (outermost first): CORS -> request id -> access log -> rate limit ->
 API key. The API-key middleware guards mutating /api/v1 routes with the
 X-API-Key header; demo and detection triggers are exempt when APP_ENV != prod
 so the demo UI works without a key. Never edit this ordering casually.
+
+Lifespan: the in-process worker (app.services.worker, docs/worker.md) starts
+with the app when WORKER_ENABLED=true and stops cleanly on shutdown. It is
+OFF by default so the test suite and one-shot scripts never spawn the loop.
 """
 
 import importlib
@@ -17,6 +21,7 @@ import time
 import uuid
 from collections import defaultdict, deque
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -27,7 +32,10 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app import __version__, api
 from app.config import settings
+from app.db import SessionLocal
 from app.logging import configure_logging, get_logger, request_id_ctx
+from app.services.razorpay.factory import get_gateway
+from app.services.worker import start_worker
 
 logger = get_logger("app.main")
 
@@ -147,6 +155,24 @@ def _include_discovered_routers(app: FastAPI) -> None:
             logger.debug("router_registered", extra={"module": mod_info.name})
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """Start/stop the in-process worker with the app (docs/worker.md).
+
+    WORKER_ENABLED defaults to false: the test suite, the evaluation harness,
+    and one-shot scripts build apps that never spawn the tick loop."""
+    supervisor = None
+    if settings.WORKER_ENABLED:
+        supervisor = await start_worker(
+            settings, session_factory=SessionLocal, gateway=get_gateway(settings)
+        )
+    try:
+        yield
+    finally:
+        if supervisor is not None:
+            await supervisor.stop()
+
+
 def create_app() -> FastAPI:
     configure_logging(settings.LOG_LEVEL)
     app = FastAPI(
@@ -158,6 +184,7 @@ def create_app() -> FastAPI:
             "payment infrastructure executes, verification proves. "
             "All money amounts are integer paise (INR)."
         ),
+        lifespan=_lifespan,
     )
 
     # Middleware: added bottom-up; the last added is outermost. Final order

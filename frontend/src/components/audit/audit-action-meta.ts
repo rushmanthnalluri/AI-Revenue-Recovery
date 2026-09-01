@@ -94,7 +94,7 @@ const EXACT_META: Record<string, AuditActionMeta> = {
     icon: TrendingDown,
     tone: "warning",
   },
-  "demo.reset": { label: "Demo environment reset", icon: RotateCcw, tone: "warning" },
+  "demo.reset": { label: "Research dataset reset", icon: RotateCcw, tone: "warning" },
 };
 
 function humanize(raw: string): string {

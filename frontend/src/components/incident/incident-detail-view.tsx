@@ -10,6 +10,7 @@ import { isOpenIncidentStatus, type IncidentDetail } from "@/lib/types";
 import { formatDateTime, formatINR, formatNumber, timeAgo } from "@/lib/format";
 import { ErrorPanel } from "@/components/error-panel";
 import { MetricStrip, type MetricStripItem } from "@/components/metric-strip";
+import { ProvenanceChip } from "@/components/provenance";
 import { SectionCard } from "@/components/section-card";
 import { StatusPill } from "@/components/status-pill";
 import { Badge } from "@/components/ui/badge";
@@ -178,6 +179,14 @@ export function IncidentDetailView({ incidentId }: { incidentId: string }) {
             </h1>
           </div>
           <div className="flex items-center gap-2">
+            <ProvenanceChip
+              environment={incident.environment ?? "research"}
+              detail={
+                (incident.environment ?? "research") === "research" && incident.simulator_run_id
+                  ? `run ${incident.simulator_run_id}`
+                  : undefined
+              }
+            />
             <StatusPill status={incident.severity} />
             <StatusPill status={incident.status} pulse={incident.status === "INVESTIGATING"} />
           </div>
@@ -287,7 +296,7 @@ export function IncidentDetailView({ incidentId }: { incidentId: string }) {
       {/* failure outliers + merchant-vs-network callout */}
       <SectionCard
         title="Failure outliers"
-        description="Failure facets overrepresented in the incident window vs the pre-incident baseline, ranked by lift with min-count floors. The banner benchmarks the top facet against the whole platform stream (simulated fleet in this deployment)."
+        description="Failure facets overrepresented in the incident window vs the pre-incident baseline, ranked by lift with min-count floors. The banner benchmarks the top facet against the whole platform stream for this environment."
       >
         <IncidentInsightsPanel insights={extractInsights(incident)} />
       </SectionCard>

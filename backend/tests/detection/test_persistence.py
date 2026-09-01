@@ -15,6 +15,8 @@ RUN_BODY = {
     "metrics": ["payment_success_rate"],
     "baseline_buckets": 12,
     "min_bucket_count": 5,
+    # seeded fixtures are simulator-provenance: run in the research environment
+    "environment": "research",
 }
 
 

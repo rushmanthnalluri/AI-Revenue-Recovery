@@ -15,7 +15,9 @@ PER-PAYMENT, NOT BATCHED — deliberate design choice:
 Idempotence: re-running `build_for_incident` never creates duplicates. A
 payment already linked to an opportunity of this incident is skipped, as is an
 order already represented by a `dropped_checkout` opportunity (tracked via
-`meta["order_id"]` — no schema change needed).
+`meta["order_id"]` — no schema change needed) and a subscription already
+represented by a `subscription_halted` opportunity (tracked via the real
+`subscription_id` FK column).
 
 DEDUP RULE (one opportunity per incident+checkout): a checkout is counted
 exactly once, however many sources could describe it.
@@ -41,7 +43,7 @@ from sqlalchemy.orm import Session
 
 from app.db import utcnow
 from app.logging import get_logger
-from app.models import Incident, Order, Payment, RecoveryOpportunity
+from app.models import Incident, Order, Payment, RecoveryOpportunity, Subscription
 from app.models.base import ENVIRONMENT_RESEARCH, source_types_for_environment
 from app.ports import RecoveryStatus
 from app.services.policy import audit
@@ -73,6 +75,15 @@ STUCK_CREATED_THRESHOLD = timedelta(minutes=30)
 # Opportunity type for payments stuck in `created` (checkout abandonment at
 # the payment level — the order-level equivalent is `dropped_checkout`).
 STUCK_CHECKOUT_PAYMENT_TYPE = "stuck_checkout_payment"
+
+# Opportunity type for Razorpay subscriptions stuck in `pending`/`halted`:
+# Razorpay's own dunning retries have stopped there, so the outstanding
+# (arrears) amount is PulseRecover's lane — recovered via a fresh payment
+# link, never a blind retry.
+SUBSCRIPTION_HALTED_TYPE = "subscription_halted"
+
+# Subscription states in which the gateway no longer retries the charge.
+_SUBSCRIPTION_STUCK_STATUSES = ("pending", "halted")
 
 
 @dataclass(frozen=True)
@@ -190,6 +201,34 @@ class OpportunityBuilder:
             result.created.append(opp)
             already["orders"][order.id] = opp
 
+        for subscription in self._stuck_subscriptions(source_types):
+            if subscription.id in already["subscriptions"]:
+                result.existing.append(already["subscriptions"][subscription.id])
+                continue
+            opp = self._new_opportunity(
+                incident,
+                opportunity_type=SUBSCRIPTION_HALTED_TYPE,
+                payment_id=None,
+                subscription_id=subscription.id,
+                customer_id=subscription.customer_id,
+                amount_paise=subscription.amount_paise,
+                currency=subscription.currency,
+                reason=(
+                    f"subscription {subscription.gateway_subscription_id or subscription.id} "
+                    f"is stuck in '{subscription.status}' — Razorpay's dunning retries "
+                    "have stopped; the outstanding (arrears) amount is recoverable "
+                    "via a fresh payment link"
+                ),
+                meta={
+                    "subscription_id": subscription.id,
+                    "gateway_subscription_id": subscription.gateway_subscription_id,
+                    "subscription_status": subscription.status,
+                },
+                actor=actor,
+            )
+            result.created.append(opp)
+            already["subscriptions"][subscription.id] = opp
+
         logger.info(
             "recovery opportunities built",
             extra={
@@ -259,6 +298,23 @@ class OpportunityBuilder:
         )
         return list(self._db.scalars(stmt))
 
+    def _stuck_subscriptions(self, source_types) -> list[Subscription]:
+        """Subscriptions currently stuck in `pending`/`halted`. Selected by
+        CURRENT status rather than the incident window: the stuck state is a
+        present-tense signal (there is no per-subscription status-change
+        timestamp to window on), and per-incident dedupe keeps re-runs
+        idempotent. Environment scoping rides on source_type exactly like the
+        commerce-row sources above."""
+        stmt = (
+            sa.select(Subscription)
+            .where(
+                Subscription.status.in_(_SUBSCRIPTION_STUCK_STATUSES),
+                Subscription.source_type.in_(source_types),
+            )
+            .order_by(Subscription.created_at, Subscription.id)
+        )
+        return list(self._db.scalars(stmt))
+
     # ------------------------------------------------------------------
     # idempotency + writes
     # ------------------------------------------------------------------
@@ -276,13 +332,16 @@ class OpportunityBuilder:
     ) -> dict[str, dict[str, RecoveryOpportunity]]:
         payments: dict[str, RecoveryOpportunity] = {}
         orders: dict[str, RecoveryOpportunity] = {}
+        subscriptions: dict[str, RecoveryOpportunity] = {}
         for opp in self._incident_opportunities(incident_id):
             if opp.payment_id:
                 payments[opp.payment_id] = opp
             order_id = (opp.meta or {}).get("order_id")
             if order_id:
                 orders[order_id] = opp
-        return {"payments": payments, "orders": orders}
+            if opp.subscription_id:
+                subscriptions[opp.subscription_id] = opp
+        return {"payments": payments, "orders": orders, "subscriptions": subscriptions}
 
     def _new_opportunity(
         self,
@@ -296,11 +355,13 @@ class OpportunityBuilder:
         reason: str,
         meta: dict,
         actor: str,
+        subscription_id: str | None = None,
     ) -> RecoveryOpportunity:
         now = utcnow()
         opp = RecoveryOpportunity(
             incident_id=incident.id,
             payment_id=payment_id,
+            subscription_id=subscription_id,
             customer_id=customer_id,
             opportunity_type=opportunity_type,
             status=RecoveryStatus.PROPOSED,
@@ -325,6 +386,7 @@ class OpportunityBuilder:
                 "incident_id": incident.id,
                 "opportunity_type": opportunity_type,
                 "payment_id": payment_id,
+                "subscription_id": subscription_id,
                 "amount_paise": amount_paise,
             },
         )
@@ -337,5 +399,6 @@ __all__ = [
     "OPPORTUNITY_TTL",
     "STUCK_CHECKOUT_PAYMENT_TYPE",
     "STUCK_CREATED_THRESHOLD",
+    "SUBSCRIPTION_HALTED_TYPE",
     "OpportunityBuilder",
 ]

@@ -7,6 +7,7 @@ import { Hammer, Loader2 } from "lucide-react";
 
 import { api } from "@/lib/api";
 import { isOpenIncidentStatus } from "@/lib/types";
+import { useEnvironment } from "@/components/environment-provider";
 import { ErrorPanel } from "@/components/error-panel";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useBuildOpportunities } from "@/components/recovery/recovery-hooks";
@@ -29,10 +30,11 @@ function CommandCenterLink() {
  * lookup fails), fall back to the Command Center nudge.
  */
 export function BuildFromIncidentAction() {
+  const { environment } = useEnvironment();
   const latestOpen = useQuery({
-    queryKey: ["incidents", "latest-open"],
+    queryKey: ["incidents", "latest-open", environment],
     queryFn: async () => {
-      const res = await api.incidents.list({ page: 1, page_size: 50 });
+      const res = await api.incidents.list({ page: 1, page_size: 50, environment });
       return res.items.find((item) => isOpenIncidentStatus(item.status)) ?? null;
     },
     staleTime: 30_000,
@@ -83,7 +85,7 @@ export function BuildFromIncidentAction() {
       {builtNothing ? (
         <p role="status" className="max-w-md text-xs text-text-3">
           Nothing to build — this incident&apos;s window has no failed payments or dropped
-          checkouts. Trigger a fresh scenario instead.
+          checkouts.
         </p>
       ) : null}
     </div>

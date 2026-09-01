@@ -156,7 +156,8 @@
             "schema": {
               "enum": [
                 "real_test",
-                "research"
+                "research",
+                "all"
               ],
               "type": "string",
               "default": "real_test",
@@ -204,6 +205,28 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/audit/verify": {
+      "get": {
+        "tags": [
+          "audit"
+        ],
+        "summary": "Verify Audit Chain",
+        "description": "Read-only full-chain verification of the hash-chained audit trail.\n\nWalks the whole table in chain order, recomputing digests and checking\nlinkage; returns the verdict plus the id of the first row that fails.\nDeliberately NOT environment-scoped: the chain spans both environments in\ninsertion order, so scoping would break linkage (see\napp.services.audit.verify).",
+        "operationId": "verify_audit_chain_api_v1_audit_verify_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditVerifyResponse"
                 }
               }
             }
@@ -636,6 +659,452 @@
         }
       }
     },
+    "/api/v1/export/audit": {
+      "get": {
+        "tags": [
+          "export"
+        ],
+        "summary": "Export Audit",
+        "description": "Export audit trail \u2014 append-only record of every decision and action.",
+        "operationId": "export_audit_api_v1_export_audit_get",
+        "parameters": [
+          {
+            "name": "entity_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Entity Type"
+            }
+          },
+          {
+            "name": "entity_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Entity Id"
+            }
+          },
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "real_test",
+                "research"
+              ],
+              "type": "string",
+              "default": "real_test",
+              "title": "Environment"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "csv",
+                "json"
+              ],
+              "type": "string",
+              "default": "csv",
+              "title": "Format"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/export/incidents": {
+      "get": {
+        "tags": [
+          "export"
+        ],
+        "summary": "Export Incidents",
+        "description": "Export incidents \u2014 detected degradations with revenue impact.",
+        "operationId": "export_incidents_api_v1_export_incidents_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "severity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Severity"
+            }
+          },
+          {
+            "name": "metric",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Metric"
+            }
+          },
+          {
+            "name": "detected_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Detected From"
+            }
+          },
+          {
+            "name": "detected_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Detected To"
+            }
+          },
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "real_test",
+                "research"
+              ],
+              "type": "string",
+              "default": "real_test",
+              "title": "Environment"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "csv",
+                "json"
+              ],
+              "type": "string",
+              "default": "csv",
+              "title": "Format"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/export/recovery": {
+      "get": {
+        "tags": [
+          "export"
+        ],
+        "summary": "Export Recovery",
+        "description": "Export recovery opportunities + actions \u2014 full lifecycle from proposal to verification.",
+        "operationId": "export_recovery_api_v1_export_recovery_get",
+        "parameters": [
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "real_test",
+                "research"
+              ],
+              "type": "string",
+              "default": "real_test",
+              "title": "Environment"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "csv",
+                "json"
+              ],
+              "type": "string",
+              "default": "csv",
+              "title": "Format"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/export/payments": {
+      "get": {
+        "tags": [
+          "export"
+        ],
+        "summary": "Export Payments",
+        "description": "Export payments \u2014 commerce records with full provenance.",
+        "operationId": "export_payments_api_v1_export_payments_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "method",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Method"
+            }
+          },
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "real_test",
+                "research"
+              ],
+              "type": "string",
+              "default": "real_test",
+              "title": "Environment"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "csv",
+                "json"
+              ],
+              "type": "string",
+              "default": "csv",
+              "title": "Format"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/export/summary": {
+      "get": {
+        "tags": [
+          "export"
+        ],
+        "summary": "Export Summary",
+        "description": "Export a consolidated summary \u2014 counts, revenue, recovery rates by environment.",
+        "operationId": "export_summary_api_v1_export_summary_get",
+        "parameters": [
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "real_test",
+                "research"
+              ],
+              "type": "string",
+              "default": "real_test",
+              "title": "Environment"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "csv",
+                "json"
+              ],
+              "type": "string",
+              "default": "json",
+              "title": "Format"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/healthz": {
       "get": {
         "tags": [
@@ -893,6 +1362,116 @@
         }
       }
     },
+    "/api/v1/merchant/connection": {
+      "get": {
+        "tags": [
+          "merchant"
+        ],
+        "summary": "Get Connection",
+        "operationId": "get_connection_api_v1_merchant_connection_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/merchant/sync": {
+      "post": {
+        "tags": [
+          "merchant"
+        ],
+        "summary": "Post Sync",
+        "operationId": "post_sync_api_v1_merchant_sync_post",
+        "parameters": [
+          {
+            "name": "window_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 180,
+              "minimum": 1,
+              "default": 30,
+              "title": "Window Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncRunView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/merchant/sync/enable": {
+      "post": {
+        "tags": [
+          "merchant"
+        ],
+        "summary": "Post Sync Enable",
+        "description": "Reconnect: allow POST /sync again.",
+        "operationId": "post_sync_enable_api_v1_merchant_sync_enable_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncToggleView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/merchant/sync/disable": {
+      "post": {
+        "tags": [
+          "merchant"
+        ],
+        "summary": "Post Sync Disable",
+        "description": "Disconnect: POST /sync refuses with 409 until re-enabled. Inbound\nwebhooks are unaffected (they authenticate by signature, not by flag).",
+        "operationId": "post_sync_disable_api_v1_merchant_sync_disable_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncToggleView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/payments": {
       "get": {
         "tags": [
@@ -1045,6 +1624,55 @@
         }
       }
     },
+    "/api/v1/policy/backtest": {
+      "post": {
+        "tags": [
+          "policy"
+        ],
+        "summary": "Backtest Policy",
+        "description": "Replay stored policy decisions against the CURRENT policy document.\n\nReports how many historical decisions would still be ALLOWED / BLOCKED /\nREQUIRES_APPROVAL, which would flip, per-rule hit counts, and the paise\nimpact of every outcome transition. Read-only: the replay engine runs\nwithout a session (no new policy_decisions rows); the only write is the\naudit row recording the run itself (same convention as detection.run).",
+        "operationId": "backtest_policy_api_v1_policy_backtest_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PolicyBacktestRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyBacktestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/recovery/opportunities": {
       "get": {
         "tags": [
@@ -1162,6 +1790,54 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/OpportunityListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/recovery/opportunities/approvals-summary": {
+      "get": {
+        "tags": [
+          "recovery"
+        ],
+        "summary": "Approvals Summary",
+        "description": "SQL-side COUNT/SUM over the ENTIRE pending-approval queue for one\nenvironment. The Approval Center's 'Value awaiting decision' metric sums\npage 1 of the opportunities list client-side; this aggregate is the\ncorrect value beyond page 1. Mirrors the list endpoint's queue definition\n(stored opportunity status + environment stamp).",
+        "operationId": "approvals_summary_api_v1_recovery_opportunities_approvals_summary_get",
+        "parameters": [
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "real_test",
+                "research"
+              ],
+              "type": "string",
+              "default": "real_test",
+              "title": "Environment"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalsSummaryResponse"
                 }
               }
             }
@@ -1363,6 +2039,22 @@
               "type": "string",
               "title": "Opportunity Id"
             }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
           }
         ],
         "requestBody": {
@@ -1414,6 +2106,22 @@
             "schema": {
               "type": "string",
               "title": "Opportunity Id"
+            }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
             }
           }
         ],
@@ -1467,6 +2175,22 @@
               "type": "string",
               "title": "Opportunity Id"
             }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
           }
         ],
         "requestBody": {
@@ -1519,6 +2243,22 @@
               "type": "string",
               "title": "Opportunity Id"
             }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
           }
         ],
         "requestBody": {
@@ -1570,6 +2310,22 @@
             "schema": {
               "type": "string",
               "title": "Opportunity Id"
+            }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
             }
           }
         ],
@@ -1752,6 +2508,35 @@
         ],
         "title": "AlternativeHypothesisView"
       },
+      "ApprovalsSummaryResponse": {
+        "properties": {
+          "environment": {
+            "type": "string",
+            "title": "Environment"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "pending_count": {
+            "type": "integer",
+            "title": "Pending Count"
+          },
+          "pending_amount_paise": {
+            "type": "integer",
+            "title": "Pending Amount Paise"
+          }
+        },
+        "type": "object",
+        "required": [
+          "environment",
+          "status",
+          "pending_count",
+          "pending_amount_paise"
+        ],
+        "title": "ApprovalsSummaryResponse",
+        "description": "Whole-queue aggregate for the pending-approvals lane.\n\nDefined here (not app/schemas/recovery.py) deliberately: it is owned with\nthis router; migrate it into the schemas module if it is reused\nelsewhere. Additive \u2014 no existing response shape changes."
+      },
       "ApproveRequest": {
         "properties": {
           "actor": {
@@ -1921,6 +2706,45 @@
         "title": "AuditRef",
         "description": "One append-only audit trail row referenced by a recovery resource."
       },
+      "AuditVerifyResponse": {
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "title": "Valid"
+          },
+          "checked": {
+            "type": "integer",
+            "title": "Checked"
+          },
+          "chained": {
+            "type": "integer",
+            "title": "Chained"
+          },
+          "legacy": {
+            "type": "integer",
+            "title": "Legacy"
+          },
+          "first_bad_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Bad Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "valid",
+          "checked",
+          "chained",
+          "legacy"
+        ],
+        "title": "AuditVerifyResponse"
+      },
       "BuildRequest": {
         "properties": {
           "incident_id": {
@@ -2014,6 +2838,107 @@
           "status"
         ],
         "title": "ComponentHealth"
+      },
+      "ConnectionStatus": {
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          },
+          "connected": {
+            "type": "boolean",
+            "title": "Connected"
+          },
+          "environment": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "test",
+                  "live"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Environment"
+          },
+          "key_id_masked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key Id Masked"
+          },
+          "webhook_configured": {
+            "type": "boolean",
+            "title": "Webhook Configured"
+          },
+          "sync_enabled": {
+            "type": "boolean",
+            "title": "Sync Enabled"
+          },
+          "last_sync_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sync At"
+          },
+          "last_webhook_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Webhook At"
+          },
+          "last_sync_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sync Status"
+          },
+          "connection_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connection Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "configured",
+          "connected",
+          "webhook_configured",
+          "sync_enabled"
+        ],
+        "title": "ConnectionStatus",
+        "description": "GET /api/v1/merchant/connection \u2014 live probe + persisted sync cursor."
       },
       "DashboardSummary": {
         "properties": {
@@ -2517,6 +3442,20 @@
             ],
             "title": "Environment",
             "default": "real_test"
+          },
+          "baseline_mode": {
+            "type": "string",
+            "enum": [
+              "leading_window",
+              "same_time_yesterday"
+            ],
+            "title": "Baseline Mode",
+            "default": "leading_window"
+          },
+          "night_regime_floors": {
+            "type": "boolean",
+            "title": "Night Regime Floors",
+            "default": false
           }
         },
         "type": "object",
@@ -3845,6 +4784,13 @@
               }
             ]
           },
+          "recommended_candidates": {
+            "items": {
+              "$ref": "#/components/schemas/RecommendedActionView"
+            },
+            "type": "array",
+            "title": "Recommended Candidates"
+          },
           "alternative_hypotheses": {
             "items": {
               "$ref": "#/components/schemas/AlternativeHypothesisView"
@@ -4563,6 +5509,288 @@
         "title": "PlatformCalloutView",
         "description": "Merchant-vs-network benchmark of the top outlier (Pagos pattern).\n\nplatform_scope documents the deployment reality: this is the\nsingle-merchant simulator, so \"platform\" = the simulated fleet (this\nmerchant's full payment stream). In a multi-merchant deployment the same\ncomparison would benchmark against all merchants on the platform."
       },
+      "PolicyBacktestFlip": {
+        "properties": {
+          "decision_id": {
+            "type": "string",
+            "title": "Decision Id"
+          },
+          "action_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action Id"
+          },
+          "action_type": {
+            "type": "string",
+            "title": "Action Type"
+          },
+          "amount_paise": {
+            "type": "integer",
+            "title": "Amount Paise"
+          },
+          "currency": {
+            "type": "string",
+            "title": "Currency",
+            "default": "INR"
+          },
+          "actor": {
+            "type": "string",
+            "title": "Actor"
+          },
+          "decided_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Decided At"
+          },
+          "original_outcome": {
+            "$ref": "#/components/schemas/PolicyOutcome"
+          },
+          "replayed_outcome": {
+            "$ref": "#/components/schemas/PolicyOutcome"
+          },
+          "original_rules": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Original Rules"
+          },
+          "replayed_rules": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Replayed Rules"
+          },
+          "original_policy_version": {
+            "type": "string",
+            "title": "Original Policy Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "decision_id",
+          "action_type",
+          "amount_paise",
+          "actor",
+          "decided_at",
+          "original_outcome",
+          "replayed_outcome",
+          "original_policy_version"
+        ],
+        "title": "PolicyBacktestFlip",
+        "description": "One historical decision whose outcome would change under the current\npolicy document."
+      },
+      "PolicyBacktestRequest": {
+        "properties": {
+          "environment": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "real_test",
+                  "research"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Environment"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 5000.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 500
+          }
+        },
+        "type": "object",
+        "title": "PolicyBacktestRequest",
+        "description": "Filters for one backtest replay. All optional; an empty body replays\nevery stored policy decision (up to ``limit``)."
+      },
+      "PolicyBacktestResponse": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "policy_version": {
+            "type": "string",
+            "title": "Policy Version"
+          },
+          "environment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Environment"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          },
+          "decisions_scanned": {
+            "type": "integer",
+            "title": "Decisions Scanned",
+            "default": 0
+          },
+          "outcomes_original": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Outcomes Original"
+          },
+          "outcomes_replayed": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Outcomes Replayed"
+          },
+          "original_policy_versions": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Original Policy Versions"
+          },
+          "unchanged_count": {
+            "type": "integer",
+            "title": "Unchanged Count",
+            "default": 0
+          },
+          "flip_count": {
+            "type": "integer",
+            "title": "Flip Count",
+            "default": 0
+          },
+          "flips": {
+            "items": {
+              "$ref": "#/components/schemas/PolicyBacktestFlip"
+            },
+            "type": "array",
+            "title": "Flips"
+          },
+          "transitions": {
+            "items": {
+              "$ref": "#/components/schemas/PolicyTransitionImpact"
+            },
+            "type": "array",
+            "title": "Transitions"
+          },
+          "rule_hits": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Rule Hits"
+          },
+          "rule_hits_original": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Rule Hits Original"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "status",
+          "started_at",
+          "policy_version"
+        ],
+        "title": "PolicyBacktestResponse"
+      },
       "PolicyDecisionView": {
         "properties": {
           "id": {
@@ -4664,6 +5892,33 @@
           "outcome"
         ],
         "title": "PolicyPreview"
+      },
+      "PolicyTransitionImpact": {
+        "properties": {
+          "from_outcome": {
+            "$ref": "#/components/schemas/PolicyOutcome"
+          },
+          "to_outcome": {
+            "$ref": "#/components/schemas/PolicyOutcome"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count",
+            "default": 0
+          },
+          "amount_paise": {
+            "type": "integer",
+            "title": "Amount Paise",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "from_outcome",
+          "to_outcome"
+        ],
+        "title": "PolicyTransitionImpact",
+        "description": "Aggregate paise impact of one outcome transition, e.g. every decision\nthat flips ALLOWED -> REQUIRES_APPROVAL."
       },
       "RecommendedActionView": {
         "properties": {
@@ -5009,6 +6264,7 @@
           "POLICY_EVALUATED",
           "PENDING_APPROVAL",
           "APPROVED",
+          "SCHEDULED",
           "REJECTED",
           "EXECUTING",
           "VERIFYING",
@@ -5543,6 +6799,101 @@
           "action_type"
         ],
         "title": "StrategyOption"
+      },
+      "SyncRunView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "entity_counts": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Entity Counts"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "actor": {
+            "type": "string",
+            "title": "Actor"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "started_at",
+          "status",
+          "actor",
+          "created_at"
+        ],
+        "title": "SyncRunView",
+        "description": "POST /api/v1/merchant/sync \u2014 the sync_runs summary of the pass."
+      },
+      "SyncToggleView": {
+        "properties": {
+          "sync_enabled": {
+            "type": "boolean",
+            "title": "Sync Enabled"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sync_enabled",
+          "updated_at"
+        ],
+        "title": "SyncToggleView",
+        "description": "POST /api/v1/merchant/sync/enable|disable \u2014 Disconnect/Reconnect."
       },
       "SystemHealth": {
         "properties": {

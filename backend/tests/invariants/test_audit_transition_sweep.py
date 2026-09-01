@@ -32,6 +32,7 @@ import pytest
 import sqlalchemy as sa
 
 import app.models as models
+from app.logging import request_id_ctx
 from app.ports import ActionType, RecoveryStatus
 from app.services.agent.tools import AgentTools
 from app.services.razorpay.errors import GatewayTransientError
@@ -395,15 +396,22 @@ class TestAgentToolCreatedRows:
         self, db_session, make_incident, make_payment
     ):
         """Agent tools create the PROPOSED row + evaluate (single
-        agent.action_requested audit record); the executor then re-gates and
-        fires. The from/to chain starts where the tool left the action
-        (POLICY_EVALUATED) and must reach RECOVERED without gaps."""
+        agent.action_requested audit record, now carrying structured
+        from_status/to_status); the executor then re-gates and fires. The
+        from/to chain starts at the tool row itself (None -> POLICY_EVALUATED)
+        and must reach RECOVERED without gaps."""
         incident = make_incident()
         payment = make_payment(amount_paise=100_000, status="failed")
         tools = AgentTools(db_session, incident_id=incident.id)
-        result = tools.call(
-            "request_payment_link", {"payment_id": payment.id, "confidence": 0.99}
-        )
+        # The request-id middleware normally stamps the contextvar; set it
+        # here so the tool row carries the same request id as the executor's.
+        token = request_id_ctx.set("req-sweep-agent")
+        try:
+            result = tools.call(
+                "request_payment_link", {"payment_id": payment.id, "confidence": 0.99}
+            )
+        finally:
+            request_id_ctx.reset(token)
         db_session.commit()
         action = db_session.get(models.RecoveryAction, result.data["action_id"])
         assert action.status is RecoveryStatus.POLICY_EVALUATED
@@ -416,7 +424,7 @@ class TestAgentToolCreatedRows:
             db_session,
             fired,
             final=RecoveryStatus.RECOVERED,
-            first_from="POLICY_EVALUATED",  # the state the tool left it in
+            first_from=None,  # the tool row opens the chain: None -> POLICY_EVALUATED
             creation="agent.action_requested",
             request_id="req-sweep-agent",
         )

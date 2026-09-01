@@ -9,6 +9,7 @@ import type { OpportunitySummary, RecoveryStatus } from "@/lib/types";
 import { formatINR, formatNumber, timeAgo } from "@/lib/format";
 import { ConfidenceBar } from "@/components/confidence-bar";
 import { DataTable, type ColumnDef } from "@/components/data-table";
+import { useEnvironment } from "@/components/environment-provider";
 import { ErrorPanel } from "@/components/error-panel";
 import { SectionCard } from "@/components/section-card";
 import { StatusPill } from "@/components/status-pill";
@@ -23,6 +24,8 @@ import {
 } from "@/components/recovery/recovery-contract";
 import { BuildFromIncidentAction } from "@/components/recovery/build-from-incident-action";
 import { OpportunityDrawer } from "@/components/recovery/opportunity-drawer";
+import { PolicyBacktestPanel } from "@/components/recovery/policy-backtest-panel";
+import { ReconcileAction } from "@/components/recovery/reconcile-action";
 
 const PAGE_SIZE = 20;
 
@@ -31,6 +34,7 @@ const STATUSES: RecoveryStatus[] = [
   "POLICY_EVALUATED",
   "PENDING_APPROVAL",
   "APPROVED",
+  "SCHEDULED",
   "REJECTED",
   "EXECUTING",
   "VERIFYING",
@@ -74,10 +78,10 @@ const columns: ColumnDef<OpportunitySummary>[] = [
     header: "Opportunity",
     render: (row) => (
       <div className="max-w-[260px]">
-        <p className="truncate text-sm font-medium text-foreground">
+        <p className="truncate text-sm font-medium text-text">
           {opportunityTypeLabel(row.opportunity_type)}
         </p>
-        <p className="truncate text-2xs text-muted-foreground tnum">
+        <p className="truncate text-2xs text-text-3 tnum">
           {row.id}
           {row.incident_id ? ` · ${row.incident_id}` : ""}
         </p>
@@ -123,7 +127,7 @@ const columns: ColumnDef<OpportunitySummary>[] = [
   {
     key: "risk",
     header: "Risk",
-    render: (row) => <span className="text-xs capitalize text-muted-foreground">{row.risk}</span>,
+    render: (row) => <span className="text-xs capitalize text-text-3">{row.risk}</span>,
   },
   {
     key: "status",
@@ -133,23 +137,30 @@ const columns: ColumnDef<OpportunitySummary>[] = [
   {
     key: "created",
     header: "Created",
-    className: "text-right text-muted-foreground",
+    className: "text-right text-text-3",
     render: (row) => <span className="text-xs tnum">{timeAgo(row.created_at)}</span>,
   },
 ];
 
 export function PipelinePanel() {
+  const { environment } = useEnvironment();
   const [status, setStatus] = React.useState<RecoveryStatus | "">("");
   const [type, setType] = React.useState("");
   const [page, setPage] = React.useState(1);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
 
+  // Switching environments is a different dataset — restart pagination.
+  React.useEffect(() => {
+    setPage(1);
+  }, [environment]);
+
   const query = useQuery({
-    queryKey: ["recovery", "opportunities", "pipeline", status, type, page],
+    queryKey: ["recovery", "opportunities", "pipeline", environment, status, type, page],
     queryFn: () =>
       api.recovery.opportunities({
         status: status || null,
         opportunity_type: type || null,
+        environment,
         page,
         page_size: PAGE_SIZE,
       }),
@@ -200,6 +211,7 @@ export function PipelinePanel() {
                 </option>
               ))}
             </Select>
+            <ReconcileAction />
           </div>
         }
         contentClassName="pt-0"
@@ -215,6 +227,7 @@ export function PipelinePanel() {
               isLoading={query.isPending}
               skeletonRows={6}
               onRowClick={(row) => setSelectedId(row.id)}
+              rowRole="button"
               emptyTitle="No recovery opportunities"
               emptyDescription="Opportunities are built from an open incident's failed payments and dropped checkouts — the build is idempotent and safe to re-run."
             />
@@ -229,7 +242,7 @@ export function PipelinePanel() {
                 )}
               </div>
             ) : null}
-            <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
+            <div className="mt-4 flex items-center justify-between text-xs text-text-3">
               <span className="tnum">
                 {query.data
                   ? `${formatNumber(query.data.total)} total · page ${query.data.page} of ${totalPages}`
@@ -257,6 +270,8 @@ export function PipelinePanel() {
           </>
         )}
       </SectionCard>
+
+      <PolicyBacktestPanel />
 
       <OpportunityDrawer opportunityId={selectedId} onClose={() => setSelectedId(null)} />
     </>

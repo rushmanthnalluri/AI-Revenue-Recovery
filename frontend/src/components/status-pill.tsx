@@ -7,8 +7,10 @@ type Tone = "success" | "warning" | "danger" | "info" | "neutral";
 
 /**
  * Status vocabulary for the whole console. Maps every IncidentStatus,
- * RecoveryStatus, Severity and health-check status onto the spec palette:
- * green ok / amber warn / red crit / slate in-progress / neutral.
+ * RecoveryStatus, Severity, PolicyOutcome and health-check status onto the
+ * spec palette: green ok / amber warn / red crit / slate in-progress /
+ * neutral. Unknown statuses fall back to neutral (never crash on a status
+ * the UI predates).
  */
 const STATUS_TONES: Record<string, Tone> = {
   // health
@@ -19,6 +21,7 @@ const STATUS_TONES: Record<string, Tone> = {
   down: "danger",
   unreachable: "danger",
   error: "danger",
+  disabled: "neutral", // deliberate configuration (e.g. WORKER_ENABLED=false), not a failure
   // incident status
   OPEN: "danger",
   INVESTIGATING: "info",
@@ -32,6 +35,7 @@ const STATUS_TONES: Record<string, Tone> = {
   POLICY_EVALUATED: "neutral",
   PENDING_APPROVAL: "warning",
   APPROVED: "success",
+  SCHEDULED: "info", // delayed retry parked until due; the worker fires it — pre-execution
   REJECTED: "neutral",
   EXECUTING: "info",
   VERIFYING: "info",
@@ -40,6 +44,10 @@ const STATUS_TONES: Record<string, Tone> = {
   UNKNOWN: "warning",
   CANCELLED: "neutral",
   ESCALATED: "warning",
+  // policy outcome (gate verdicts, backtest original/replayed)
+  ALLOWED: "success",
+  BLOCKED: "danger",
+  REQUIRES_APPROVAL: "warning",
   // severity
   LOW: "neutral",
   MEDIUM: "warning",
@@ -50,6 +58,12 @@ const STATUS_TONES: Record<string, Tone> = {
   running: "info",
   failed: "danger",
   pending: "neutral",
+  // payment status (Razorpay lifecycle)
+  captured: "success",
+  authorized: "info",
+  created: "neutral",
+  refunded: "warning",
+  partially_refunded: "warning",
 };
 
 const TONE_VARIANT: Record<Tone, BadgeProps["variant"]> = {
@@ -90,9 +104,4 @@ export function StatusPill({ status, dot = true, pulse = false, className }: Sta
       {status.replace(/_/g, " ")}
     </Badge>
   );
-}
-
-/** Resolve the semantic tone for a status string (for custom composites). */
-export function statusTone(status: string): Tone {
-  return STATUS_TONES[status] ?? "neutral";
 }

@@ -46,6 +46,26 @@ export function useBuildOpportunities() {
   });
 }
 
+/**
+ * Operator-triggered reconciliation sweep (POST /recovery/reconcile, ADR
+ * 0011): resolves UNKNOWN actions against gateway truth (GETs only) and
+ * reprocesses failed webhook events. Idempotent — safe to re-run. On success
+ * the recovery surfaces, dashboard KPIs and the audit trail (the sweep
+ * records its own `recovery.reconcile` audit row) are invalidated so every
+ * surface refreshes from truth.
+ */
+export function useReconcile() {
+  const queryClient = useQueryClient();
+  const invalidateRecovery = useInvalidateRecovery();
+  return useMutation({
+    mutationFn: () => api.recovery.reconcile({ actor: CONSOLE_ACTOR }),
+    onSuccess: () => {
+      invalidateRecovery();
+      void queryClient.invalidateQueries({ queryKey: ["audit"] });
+    },
+  });
+}
+
 const FOCUSABLE =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -54,12 +74,22 @@ const FOCUSABLE =
  * focuses the first control on open, traps Tab inside the layer, closes on
  * Escape, locks body scroll, and restores focus on unmount. Attach the ref to
  * the dialog/drawer panel element.
+ *
+ * `onClose` is read through a ref so an inline closure from the caller does
+ * not re-install the trap on every render — re-running the effect would
+ * re-fire the initial focus and steal it from whatever the operator is doing
+ * (e.g. while a polling query re-renders the parent every few seconds).
  */
 export function useModalA11y(
   ref: React.RefObject<HTMLElement | null>,
   onClose: () => void,
   active = true,
 ) {
+  const onCloseRef = React.useRef(onClose);
+  React.useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
   React.useEffect(() => {
     if (!active) return;
     const node = ref.current;
@@ -81,7 +111,7 @@ export function useModalA11y(
       if (event.key === "Escape") {
         event.stopPropagation();
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab") return;
@@ -112,5 +142,5 @@ export function useModalA11y(
       document.body.style.overflow = previousOverflow;
       previouslyFocused?.focus();
     };
-  }, [ref, onClose, active]);
+  }, [ref, active]);
 }

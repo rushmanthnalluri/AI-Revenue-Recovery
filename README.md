@@ -515,11 +515,16 @@ Stated plainly, with the doc where each is documented:
   anchor and 4/6 (precision 0.333) on 2026-08-28; across the 7-anchor
   robustness battery, precision ranged 0.333–0.714 and recall 0.667–0.833
   with no code change. `customer_insufficient_funds_wave` was missed on all
-  7 anchors; `subscription_failure_spike` on 4 of 7 (docs/evaluation.md §3d).
+  7 anchors at the shipped operating point — an opt-in night-regime floor set
+  now exists for it (`night_regime_floors` on the detection request, default
+  OFF to keep the published anchors valid — docs/evaluation.md §3b);
+  `subscription_failure_spike` on 4 of 7 (docs/evaluation.md §3d).
 - **Diagnosis on scheduled-pass windows is diluted** — top-1 1.000 on the
   canonical run's 4 matched 12h windows, a small n; the model-quality study
-  on exact spans is the docs/ml.md §10 gate. A window re-scoping triage
-  step before diagnosis remains the follow-up.
+  on exact spans is the docs/ml.md §10 gate. A window re-scoping triage step
+  now ships (`app/services/diagnosis/rescope.py`, opt-in via
+  `DIAGNOSIS_WINDOW_RESCOPE`, default OFF; unit-tested but not yet
+  re-anchored — docs/ml.md §8).
 - **Simulator fidelity bounds every number.** Evaluation/ML metrics are
   measured on synthetic data with a documented prior conversion table; real
   Razorpay traffic will be noisier.
@@ -529,28 +534,33 @@ Stated plainly, with the doc where each is documented:
   scores 91.5% top-1 on the synthetic generator, with confidences capped ≤ 0.7.
 - **Single-merchant.** The simulator models one merchant per run; there is no
   multi-tenant isolation story yet.
-- **Delayed retry fires immediately.** The monolith has no scheduler; a
-  `retry_payment` with `delay_seconds` executes now and records the requested
-  delay in the gateway order's notes (audited, but not actually delayed).
-- **`notify_customer` has no worker.** It is recorded and verified against
-  the customer's later payment webhook, but no notification is actually sent.
-- **No UNKNOWN/webhook reconciliation worker.** Actions stranded in `UNKNOWN`
-  after an ambiguous gateway outcome, and webhook events stored but not
-  processed (unknown payment, handler error), are resolved only by an
-  explicit re-execute/re-query or redelivery — no background sweeper exists.
+- **Worker tier implemented, default off.** An in-process worker
+  (`WORKER_ENABLED=true`, `app/services/worker/`) fires delayed retries when
+  due (actions park in `SCHEDULED` with a fire-time policy re-gate), delivers
+  `notify_customer` through a notification outbox (logging sender by default;
+  real-sender seam), and runs the reconciliation sweep on a cadence
+  (`WORKER_RECONCILE_SECONDS`, default 15 min — docs/worker.md). The
+  operator-triggered sweep endpoint remains. Single-node, in-process — a
+  distributed queue is still future work.
 - **Demo-grade auth.** Approver identity is self-declared and GETs are
-  intentionally open (see "Auth model" under Reproduce → Deploy) — fine for a
-  demo, not a production posture.
+  intentionally open (see "Auth model" under Reproduce → Deploy). KYA-lite
+  principal binding now ties approval calls to the presented API key and
+  records a separation-of-duties warning on self-approval
+  (docs/security-testing.md) — still a demo posture, not SSO.
 - **Synchronous evaluation.** `POST /api/v1/evaluation/run` blocks for the
   whole run (minutes at full preset); the CLI is the full-scale path.
 
-Planned follow-ups: window re-scoping triage before diagnosis; a
-scheduler/worker tier (true delayed retries, `notify_customer` delivery,
-subscription-aware recovery around `pending`/`halted` — where Razorpay's own
-T+1/2/3 retries stop, arrears payment links start); multi-anchor detection
-replay for the two chronic misses; multi-merchant tenancy; retraining on real
-test-mode traffic with measured (not prior) conversion tables; richer LLM
-narratives where keys exist — still behind the same deterministic gate.
+Planned follow-ups: re-anchoring the published evaluation numbers with the
+new opt-in modes enabled (night-regime floors, same-time-yesterday baseline,
+window re-scoping triage — all shipped dark, default OFF); multi-merchant
+tenancy; retraining on real test-mode traffic with measured (not prior)
+conversion tables; richer LLM narratives where keys exist — still behind the
+same deterministic gate. Landed since this section was first written: the
+worker tier (delayed retries, notification outbox, scheduled reconciliation),
+subscription-aware recovery around `pending`/`halted` (arrears payment
+links), approval TTL lapse, policy backtesting (`POST /api/v1/policy/backtest`),
+hash-chained audit log (`GET /api/v1/audit/verify`), KYA-lite principal
+binding, and ranked multi-candidate agent proposals.
 
 ## How to reproduce
 

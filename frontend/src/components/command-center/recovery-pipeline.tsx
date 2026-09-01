@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 
-import type { DashboardSummary, OpportunitySummary } from "@/lib/types";
+import type { DashboardSummary, Environment, OpportunitySummary } from "@/lib/types";
 import { formatINR, formatNumber, formatPercent, timeAgo } from "@/lib/format";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorPanel } from "@/components/error-panel";
@@ -45,6 +45,7 @@ interface RecoveryPipelineProps {
   loading: boolean;
   error: unknown;
   onRetry: () => void;
+  environment: Environment;
 }
 
 /**
@@ -59,6 +60,7 @@ export function RecoveryPipeline({
   loading,
   error,
   onRetry,
+  environment,
 }: RecoveryPipelineProps) {
   if (error) {
     return <ErrorPanel error={error} onRetry={onRetry} title="Recovery data unavailable" />;
@@ -100,7 +102,11 @@ export function RecoveryPipeline({
       {items.length === 0 ? (
         <EmptyState
           title="No opportunities yet"
-          description="Opportunities are built once an incident is diagnosed. Trigger a demo scenario to see the pipeline fill."
+          description={
+            environment === "real_test"
+              ? "Opportunities are built once an incident is diagnosed from observed Razorpay Test Mode activity."
+              : "Opportunities are built once an incident is diagnosed. Run a scenario from the Research Lab to see the pipeline fill."
+          }
         />
       ) : (
         <ul className="divide-y divide-border" aria-label="Newest recovery opportunities">

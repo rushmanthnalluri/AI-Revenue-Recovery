@@ -14,6 +14,8 @@ from app.schemas.detection import (
     DetectionRunResponse,
 )
 from app.services.detection import run_detection
+from app.services.detection.series import KNOWN_METRICS
+from app.services.policy import audit
 
 router = APIRouter(prefix="/api/v1/detection", tags=["detection"])
 
@@ -38,6 +40,30 @@ def run_detection_endpoint(
     except ValueError as exc:
         # unknown detector / metric names
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not req.dry_run:
+        # The pass persisted (or refreshed) incident rows — the run itself
+        # joins the audit trail, stamped with the environment it scored.
+        # A dry_run persists nothing by contract, so it writes no row either.
+        entry = audit.record(
+            db,
+            actor="system:detection",
+            action="detection.run",
+            entity_type="detection_run",
+            entity_id=result.run_id,
+            details={
+                "environment": req.environment,
+                "metrics": req.metrics or list(KNOWN_METRICS),
+                "detector": req.detector,
+                "window_minutes": req.window_minutes,
+                "baseline_mode": req.baseline_mode,
+                "anomalies_detected": result.anomalies_detected,
+                "anomalies_filtered": result.anomalies_filtered,
+                "incidents_created": result.incidents_created,
+                "incidents_updated": result.incidents_updated,
+            },
+        )
+        entry.environment = req.environment
+        db.commit()
     return DetectionRunResponse(
         run_id=result.run_id,
         status=result.status,

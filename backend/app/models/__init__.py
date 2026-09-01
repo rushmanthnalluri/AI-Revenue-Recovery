@@ -31,6 +31,7 @@ from app.models.evaluation import (
     SimulatorRun,
 )
 from app.models.incidents import Diagnosis, Incident, IncidentEvidence
+from app.models.notification import NotificationOutbox
 from app.models.recovery import (
     PolicyDecisionRecord,
     RecoveryAction,
@@ -54,6 +55,7 @@ __all__ = [
     "RecoveryStrategy",
     "RecoveryAction",
     "PolicyDecisionRecord",
+    "NotificationOutbox",
     "AuditLog",
     "WebhookEvent",
     "Experiment",

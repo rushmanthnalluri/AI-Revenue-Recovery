@@ -47,6 +47,11 @@ class Customer(ProvenanceMixin, TimestampMixin, Base):
 
 class Order(ProvenanceMixin, TimestampMixin, Base):
     __tablename__ = "orders"
+    # ix_orders_created_at: the opportunity builder's abandoned-checkout scan
+    # range-filters and sorts on created_at inside the incident window
+    # (app/services/recovery/builder.py::_abandoned_orders). Declared via
+    # __table_args__ because created_at lives on the shared TimestampMixin.
+    __table_args__ = (sa.Index("ix_orders_created_at", "created_at"),)
 
     id: Mapped[str] = mapped_column(sa.String(64), primary_key=True, default=ids.order_id)
     merchant_id: Mapped[str] = mapped_column(
@@ -70,6 +75,15 @@ class Payment(ProvenanceMixin, TimestampMixin, Base):
     # always distinct, matching the gateway_payment_id unique semantics).
     __table_args__ = (
         sa.UniqueConstraint("source_type", "external_id", name="uq_payments_source_external"),
+        # ix_payments_created_at: every hot read range-filters and/or sorts on
+        # created_at — the payments list (app/api/v1/payments.py::list_payments),
+        # the revenue engine's baseline/window scans
+        # (app/services/revenue/engine.py::_payments_between,
+        # _returning_customer_ids), and the opportunity builder's failed/stuck
+        # payment selection (app/services/recovery/builder.py::_failed_payments,
+        # _stuck_created_payments). Declared via __table_args__ because
+        # created_at lives on the shared TimestampMixin.
+        sa.Index("ix_payments_created_at", "created_at"),
     )
 
     id: Mapped[str] = mapped_column(sa.String(64), primary_key=True, default=ids.payment_id)

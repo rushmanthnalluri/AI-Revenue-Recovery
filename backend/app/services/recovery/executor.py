@@ -5,8 +5,13 @@
                                  -> BLOCKED           -> REJECTED (terminal)
     PENDING_APPROVAL --approve--> APPROVED -> execute
     PENDING_APPROVAL --reject-->  REJECTED (terminal)
+    PENDING_APPROVAL --approval TTL exceeded--> PROPOSED (lapse-on-read;
+        only when the policy sets `approval.pending_approval_ttl_hours`)
     any pre-execution state --cancel--> CANCELLED (terminal)
     any non-terminal state --escalate--> ESCALATED (terminal)
+    ALLOWED delayed retry (constraints.delay_seconds) --> SCHEDULED: parked
+        until due, then fired through the normal execute() path by the
+        in-process worker (docs/worker.md) — same re-gate, same guards.
     EXECUTING -> VERIFYING -> RECOVERED | FAILED
     EXECUTING -> UNKNOWN   (gateway gave no authoritative answer)
 
@@ -16,7 +21,8 @@ Safety invariants (enforced here, proven by tests/recovery):
   idempotency key (mapped to Razorpay `receipt` / `reference_id`), and a
   second execute on the same opportunity reuses the open action instead of
   creating a new one. Cross-opportunity duplicates are BLOCKED by the policy
-  gate's duplicate-protection guard.
+  gate's duplicate-protection guard. A SCHEDULED action still holds the
+  opportunity's execution slot; firing reuses the same action and key.
 - GatewayTransientError (timeout / 5xx / unreadable response) -> UNKNOWN.
   NEVER blind-retry a mutating call; resolve by re-querying gateway truth
   (fetch_payment / fetch_order) via `resolve()`.
@@ -28,7 +34,8 @@ Transaction boundary: this service flushes but NEVER commits (same convention
 as the policy engine and audit helper); the API layer commits.
 """
 
-from datetime import datetime
+from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import sqlalchemy as sa
@@ -40,6 +47,7 @@ from app.db import utcnow
 from app.logging import get_logger, request_id_ctx
 from app.models import (
     Customer,
+    NotificationOutbox,
     Payment,
     PolicyDecisionRecord,
     RecoveryAction,
@@ -50,6 +58,7 @@ from app.models.base import ENVIRONMENT_REAL_TEST, ENVIRONMENT_RESEARCH
 from app.ports import (
     ActionContext,
     ActionType,
+    NotificationStatus,
     PaymentGateway,
     PolicyDecision,
     PolicyOutcome,
@@ -78,6 +87,7 @@ OPEN_STATES = (
     RecoveryStatus.POLICY_EVALUATED,
     RecoveryStatus.PENDING_APPROVAL,
     RecoveryStatus.APPROVED,
+    RecoveryStatus.SCHEDULED,
     RecoveryStatus.EXECUTING,
     RecoveryStatus.VERIFYING,
     RecoveryStatus.UNKNOWN,
@@ -90,6 +100,7 @@ CANCELLABLE_STATES = (
     RecoveryStatus.POLICY_EVALUATED,
     RecoveryStatus.PENDING_APPROVAL,
     RecoveryStatus.APPROVED,
+    RecoveryStatus.SCHEDULED,
 )
 TERMINAL_STATES = (
     RecoveryStatus.RECOVERED,
@@ -98,6 +109,13 @@ TERMINAL_STATES = (
     RecoveryStatus.CANCELLED,
     RecoveryStatus.ESCALATED,
 )
+
+# Actor stamped on approval-TTL lapse transitions and their policy decision
+# records (policy rule `approval.pending_approval_ttl_hours`).
+APPROVAL_TTL_ACTOR = "system:approval_ttl"
+# The policy rule name recorded on lapse decisions; also the (optional)
+# configuration key that enables the lapse.
+APPROVAL_TTL_RULE = "approval.pending_approval_ttl_hours"
 
 
 class RecoveryError(Exception):
@@ -147,6 +165,7 @@ class RecoveryExecutor:
         *,
         policy_engine: PolicyEngine | None = None,
         real_gateway: PaymentGateway | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._db = session
         self._gw = gateway
@@ -154,6 +173,9 @@ class RecoveryExecutor:
         self._policy = policy_engine or PolicyEngine.from_file(session=session)
         self._history = SqlPolicyHistory(session)
         self._strategies = StrategyGenerator(session)
+        # Timestamp source; the worker injects its clock so delayed-retry
+        # due-evaluation is deterministic under test. Defaults to utcnow.
+        self._clock = clock or utcnow
 
     def _gateway_for(self, opp: RecoveryOpportunity | None) -> PaymentGateway:
         """Route the gateway call by the opportunity's environment stamp."""
@@ -208,7 +230,79 @@ class RecoveryExecutor:
             .order_by(RecoveryAction.created_at.desc(), RecoveryAction.id.desc())
             .limit(1)
         )
-        return self._db.scalar(stmt)
+        action = self._db.scalar(stmt)
+        if action is not None:
+            # Lapse-on-read: a PENDING_APPROVAL action older than the
+            # configured approval TTL returns to PROPOSED here, releasing the
+            # approval wait before any caller acts on the stale state.
+            self._lapse_stale_approval(action)
+        return action
+
+    def _approval_ttl(self) -> timedelta | None:
+        """The configured approval TTL, or None when the policy document does
+        not set `approval.pending_approval_ttl_hours` (the shipped default —
+        lapse disabled, approvals wait indefinitely)."""
+        hours = self._policy.config.approval.pending_approval_ttl_hours
+        if hours is None:
+            return None
+        return timedelta(hours=hours)
+
+    def _lapse_stale_approval(self, action: RecoveryAction) -> None:
+        """Lapse a PENDING_APPROVAL action whose wait EXCEEDS the configured
+        TTL back to PROPOSED, with a policy decision record and the usual
+        transition audit row (actor system:approval_ttl). At exactly the TTL
+        the approval is still live — the wait must exceed it."""
+        ttl = self._approval_ttl()
+        if ttl is None or action.status is not RecoveryStatus.PENDING_APPROVAL:
+            return
+        # The approval wait started when the gate parked the action
+        # (decided_at); proposed_at covers rows that predate that stamp.
+        since = action.decided_at or action.proposed_at
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=timezone.utc)
+        now = self._clock()
+        age = now - since
+        if age <= ttl:
+            return
+        record = PolicyDecisionRecord(
+            action_id=action.id,
+            action_type=action.action_type.value,
+            amount_paise=action.amount_paise,
+            currency=action.currency or "INR",
+            confidence=action.confidence,
+            outcome=PolicyOutcome.REQUIRES_APPROVAL,
+            reasons=[
+                f"approval wait of {age} exceeded the configured TTL of "
+                f"{ttl}; the action lapses back to PROPOSED and must be "
+                "re-gated (and re-approved) before it can execute"
+            ],
+            rules_matched=[APPROVAL_TTL_RULE],
+            policy_version=self._policy.policy_version,
+            actor=APPROVAL_TTL_ACTOR,
+            context={
+                "trigger": "approval_ttl_lapse",
+                "pending_since": since.isoformat(),
+                "age_hours": round(age.total_seconds() / 3600, 4),
+                "ttl_hours": round(ttl.total_seconds() / 3600, 4),
+            },
+            decided_at=now,
+        )
+        self._db.add(record)
+        self._db.flush()
+        self._transition(
+            action,
+            RecoveryStatus.PROPOSED,
+            actor=APPROVAL_TTL_ACTOR,
+            request_id=None,
+            note="approval wait exceeded the configured TTL; lapsed back to PROPOSED",
+            details={
+                "policy_outcome": PolicyOutcome.REQUIRES_APPROVAL.value,
+                "policy_decision_id": record.id,
+                "rules_matched": [APPROVAL_TTL_RULE],
+                "policy_version": record.policy_version,
+                "pending_since": since.isoformat(),
+            },
+        )
 
     def latest_policy_decision(
         self, action: RecoveryAction
@@ -240,8 +334,11 @@ class RecoveryExecutor:
         """Idempotent execution entry point.
 
         - No open action: create one from the chosen/recommended strategy and
-          run it through the policy gate; ALLOWED fires immediately.
+          run it through the policy gate; ALLOWED fires immediately (a
+          delayed-retry strategy parks in SCHEDULED instead — see `_fire`).
         - Open action PENDING_APPROVAL: refuse — a human must approve first.
+        - Open action SCHEDULED: not yet due -> no-op (still parked); due ->
+          re-gate and fire (the worker calls exactly this path).
         - Open action EXECUTING/VERIFYING: refuse — a gateway call is live.
         - Open action UNKNOWN: NO blind retry — re-query gateway truth instead.
         """
@@ -272,6 +369,18 @@ class RecoveryExecutor:
                 f"{action.strategy_id}; refusing to switch to {strategy_id}"
             )
 
+        if action.status is RecoveryStatus.SCHEDULED and not self.scheduled_due(action):
+            # Parked delayed retry, still waiting: idempotent no-op. The due
+            # case falls through and is re-gated below before firing — the
+            # deterministic gate decides again at fire time (duplicate
+            # protection, stopping rules and rate limits re-checked fresh).
+            return action
+
+        # A parked action reaches the gate only when due (the guard above
+        # returned otherwise); remember the parking across the re-gate, which
+        # re-stamps status and decided_at, so `_fire` does not re-park it.
+        firing_from_scheduled = action.status is RecoveryStatus.SCHEDULED
+
         if action.status is not RecoveryStatus.APPROVED:
             decision = self._gate(action, actor=actor, request_id=rid)
             if decision.outcome is PolicyOutcome.BLOCKED:
@@ -301,7 +410,7 @@ class RecoveryExecutor:
                 )
                 return action
         # ALLOWED by policy, or APPROVED by a human after REQUIRES_APPROVAL.
-        self._fire(action, actor=actor, request_id=rid)
+        self._fire(action, actor=actor, request_id=rid, from_scheduled=firing_from_scheduled)
         return action
 
     # ------------------------------------------------------------------
@@ -317,13 +426,13 @@ class RecoveryExecutor:
         request_id: str | None = None,
     ) -> RecoveryAction:
         rid = self._rid(request_id)
-        opp = self.get_opportunity(opportunity_id)
+        opp = self._lock_opportunity(opportunity_id)
         action = self.open_action_for(opp.id)
         if action is None or action.status is not RecoveryStatus.PENDING_APPROVAL:
             raise InvalidStateError(
                 f"opportunity {opp.id} has no action awaiting approval"
             )
-        action.approved_at = utcnow()
+        action.approved_at = self._clock()
         action.approved_by = actor
         self._transition(
             action,
@@ -344,7 +453,7 @@ class RecoveryExecutor:
         request_id: str | None = None,
     ) -> RecoveryAction | None:
         rid = self._rid(request_id)
-        opp = self.get_opportunity(opportunity_id)
+        opp = self._lock_opportunity(opportunity_id)
         action = self.open_action_for(opp.id)
         if action is None:
             self._opportunity_level(
@@ -373,7 +482,7 @@ class RecoveryExecutor:
         including UNKNOWN (a human investigates the ambiguous outcome) — and
         terminal for automation: webhooks/pollers no longer move the action."""
         rid = self._rid(request_id)
-        opp = self.get_opportunity(opportunity_id)
+        opp = self._lock_opportunity(opportunity_id)
         action = self.open_action_for(opp.id)
         if action is None:
             self._opportunity_level(
@@ -399,7 +508,7 @@ class RecoveryExecutor:
         request_id: str | None = None,
     ) -> RecoveryAction | None:
         rid = self._rid(request_id)
-        opp = self.get_opportunity(opportunity_id)
+        opp = self._lock_opportunity(opportunity_id)
         action = self.open_action_for(opp.id)
         if action is None:
             self._opportunity_level(
@@ -553,7 +662,7 @@ class RecoveryExecutor:
             # inside Razorpay's 40-char receipt/reference_id limit.
             gateway_request_id=ids.new_id("gwr_"),
             actor=actor,
-            proposed_at=utcnow(),
+            proposed_at=self._clock(),
         )
         self._db.add(action)
         self._db.flush()
@@ -616,7 +725,7 @@ class RecoveryExecutor:
         record = self.latest_policy_decision(action)
         if record is not None:
             action.policy_decision_id = record.id
-        action.decided_at = utcnow()
+        action.decided_at = self._clock()
         self._transition(
             action,
             RecoveryStatus.POLICY_EVALUATED,
@@ -649,10 +758,29 @@ class RecoveryExecutor:
     # internals: gateway fire + verification
     # ------------------------------------------------------------------
 
-    def _fire(self, action: RecoveryAction, *, actor: str, request_id: str | None) -> None:
+    def _fire(
+        self,
+        action: RecoveryAction,
+        *,
+        actor: str,
+        request_id: str | None,
+        from_scheduled: bool = False,
+    ) -> None:
         opp = action.opportunity
+        if (
+            not from_scheduled
+            and self._delay_seconds(action) > 0
+            and not self.scheduled_due(action)
+        ):
+            # Delayed retry whose wait has not elapsed: park in SCHEDULED
+            # without consuming an attempt or touching the gateway. The
+            # worker fires it through execute() once due (docs/worker.md);
+            # from_scheduled marks exactly that fire-through path — the
+            # action was parked and came due — so it must NOT re-park here.
+            self._park(action, actor=actor, request_id=request_id)
+            return
         action.attempts += 1
-        action.executed_at = utcnow()
+        action.executed_at = self._clock()
         self._transition(
             action,
             RecoveryStatus.EXECUTING,
@@ -681,7 +809,7 @@ class RecoveryExecutor:
             )
             return
         try:
-            response = self._dispatch_gateway(action, opp)
+            response = self._dispatch_gateway(action, opp, actor=actor, request_id=request_id)
         except GatewayClientError as exc:
             # 4xx: rejected before processing — definitively nothing happened.
             self._transition(
@@ -720,14 +848,21 @@ class RecoveryExecutor:
         self._verify_inline(action, response, actor=actor, request_id=request_id)
 
     def _dispatch_gateway(
-        self, action: RecoveryAction, opp: RecoveryOpportunity
+        self,
+        action: RecoveryAction,
+        opp: RecoveryOpportunity,
+        *,
+        actor: str | None = None,
+        request_id: str | None = None,
     ) -> dict[str, Any]:
         """Map the action type to exactly one gateway mutation (or none).
 
         The gateway is chosen by the opportunity's environment: research ->
         the injected (simulated) twin; real_test -> the real Razorpay adapter
         or an honest razorpay_not_configured refusal (raised BEFORE any
-        mutation attempt)."""
+        mutation attempt). `_fire` always passes the executing actor; the
+        None defaults keep the dispatcher directly probeable (invariant
+        tests) without forging attribution."""
         gw = self._gateway_for(opp)
         if action.action_type is ActionType.RETRY_PAYMENT:
             # Razorpay has no "retry" call: a fresh order with our idempotency
@@ -768,14 +903,22 @@ class RecoveryExecutor:
                 idempotency_key=action.gateway_request_id,
             )
         if action.action_type is ActionType.NOTIFY_CUSTOMER:
-            # No money moves and this monolith has no notification worker; the
-            # contact is recorded and recovery is verified when the customer
-            # pays (webhook on the linked payment moves VERIFYING -> RECOVERED).
+            # No money moves: the notification is queued in the outbox and the
+            # worker delivers it via the NotificationSender port
+            # (docs/worker.md). Recovery is verified when the customer pays
+            # (webhook on the linked payment moves VERIFYING -> RECOVERED).
+            outbox = self._enqueue_notification(
+                action,
+                opp,
+                actor=actor or action.actor or "system:executor",
+                request_id=request_id,
+            )
             return {
                 "id": action.gateway_request_id,
                 "entity": "notification",
                 "notified": True,
-                "channel": "recorded",
+                "channel": outbox.channel,
+                "outbox_id": outbox.id,
             }
         raise GatewayClientError(  # definitive, no side effects
             f"no executor mapping for action type {action.action_type.value!r}; "
@@ -835,8 +978,9 @@ class RecoveryExecutor:
         return action
 
     def _delay_seconds(self, action: RecoveryAction) -> int:
-        """Requested delay for delayed-retry strategies (recorded in gateway
-        notes; the monolith has no scheduler, so execution is immediate)."""
+        """Requested delay for delayed-retry strategies. Honored by parking
+        the action in SCHEDULED until due (`_park`); also recorded in the
+        gateway order's notes as part of the audited proposal."""
         if not action.strategy_id:
             return 0
         strategy = self._db.get(RecoveryStrategy, action.strategy_id)
@@ -846,6 +990,125 @@ class RecoveryExecutor:
             return max(0, int((strategy.constraints or {}).get("delay_seconds", 0)))
         except (TypeError, ValueError):
             return 0
+
+    # ------------------------------------------------------------------
+    # internals: delayed-retry scheduling (SCHEDULED; docs/worker.md)
+    # ------------------------------------------------------------------
+
+    def _scheduled_anchor(self, action: RecoveryAction) -> datetime:
+        """The timestamp the delay counts from: the latest policy decision
+        (re-gating restarts the wait honestly), proposed_at as fallback."""
+        since = action.decided_at or action.proposed_at
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=timezone.utc)
+        return since
+
+    def scheduled_due_at(self, action: RecoveryAction) -> datetime | None:
+        """When a delayed retry comes due, or None when no delay is requested."""
+        delay = self._delay_seconds(action)
+        if delay <= 0:
+            return None
+        return self._scheduled_anchor(action) + timedelta(seconds=delay)
+
+    def scheduled_due(self, action: RecoveryAction, *, now: datetime | None = None) -> bool:
+        """True when the action's requested delay has elapsed. Actions with no
+        delay requested are always due. The worker passes its (injected)
+        clock as `now`; the executor's own clock is the default."""
+        due = self.scheduled_due_at(action)
+        if due is None:
+            return True
+        return (now or self._clock()) >= due
+
+    def _park(self, action: RecoveryAction, *, actor: str, request_id: str | None) -> None:
+        """Park a delayed retry in SCHEDULED until due. No attempt is consumed
+        and nothing reaches the gateway: the state is pre-execution, so it
+        stays cancellable and occupies the opportunity's execution slot."""
+        delay = self._delay_seconds(action)
+        due = self.scheduled_due_at(action)
+        self._transition(
+            action,
+            RecoveryStatus.SCHEDULED,
+            actor=actor,
+            request_id=request_id,
+            note=f"delayed retry parked for {delay}s; the worker fires it when due",
+            details={
+                "delay_seconds": delay,
+                "due_at": due.isoformat() if due is not None else None,
+                "fires_via": "worker",
+            },
+        )
+
+    def _enqueue_notification(
+        self,
+        action: RecoveryAction,
+        opp: RecoveryOpportunity,
+        *,
+        actor: str,
+        request_id: str | None,
+    ) -> NotificationOutbox:
+        """Queue a notify_customer contact in the outbox (PENDING, due now);
+        the worker delivers it via the NotificationSender port. Enqueued once
+        per action — the action fires exactly once, ever."""
+        channel = "notification"
+        if action.strategy_id:
+            strategy = self._db.get(RecoveryStrategy, action.strategy_id)
+            if strategy is not None:
+                try:
+                    channel = str((strategy.constraints or {}).get("channel") or "notification")
+                except (TypeError, AttributeError):
+                    channel = "notification"
+        customer = self._db.get(Customer, opp.customer_id) if opp.customer_id else None
+        customer_payload = None
+        if customer is not None:
+            customer_payload = {
+                k: v
+                for k, v in {
+                    "id": customer.id,
+                    "name": customer.name,
+                    "email": customer.email,
+                    "contact": customer.phone,
+                }.items()
+                if v
+            } or None
+        row = NotificationOutbox(
+            action_id=action.id,
+            customer_id=opp.customer_id,
+            channel=channel,
+            payload={
+                "opportunity_id": opp.id,
+                "action_id": action.id,
+                "incident_id": action.incident_id,
+                "amount_paise": action.amount_paise,
+                "currency": action.currency or "INR",
+                "customer": customer_payload,
+                "message": (
+                    "PulseRecover: your payment did not complete — "
+                    "please retry at your convenience."
+                ),
+            },
+            status=NotificationStatus.PENDING,
+            attempts=0,
+            due_at=self._clock(),
+            environment=action.environment or ENVIRONMENT_RESEARCH,
+        )
+        self._db.add(row)
+        self._db.flush()
+        entry = audit.record(
+            self._db,
+            actor=actor,
+            action="notification.queued",
+            entity_type="notification_outbox",
+            entity_id=row.id,
+            details={
+                "recovery_action_id": action.id,
+                "opportunity_id": opp.id,
+                "customer_id": opp.customer_id,
+                "channel": channel,
+            },
+            request_id=request_id,
+        )
+        entry.environment = row.environment
+        return row
 
     def _linked_payment(self, action: RecoveryAction) -> Payment | None:
         opp = action.opportunity
@@ -868,7 +1131,7 @@ class RecoveryExecutor:
         error: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
-        now = utcnow()
+        now = self._clock()
         frm = action.status
         action.status = to
         if note is not None:
@@ -958,6 +1221,8 @@ class RecoveryExecutor:
 
 
 __all__ = [
+    "APPROVAL_TTL_ACTOR",
+    "APPROVAL_TTL_RULE",
     "CANCELLABLE_STATES",
     "GatewayNotConfiguredError",
     "IN_FLIGHT_STATES",

@@ -202,9 +202,26 @@ def incident_windows(incident: Any) -> tuple[datetime, datetime, datetime, datet
     return start - duration, start, start, end
 
 
-def compute_features_for_incident(session: Session, incident: Any) -> dict[str, float]:
-    """DB-backed feature computation used by DiagnosisService.classify()."""
-    b_start, b_end, w_start, w_end = incident_windows(incident)
+def compute_features_for_incident(
+    session: Session,
+    incident: Any,
+    window: tuple[datetime, datetime] | None = None,
+) -> dict[str, float]:
+    """DB-backed feature computation used by DiagnosisService.classify().
+
+    ``window`` overrides the incident's persisted frame — the re-scoping
+    triage (rescope.py) passes its tightened span here; None keeps the
+    historical behavior (the incident's own window). The baseline stays an
+    equal-duration span immediately preceding the scored frame, matching the
+    exact-span frames the model was selected on."""
+    if window is None:
+        b_start, b_end, w_start, w_end = incident_windows(incident)
+    else:
+        w_start, w_end = window
+        duration = w_end - w_start
+        if duration.total_seconds() <= 0:
+            raise ValueError(f"incident {incident.id}: non-positive window {w_start}..{w_end}")
+        b_start, b_end = w_start - duration, w_start
     window_records = load_window_records(session, w_start, w_end)
     baseline_records = load_window_records(session, b_start, b_end)
     return compute_features(window_records, baseline_records)

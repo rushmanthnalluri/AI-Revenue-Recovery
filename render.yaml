@@ -1,0 +1,76 @@
+# PulseRecover on Render — Blueprint (Infrastructure-as-Code).
+#
+# Deploy: Render Dashboard -> New -> Blueprint -> select this repo.
+# Render provisions all three resources below; secrets marked `sync: false`
+# are prompted for interactively at apply time (never committed).
+#
+# After apply, two manual values to wire (both in the Render dashboard):
+#   1. Copy pulserecover-api's generated API_KEY into pulserecover-web's
+#      NEXT_PUBLIC_API_KEY (the console sends it as X-API-Key).
+#   2. If Render assigned different hostnames than the defaults below,
+#      update CORS_ORIGINS (api) and NEXT_PUBLIC_API_BASE_URL (web) to match,
+#      then redeploy both services (NEXT_PUBLIC_* is build-time inlined).
+#
+# Razorpay webhook (Dashboard -> Settings -> Webhooks):
+#   URL:    https://pulserecover-api.onrender.com/webhooks/razorpay
+#   Secret: same value as RAZORPAY_WEBHOOK_SECRET here
+#   Events: payment.captured, payment.failed, order.paid, refund.processed,
+#           subscription.charged, subscription.charge_failed
+
+services:
+  - type: web
+    name: pulserecover-api
+    runtime: docker
+    dockerfilePath: deploy/Dockerfile.backend
+    dockerContext: .
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: pulserecover-db
+          property: connectionString
+      # "prod" disables the demo/detection API-key exemptions; the console
+      # always sends X-API-Key, so the UI keeps working.
+      - key: APP_ENV
+        value: prod
+      # Real Razorpay Test Mode gateway (keys below select test mode).
+      - key: SIMULATION_MODE
+        value: "false"
+      - key: RAZORPAY_KEY_ID
+        sync: false # rzp_test_... (Razorpay Dashboard -> Settings -> API Keys)
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false # must equal the secret in the Razorpay webhook config
+      - key: API_KEY
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: '["https://pulserecover-web.onrender.com"]'
+      - key: POLICY_FILE
+        value: policies/default.yaml
+      # Worker tier: delayed retries, notification outbox, scheduled reconcile.
+      - key: WORKER_ENABLED
+        value: "true"
+      - key: LOG_LEVEL
+        value: INFO
+
+  - type: web
+    name: pulserecover-web
+    runtime: docker
+    dockerfilePath: deploy/Dockerfile.frontend
+    dockerContext: .
+    plan: free
+    envVars:
+      # NEXT_PUBLIC_* are inlined at build time; Dockerfile.frontend declares
+      # them as ARGs, and Render passes service env vars as Docker build args.
+      - key: NEXT_PUBLIC_API_BASE_URL
+        value: https://pulserecover-api.onrender.com
+      - key: NEXT_PUBLIC_API_KEY
+        sync: false # paste the SAME value as pulserecover-api's API_KEY
+
+databases:
+  - name: pulserecover-db
+    plan: free
+    databaseName: pulserecover
+    user: pulserecover

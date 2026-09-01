@@ -169,16 +169,23 @@ edit, even a comment, changes the version recorded on every decision.
 | `rate_limits.max_actions_global_per_hour` | int ≥ 0 | `100` | Rolling-hour global brake. |
 | `stopping_rule.max_consecutive_failed_recoveries_per_incident` | int ≥ 1 | `3` | Consecutive FAILED streak per incident halts automation. |
 | `stopping_rule.max_consecutive_failed_recoveries_per_strategy` | int ≥ 1 | `3` | Same, keyed by `metadata["strategy_id"]`. |
+| `approval.pending_approval_ttl_hours` | int ≥ 1 | `None` | Approval wait exceeding this lapses PENDING_APPROVAL back to PROPOSED (lapse-on-read, below). Unset = disabled. |
 
 Required sections: `version`, `actions`, `never_auto_execute`,
 `auto_execute`, `require_human_approval`, `stopping_rule`, `rate_limits`.
-Optional (safe defaults): `kill_switch`, `duplicate_protection`.
+Optional (safe defaults): `kill_switch`, `duplicate_protection`,
+`approval`.
 
-Possible future rule (not implemented): an approval TTL
-(`approval.pending_approval_ttl_hours`) under which actions awaiting
-approval longer than the TTL lapse back to PROPOSED review. No such lapse
-worker exists today — PENDING_APPROVAL actions wait for an explicit
-approve/reject.
+Approval TTL (`approval.pending_approval_ttl_hours`, optional — unset in
+the shipped default, which therefore behaves exactly as before): a
+PENDING_APPROVAL action whose wait EXCEEDS the TTL lapses back to PROPOSED
+the next time the executor loads it (lapse-on-read on the
+execute/approve/reject/escalate/cancel paths, actor `system:approval_ttl`).
+The lapse writes a policy decision record
+(`rules_matched: ["approval.pending_approval_ttl_hours"]`, outcome
+REQUIRES_APPROVAL) plus the usual audited transition; the action must then
+be re-gated (and re-approved) before it can execute. This is a read-path
+rule, not a worker: nothing moves while an action sits unread.
 
 ### Money convention
 
@@ -262,5 +269,59 @@ Contract:
   the guards accurate and links the decision row to the action.
 - `PolicyDecisionRecord.action_id` is a deliberate soft reference (no FK);
   join on it freely but do not rely on referential integrity.
-- Tests: `backend/tests/policy/` — 81 tests covering every rule, the
-  fail-closed paths, determinism, persistence, and the audit helper.
+- Engine tests: `backend/tests/policy/` — 81 tests covering every rule, the
+  fail-closed paths, determinism, persistence, and the audit helper;
+  `test_backtest.py` adds the backtest endpoint proofs (§7).
+
+---
+
+## 7. Backtesting (`POST /api/v1/policy/backtest`)
+
+Read-only "Lithic pattern" analysis (docs/product-strategy.md §8): replay
+historical `policy_decisions` rows against the CURRENT policy file and report
+what would change. Request body (all optional; an empty body replays
+everything up to `limit`):
+
+| Field | Type | Default | Meaning |
+|-------|------|---------|---------|
+| `environment` | `real_test` \| `research` \| null | null | Scope to decisions whose LINKED recovery action carries this environment. `policy_decisions` has no environment column; the scope is derived through the soft `action_id` reference, so decisions with no linked action have no provable provenance and are only included when the filter is null. Null replays across both environments — a read-only report never mixes writes. |
+| `since` / `until` | datetime \| null | null | Window on `decided_at` (both bounds inclusive). |
+| `limit` | int 1..5000 | 500 | Cap on decisions replayed, oldest first (deterministic truncation). |
+
+The report (`app/schemas/policy.py::PolicyBacktestResponse`):
+
+- `outcomes_original` / `outcomes_replayed` — how many decisions were, and
+  would still be, ALLOWED / BLOCKED / REQUIRES_APPROVAL (zero-filled).
+- `flips` — every decision whose outcome would change, with both rule lists,
+  both policy versions, amount and actor.
+- `transitions` — paise impact per outcome transition (e.g. ALLOWED →
+  REQUIRES_APPROVAL: `count` + summed `amount_paise`).
+- `rule_hits` / `rule_hits_original` — per-rule hit counts under the current
+  policy vs. as originally recorded.
+- `original_policy_versions` — version distribution of the scanned decisions.
+
+Replay semantics:
+
+- **Read-only.** The replay engine runs WITHOUT a session, so it persists no
+  `policy_decisions` rows. The only write is the run's own audit row
+  (`action="policy.backtest"`, entity `policy_backtest_run`, committed by the
+  API layer — the detection.run/evaluation.run convention), stamped with the
+  scoped environment (`all` when unfiltered).
+- **Deterministic.** Stateful guards (stopping rules, rate limits, duplicate
+  protection) are evaluated against an EMPTY history, so no outcome depends
+  on the wall clock or on rows written after the original decision: same
+  rows + same policy file → same report. The report therefore isolates the
+  effect of the policy DOCUMENT itself; a decision originally blocked only by
+  a stateful guard (e.g. `rate_limit.customer_daily`) may replay as less
+  strict — visible by diffing the flip's `original_rules` vs
+  `replayed_rules`.
+- **Faithful context.** Each decision replays the `ActionContext` stored in
+  its `context` JSON (the exact pre-normalization input); the record's
+  normalized top-level columns fill any gap, so sparse/legacy rows still
+  replay.
+
+The endpoint is a mutating-route POST: it requires `X-API-Key` (it is NOT in
+the demo/detection exemption). Implementation:
+`app/services/policy/backtest.py` (service; flush-free, commit-free) +
+`app/api/v1/policy.py` (thin route, owns the audit row + commit). Tests:
+`backend/tests/policy/test_backtest.py`.

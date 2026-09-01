@@ -152,7 +152,7 @@ export function DemoResetSummary({ result }: { result: DemoResetResponse }) {
       <div className="flex flex-wrap items-center gap-2">
         <StatusPill status={result.status} />
         <p className="font-mono text-xs text-text">
-          demo environment reset
+          research dataset reset
           {result.reset_at ? <span className="text-text-3"> · {timeAgo(result.reset_at)}</span> : null}
         </p>
       </div>
@@ -162,7 +162,7 @@ export function DemoResetSummary({ result }: { result: DemoResetResponse }) {
           ? ` — ${nonZero
               .map(([table, n]) => `${table.replace(/_/g, " ")} ${formatNumber(n)}`)
               .join(" · ")}`
-          : " — the environment was already empty"}
+          : " — the research dataset was already empty"}
         .
       </p>
       {result.kept && result.kept.length > 0 ? (

@@ -18,7 +18,10 @@ A pass (``run_detection``) does:
    (``min_flagged_run``). Small-volume metrics carry their own floor defaults
    (applied unless the request sets the floor explicitly). Fires that fail a
    floor are counted (``anomalies_filtered``) and dropped — organic
-   night-traffic wobble is not an incident.
+   night-traffic wobble is not an incident. An opt-in night-regime floor set
+   (``night_regime_floors``, default OFF) judges all-night
+   ``insufficient_fund_share`` anomalies by a lower share/absolute bar —
+   the global 0.90-share bar exists for organic DAYTIME clusters only.
 4. Blind-spot cover: when the merchant-wide latency pass admits nothing for a
    detector, re-score per-route latency slices (``_scan_latency_routes``) —
    a single route's latency collapse is invisible in the aggregate series
@@ -43,7 +46,7 @@ comes from simulator ground truth, and ``meta.anomaly_start`` /
 
 import hashlib
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 
 import sqlalchemy as sa
@@ -146,6 +149,27 @@ METRIC_MIN_BUCKET_COUNT: dict[str, int] = {
 METRIC_MIN_FLAGGED_RUN: dict[str, int] = {METRIC_INSUFFICIENT_FUND_SHARE: 1}
 METRIC_MIN_FLAGGED_VOLUME: dict[str, int] = {METRIC_INSUFFICIENT_FUND_SHARE: 3}
 
+#: Opt-in night-regime floor set for the insufficient-funds wave (request
+#: knob ``night_regime_floors``, default OFF — every published anchor in
+#: docs/evaluation.md §3b was measured with the single global floor set, and
+#: stays valid because the mode ships dark). The measured mechanism (§3b
+#: note 2): the wave's failures spread across night-trough buckets and never
+#: concentrate into the near-single-class hour the global 0.90
+#: ``METRIC_MIN_OBSERVED`` bar demands, so the kind goes 0/7. That bar exists
+#: only because organic DAYTIME clusters reach 0.71 share — at night the mix
+#: has no such competitor, so an all-night anomaly can be judged by a lower
+#: bar. The night band is an engine-fixed UTC approximation of the IST night
+#: trough (00:00–06:30 IST ≈ 18:00–01:00 UTC); everything here is UTC, no tz
+#: database. The lower set applies ONLY when every flagged bucket sits in the
+#: band — a mixed day/night anomaly faces the global floors. Values chosen
+#: from the published measurements (wave night hours dilute under 0.90, and
+#: an elevated organic IF baseline shrinks |observed-baseline|), disclosed —
+#: not re-tuned on the anchor suite.
+NIGHT_REGIME_START_HOUR = 18  # 18:00 UTC = 23:30 IST
+NIGHT_REGIME_END_HOUR = 1  # band end (exclusive): 01:00 UTC = 06:30 IST
+NIGHT_MIN_OBSERVED: dict[str, float] = {METRIC_INSUFFICIENT_FUND_SHARE: 0.60}
+NIGHT_MIN_ABSOLUTE_DEVIATION: dict[str, float] = {METRIC_INSUFFICIENT_FUND_SHARE: 0.15}
+
 #: Inactivity threshold for the checkout-abandonment signal: a payment created
 #: this many minutes ago without a terminal outcome is abandoned (Razorpay
 #: checkout sessions expire on this order of magnitude).
@@ -165,6 +189,16 @@ LATENCY_SCAN_MIN_BUCKET_COUNT = 3
 #: A "slice" covering >= 95% of outcomes localizes nothing (it IS the
 #: aggregate — e.g. every payment missing the route tag); never scan it.
 LATENCY_SCAN_MAX_SLICE_SHARE = 0.95
+
+#: Opt-in ``same_time_yesterday`` baseline mode (request knob, default off):
+#: the detector baseline becomes the SAME clock window shifted back this far,
+#: so daily seasonality compares against yesterday's own hours instead of the
+#: analysis window's leading buckets. The mode needs at least this many
+#: decidable baseline (yesterday) buckets per metric — mirroring the request
+#: schema's ge=4 floor for leading-window baselines — or the metric stays
+#: silent for the pass (an honest no-data, never a guessed baseline).
+SAME_TIME_YESTERDAY_SHIFT = timedelta(hours=24)
+STY_MIN_BASELINE_BUCKETS = 4
 
 #: Statuses after which re-detection of the same signature is eligible for
 #: the post-resolution suppression window.
@@ -263,6 +297,21 @@ def run_detection(db: Session, req: DetectionRunRequest) -> DetectionRunResult:
         result.detail = "no terminal payment outcomes inside the window"
         return result
 
+    # Opt-in same-time-yesterday baseline (default: leading window — the
+    # published operating point; docs/detection.md "Known limitations"). The
+    # baseline records come from the SAME clock window shifted back 24h; the
+    # series handed to the detectors is [yesterday's window] + [today's
+    # window], with the detector baseline sized to yesterday's decidable
+    # buckets so only today's buckets are ever scored.
+    sty = req.baseline_mode == "same_time_yesterday"
+    baseline_start = window_start - SAME_TIME_YESTERDAY_SHIFT
+    baseline_end = window_end - SAME_TIME_YESTERDAY_SHIFT
+    baseline_outcomes = (
+        load_outcomes(db, baseline_start, baseline_end, req.segment, source_types)
+        if sty
+        else None
+    )
+
     for metric in metrics:
         bucket_minutes = req.bucket_minutes * METRIC_BUCKET_MULTIPLIER.get(metric, 1)
         if metric in ATTEMPT_BASED_METRICS:
@@ -274,24 +323,64 @@ def run_detection(db: Session, req: DetectionRunRequest) -> DetectionRunResult:
                 inactivity_minutes=ABANDONMENT_INACTIVITY_MINUTES,
                 source_types=source_types,
             )
+            baseline_records = (
+                load_checkout_attempts(
+                    db,
+                    baseline_start,
+                    baseline_end,
+                    req.segment,
+                    inactivity_minutes=ABANDONMENT_INACTIVITY_MINUTES,
+                    source_types=source_types,
+                )
+                if sty
+                else None
+            )
         else:
             records = outcomes
-        series = build_metric_series(
+            baseline_records = baseline_outcomes
+        today_series = build_metric_series(
             records,
             metric=metric,
             window_start=window_start,
             window_end=window_end,
             bucket_minutes=bucket_minutes,
         )
+        series = today_series
+        n_baseline_valid: int | None = None
+        baseline_series: list[Bucket] | None = None
+        min_count = _metric_floor(req, "min_bucket_count", METRIC_MIN_BUCKET_COUNT, metric)
+        if sty:
+            baseline_series = build_metric_series(
+                baseline_records or [],
+                metric=metric,
+                window_start=baseline_start,
+                window_end=baseline_end,
+                bucket_minutes=bucket_minutes,
+            )
+            # Exactly yesterday's decidable buckets (the same validity rule
+            # the detectors apply) form the baseline; only today's buckets
+            # are scored.
+            n_baseline_valid = sum(
+                1 for b in baseline_series if b.value is not None and b.count >= min_count
+            )
+            series = [*baseline_series, *today_series]
+            if n_baseline_valid < STY_MIN_BASELINE_BUCKETS:
+                logger.info(
+                    "same_time_yesterday baseline too sparse; metric skipped",
+                    extra={
+                        "run_id": run_id,
+                        "metric": metric,
+                        "valid_baseline_buckets": n_baseline_valid,
+                    },
+                )
+                continue
         admitted_detectors: set[str] = set()
         for detector in detectors:
             params = DetectorParams(
-                baseline_buckets=req.baseline_buckets,
+                baseline_buckets=n_baseline_valid if sty else req.baseline_buckets,
                 threshold=req.threshold,
                 sensitivity=req.sensitivity,
-                min_bucket_count=_metric_floor(
-                    req, "min_bucket_count", METRIC_MIN_BUCKET_COUNT, metric
-                ),
+                min_bucket_count=min_count,
                 direction=METRIC_DIRECTION[metric],
                 bucket_minutes=bucket_minutes,
             )
@@ -311,10 +400,13 @@ def run_detection(db: Session, req: DetectionRunRequest) -> DetectionRunResult:
                 window_start=window_start,
                 window_end=window_end,
                 bucket_minutes=bucket_minutes,
-                params=params,
+                # Localization keeps its own leading-window slice baseline;
+                # the request value — not yesterday's bucket count — sizes it.
+                params=replace(params, baseline_buckets=req.baseline_buckets) if sty else params,
                 req=req,
                 now=started_at,
                 environment=environment,
+                extra_meta={"baseline_mode": req.baseline_mode} if sty else None,
             )
             if report is not None:
                 admitted_detectors.add(detector.name)
@@ -330,6 +422,7 @@ def run_detection(db: Session, req: DetectionRunRequest) -> DetectionRunResult:
                 result,
                 run_id=run_id,
                 outcomes=outcomes,
+                baseline_outcomes=baseline_outcomes,
                 detectors=detectors,
                 skip_detectors=admitted_detectors,
                 window_start=window_start,
@@ -348,6 +441,8 @@ def run_detection(db: Session, req: DetectionRunRequest) -> DetectionRunResult:
         f"metrics={metrics}, detectors={[d.name for d in detectors]}, "
         f"outcomes={len(outcomes)}, anomalies={result.anomalies_detected}"
         + (f", filtered={result.anomalies_filtered}" if result.anomalies_filtered else "")
+        + (f", baseline_mode={req.baseline_mode}" if sty else "")
+        + (", night_regime_floors=on" if req.night_regime_floors else "")
         + (" (dry_run: nothing persisted)" if req.dry_run else "")
     )
     logger.info(
@@ -381,6 +476,29 @@ def _metric_floor(
     return per_metric.get(metric, getattr(req, field))
 
 
+def _is_night_regime_anomaly(anomaly: Anomaly) -> bool:
+    """True when every flagged bucket starts inside the night band (UTC hour
+    >= NIGHT_REGIME_START_HOUR or < NIGHT_REGIME_END_HOUR). One daytime
+    bucket in the episode disqualifies it — the lower bar must never judge a
+    mix that organic daytime clusters can reach."""
+    flagged = anomaly.flagged_ts or (anomaly.start_ts,)
+    return all(
+        ts.hour >= NIGHT_REGIME_START_HOUR or ts.hour < NIGHT_REGIME_END_HOUR
+        for ts in flagged
+    )
+
+
+def _night_floors_apply(metric: str, anomaly: Anomaly, req: DetectionRunRequest) -> bool:
+    """Whether the opt-in night-regime floor set — not the global floors —
+    judges this anomaly: the request turned the mode on, the metric carries a
+    night set, and every flagged bucket sits in the night band."""
+    return (
+        req.night_regime_floors
+        and metric in NIGHT_MIN_OBSERVED
+        and _is_night_regime_anomaly(anomaly)
+    )
+
+
 def _flagged_run_and_volume(
     anomaly: Anomaly, series: list[Bucket]
 ) -> tuple[int, int]:
@@ -409,14 +527,22 @@ def _floor_violation(
     """Return the reason a detector fire fails the incident-level noise
     floors, or None when it clears them. Floors are engine-side (detectors
     stay pure statistics); every floor is request-configurable, with
-    per-metric defaults where a signal lives in the small-volume regime."""
+    per-metric defaults where a signal lives in the small-volume regime.
+    With the opt-in ``night_regime_floors`` mode on, an all-night anomaly on
+    a metric that carries a night floor set is judged by that (lower) set
+    instead of the global share/absolute bars."""
+    night = _night_floors_apply(metric, anomaly, req)
     floor = req.min_absolute_deviation
     if floor is None:
-        floor = DEFAULT_MIN_ABSOLUTE_DEVIATION[metric]
+        floor = (
+            NIGHT_MIN_ABSOLUTE_DEVIATION[metric]
+            if night
+            else DEFAULT_MIN_ABSOLUTE_DEVIATION[metric]
+        )
     abs_dev = abs(anomaly.observed - anomaly.baseline)
     if abs_dev < floor:
         return f"|observed-baseline| {abs_dev:.4g} < min_absolute_deviation {floor:.4g}"
-    min_observed = METRIC_MIN_OBSERVED.get(metric)
+    min_observed = (NIGHT_MIN_OBSERVED if night else METRIC_MIN_OBSERVED).get(metric)
     if min_observed is not None and anomaly.observed < min_observed:
         return (
             f"observed {anomaly.observed:.4g} < min_observed {min_observed:.4g} "
@@ -481,6 +607,10 @@ def _admit(
         params=params,
     )
     affected, revenue_at_risk = _impact(records, metric, anomaly, window_end)
+    if _night_floors_apply(metric, anomaly, req):
+        # honesty marker: this fire was admitted under the lower night floor
+        # set, not the published global operating point
+        extra_meta = {**(extra_meta or {}), "night_regime_floors": True}
     report = _persist(
         db,
         run_id=run_id,
@@ -564,6 +694,7 @@ def _scan_latency_routes(
     *,
     run_id: str,
     outcomes: list[PaymentOutcome],
+    baseline_outcomes: list[PaymentOutcome] | None,
     detectors: list,
     skip_detectors: set[str],
     window_start: datetime,
@@ -580,7 +711,9 @@ def _scan_latency_routes(
     detector and the standard incident floors; slice series use coarser
     buckets and a lower bucket-count floor because one route carries a
     fraction of traffic (measured: 5-min route slices at night hold 1-4
-    captures, 15-min slices 2-8 — see ml/experiments/detection/exp001)."""
+    captures, 15-min slices 2-8 — see ml/experiments/detection/exp001).
+    In ``same_time_yesterday`` mode each slice's baseline is yesterday's
+    same-clock slice, exactly like the aggregate pass."""
     metric = METRIC_CAPTURE_LATENCY
     scan_bucket_minutes = req.bucket_minutes * LATENCY_SCAN_BUCKET_MULTIPLIER
     routes = sorted(
@@ -602,11 +735,34 @@ def _scan_latency_routes(
             window_end=window_end,
             bucket_minutes=scan_bucket_minutes,
         )
+        baseline_buckets = req.baseline_buckets
+        if baseline_outcomes is not None:
+            slice_baseline = [
+                o
+                for o in baseline_outcomes
+                if o.segments.get(LATENCY_SCAN_DIMENSION, UNKNOWN_SEGMENT) == route
+            ]
+            baseline_series = build_series(
+                slice_baseline,
+                metric=metric,
+                window_start=window_start - SAME_TIME_YESTERDAY_SHIFT,
+                window_end=window_end - SAME_TIME_YESTERDAY_SHIFT,
+                bucket_minutes=scan_bucket_minutes,
+            )
+            n_valid = sum(
+                1
+                for b in baseline_series
+                if b.value is not None and b.count >= LATENCY_SCAN_MIN_BUCKET_COUNT
+            )
+            if n_valid < STY_MIN_BASELINE_BUCKETS:
+                continue  # no honest yesterday baseline for this slice
+            series = [*baseline_series, *series]
+            baseline_buckets = n_valid
         for detector in detectors:
             if detector.name in skip_detectors:
                 continue
             params = DetectorParams(
-                baseline_buckets=req.baseline_buckets,
+                baseline_buckets=baseline_buckets,
                 threshold=req.threshold,
                 sensitivity=req.sensitivity,
                 min_bucket_count=LATENCY_SCAN_MIN_BUCKET_COUNT,
@@ -644,11 +800,22 @@ def _scan_latency_routes(
                 window_start=window_start,
                 window_end=window_end,
                 bucket_minutes=scan_bucket_minutes,
-                params=params,
+                # Localization keeps its own leading-window slice baseline
+                # (see the aggregate pass); only the detector gets
+                # yesterday's bucket count.
+                params=(
+                    replace(params, baseline_buckets=req.baseline_buckets)
+                    if baseline_outcomes is not None
+                    else params
+                ),
                 req=req,
                 now=now,
                 environment=environment,
-                extra_meta={"segment_scan": True},
+                extra_meta=(
+                    {"segment_scan": True, "baseline_mode": req.baseline_mode}
+                    if baseline_outcomes is not None
+                    else {"segment_scan": True}
+                ),
             )
 
 

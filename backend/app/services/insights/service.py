@@ -22,7 +22,11 @@ desc, (dimension, value) asc. Same data -> same ranking.
 
 from sqlalchemy.orm import Session
 
-from app.models import Incident
+from app.models import (
+    ENVIRONMENT_RESEARCH,
+    Incident,
+    source_types_for_environment,
+)
 from app.services.insights.config import DEFAULT_CONFIG, InsightsConfig
 from app.services.insights.facets import (
     ERROR_DIMENSIONS,
@@ -279,8 +283,13 @@ class InsightsService:
             for k, v in ((incident.meta or {}).get("segment") or {}).items()
         }
 
-        fleet_window = load_outcomes(self._session, w_start, w_end)
-        fleet_baseline = load_outcomes(self._session, b_start, b_end)
+        # Environment boundary: the incident window AND the fleet benchmark
+        # both read only this incident's own environment's payments.
+        source_types = source_types_for_environment(
+            incident.environment or ENVIRONMENT_RESEARCH
+        )
+        fleet_window = load_outcomes(self._session, w_start, w_end, source_types)
+        fleet_baseline = load_outcomes(self._session, b_start, b_end, source_types)
         window = restrict_to_segment(fleet_window, segment)
         baseline = restrict_to_segment(fleet_baseline, segment)
 

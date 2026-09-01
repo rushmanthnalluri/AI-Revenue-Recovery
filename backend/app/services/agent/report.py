@@ -9,6 +9,8 @@ The separation is deliberate and load-bearing for the UI:
 - ``recommended_actions`` / ``recommended_next_step`` — proposals whose
   ``policy_preview`` is attached by the SYSTEM from a real PolicyEngine
   evaluation, never by the reasoner.
+- ``recommended_candidates`` — the ranked top-N candidate proposals (rank 1 is
+  the headline); additive, older consumers can ignore it.
 """
 
 from __future__ import annotations
@@ -35,8 +37,12 @@ NON_AUTO_CONFIDENCE_CAP = 0.84
 #: must carry an explicit uncertainty.
 THIN_EVIDENCE_WINDOW_FLOOR = 10
 
-HEURISTIC_REASONER_VERSION = "heuristic-1.1"
-LLM_REASONER_VERSION = "llm-1.1"
+HEURISTIC_REASONER_VERSION = "heuristic-1.2"
+LLM_REASONER_VERSION = "llm-1.2"
+
+#: How many eligible recovery candidates the heuristic reasoner ranks and
+#: policy-previews per report (the headline plus its ordered alternates).
+RANKED_CANDIDATE_LIMIT = 3
 
 
 class ObservedFact(BaseModel):
@@ -99,6 +105,10 @@ class RecommendedAction(BaseModel):
     # outcome. Never taken from model text.
     confidence: float | None = None
     policy_preview: PolicyOutcomeView | None = None
+    # Position inside ``InvestigationOutput.recommended_candidates`` (1 = the
+    # headline proposal). ``None`` on entries that are not part of the ranked
+    # candidate list (legacy consumers ignore it).
+    rank: int | None = None
 
 
 class RevenueImplications(BaseModel):
@@ -134,6 +144,10 @@ class InvestigationOutput(BaseModel):
     revenue_implications: RevenueImplications | None = None
     recommended_actions: list[RecommendedAction] = Field(default_factory=list)
     recommended_next_step: RecommendedAction | None = None
+    # Ranked top-N candidate proposals (rank 1 == recommended_next_step,
+    # followed by ordered alternates, each policy-previewed by the system).
+    # Additive: ``recommended_actions``/``recommended_next_step`` are unchanged.
+    recommended_candidates: list[RecommendedAction] = Field(default_factory=list)
     uncertainties: list[str] = Field(default_factory=list)
     confidence: float = Field(ge=0.0, le=1.0)
     escalated: bool = False
@@ -154,6 +168,7 @@ __all__ = [
     "HEURISTIC_REASONER_VERSION",
     "LLM_REASONER_VERSION",
     "NON_AUTO_CONFIDENCE_CAP",
+    "RANKED_CANDIDATE_LIMIT",
     "THIN_EVIDENCE_WINDOW_FLOOR",
     "AiInference",
     "AlternativeHypothesis",

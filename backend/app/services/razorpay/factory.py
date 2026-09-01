@@ -1,10 +1,16 @@
 """Gateway factory: pick the real Razorpay adapter or the simulation twin.
 
 Selection rule (mirrored by /api/v1/system/health via `gateway_mode`):
-- `SIMULATION_MODE=true`, or no `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET`
-  configured -> SimulatedPaymentGateway (never touches the network).
-- otherwise -> RazorpayGateway against the configured base URL (test mode is
-  selected by the `rzp_test_*` key, not the URL).
+- Real Razorpay keys configured (RAZORPAY_KEY_ID + RAZORPAY_KEY_SECRET) ->
+  RazorpayGateway against the configured base URL. Test mode is selected by
+  the `rzp_test_*` key prefix, not the URL.
+- No real keys configured, OR SIMULATION_MODE explicitly forced true ->
+  SimulatedPaymentGateway (never touches the network). This is the Research Lab
+  fallback only.
+
+The primary product experience is REAL RAZORPAY TEST MODE. The simulator is
+only used when no real credentials exist or when explicitly forced for the
+Research Lab.
 """
 
 from functools import lru_cache
@@ -16,10 +22,17 @@ from app.services.razorpay.simulated import DEFAULT_WEBHOOK_SECRET, SimulatedPay
 
 
 def use_simulator(settings: Settings) -> bool:
-    """True when the app must run against the simulation twin."""
-    return settings.SIMULATION_MODE or not (
-        settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET
-    )
+    """True when the app MUST run against the simulation twin.
+
+    Returns True only when:
+    - SIMULATION_MODE is explicitly forced true (for Research Lab), OR
+    - No real Razorpay credentials are configured.
+
+    When real credentials exist, the real gateway is ALWAYS used for the
+    primary product experience. The simulator never silently replaces it.
+    """
+    has_real_keys = bool(settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET)
+    return settings.SIMULATION_MODE or not has_real_keys
 
 
 def gateway_mode(settings: Settings) -> str:

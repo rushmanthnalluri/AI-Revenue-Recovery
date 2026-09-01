@@ -11,6 +11,7 @@ import { formatDateTime, formatINR, formatPercent } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { ErrorPanel } from "@/components/error-panel";
 import { MetricStrip } from "@/components/metric-strip";
+import { EnvironmentBadge } from "@/components/provenance";
 import { StatusPill } from "@/components/status-pill";
 import { Timeline, type TimelineItem } from "@/components/timeline";
 import { Badge } from "@/components/ui/badge";
@@ -295,6 +296,7 @@ function DrawerBody({ opportunityId }: { opportunityId: string }) {
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <StatusPill status={opp.status} />
+          <EnvironmentBadge environment={opp.environment} />
           <Badge variant="outline">risk: {opp.risk}</Badge>
           {failureClass ? <Badge variant="accent">{failureClassLabel(failureClass)}</Badge> : null}
         </div>

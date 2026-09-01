@@ -131,13 +131,17 @@ async function seedScenario(): Promise<string | null> {
       `(skipped=${res.skipped}) — ${res.detail ?? "no detail"}`,
   );
   if (res.incident_id) return res.incident_id;
-  const list = await api<Paginated<IncidentSummary>>("/api/v1/incidents?page=1&page_size=1");
+  // List APIs default to the real merchant environment — the demo seed is
+  // pinned to research, so the fallback lookup must scope explicitly.
+  const list = await api<Paginated<IncidentSummary>>(
+    "/api/v1/incidents?environment=research&page=1&page_size=1",
+  );
   return list.items[0]?.id ?? null;
 }
 
 async function ensurePendingApproval(incidentId: string | null): Promise<string | null> {
   const existing = await api<Paginated<OpportunitySummary>>(
-    "/api/v1/recovery/opportunities?status=PENDING_APPROVAL&page=1&page_size=1",
+    "/api/v1/recovery/opportunities?environment=research&status=PENDING_APPROVAL&page=1&page_size=1",
   );
   if (existing.total > 0 && existing.items[0]) {
     console.log(`[e2e setup] reusing existing pending approval ${existing.items[0].id}`);
@@ -151,7 +155,7 @@ async function ensurePendingApproval(incidentId: string | null): Promise<string 
     timeoutMs: 180_000,
   });
   const all = await api<Paginated<OpportunitySummary>>(
-    `/api/v1/recovery/opportunities?incident_id=${encodeURIComponent(incidentId)}&page=1&page_size=100`,
+    `/api/v1/recovery/opportunities?environment=research&incident_id=${encodeURIComponent(incidentId)}&page=1&page_size=100`,
   );
   const candidates = [...all.items].sort((a, b) => b.amount_paise - a.amount_paise).slice(0, 15);
   for (const opp of candidates) {

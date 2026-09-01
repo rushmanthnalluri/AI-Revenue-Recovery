@@ -71,9 +71,19 @@ def incident_windows(incident: Any) -> tuple[datetime, datetime, datetime, datet
     return start - duration, start, start, end
 
 
-def load_outcomes(session: Session, start: datetime, end: datetime) -> list[FacetOutcome]:
-    """Resolve one terminal outcome per payment inside ``[start, end)``."""
-    rows = session.execute(
+def load_outcomes(
+    session: Session,
+    start: datetime,
+    end: datetime,
+    source_types: tuple[str, ...] | None = None,
+) -> list[FacetOutcome]:
+    """Resolve one terminal outcome per payment inside ``[start, end)``.
+
+    ``source_types`` restricts the pass to one environment's payments (the
+    real_test/research boundary — see
+    app.models.base.source_types_for_environment).
+    """
+    stmt = (
         sa.select(Payment, PaymentEvent)
         .join(PaymentEvent, PaymentEvent.payment_id == Payment.id)
         .where(
@@ -82,7 +92,10 @@ def load_outcomes(session: Session, start: datetime, end: datetime) -> list[Face
             PaymentEvent.to_status.in_(TERMINAL_STATUSES),
         )
         .order_by(PaymentEvent.occurred_at.asc(), PaymentEvent.id.asc())
-    ).all()
+    )
+    if source_types is not None:
+        stmt = stmt.where(Payment.source_type.in_(source_types))
+    rows = session.execute(stmt).all()
 
     # Latest terminal event per payment wins (failed -> captured happens).
     latest: dict[str, tuple[Payment, PaymentEvent]] = {}

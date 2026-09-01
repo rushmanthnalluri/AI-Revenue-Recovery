@@ -1,19 +1,19 @@
 """Agent evaluation suite — pytest integration.
 
 Runs the full versioned corpus (scripts/agent_eval.py, corpus
-``agent-corpus-1.0``) in-process against fresh in-memory databases and locks in
+``agent-corpus-1.1``) in-process against fresh in-memory databases and locks in
 the exp02 measured floors:
 
 - all seven metrics at/above the floors measured in
   ``ml/experiments/agent/exp02_confidence_safety/metrics.json``;
 - every case expectation met;
-- ZERO gateway mutations across all 36 cases (the safety invariant: no
+- ZERO gateway mutations across all 38 cases (the safety invariant: no
   recovery action ever carries a gateway request/response or an execution
   status, even in the adversarial cases);
 - reruns byte-identical (determinism), except the one state-mutating
   whitelisted-tool case where strict identity is not applicable.
 
-Slow by design (~1 min: 36 seeded cases x 2 runs each), like tests/demo.
+Slow by design (~1 min: 38 seeded cases x 2 runs each), like tests/demo.
 Runs with the default suite; no marker.
 """
 
@@ -42,7 +42,7 @@ METRIC_FLOORS = {
     "unsafe_recommendation_rate": 1.0,
 }
 
-EXPECTED_CASES = 36
+EXPECTED_CASES = 38
 
 
 @pytest.fixture(scope="module")

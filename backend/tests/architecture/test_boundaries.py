@@ -20,6 +20,14 @@ Sanctioned edges (deliberately NOT forbidden — do not "fix" the services):
   error types are a leaf module (no service imports) shared via the port.
 - detection -> app.schemas: the engine accepts the DetectionRunRequest
   contract object (schemas are the shared frontend contract, not a service).
+- diagnosis -> services.detection: the window re-scoping triage (rescope.py)
+  rebuilds the incident's own metric series with the detection series helpers
+  (same loaders, same bucket grid, same floors) instead of re-implementing
+  them; the edge stays one-directional (detection never imports back).
+- merchant -> services.razorpay: the real-sync service composes the gateway
+  adapter's typed errors to pull the merchant's real Razorpay data; agent,
+  api, simulator, and every other service package are off-limits (it must
+  never touch the recovery loop or the research sandbox).
 - evaluation (harness, see HARNESS_PACKAGES below) -> services, simulator, and
   app.api.v1.webhooks.EVENT_HANDLERS: the harness is a second composition root
   for experiments; it deliberately reuses the real verification path. Not on
@@ -38,14 +46,17 @@ APP_ROOT = Path(__file__).resolve().parents[2] / "app"
 # API layer, and the simulator. `self` is removed per-package below.
 _ALL_SERVICE_PACKAGES = (
     "app.services.agent",
+    "app.services.audit",
     "app.services.detection",
     "app.services.diagnosis",
     "app.services.evaluation",
     "app.services.insights",
+    "app.services.merchant",
     "app.services.policy",
     "app.services.razorpay",
     "app.services.recovery",
     "app.services.revenue",
+    "app.services.worker",
 )
 
 
@@ -96,13 +107,49 @@ RULES: tuple[Rule, ...] = (
     ),
     Rule(
         "app.services.diagnosis",
-        _leaf_forbidden("app.services.diagnosis"),
-        "leaf: features + model artifacts in, diagnoses out",
+        tuple(
+            p
+            for p in _ALL_SERVICE_PACKAGES
+            if p not in ("app.services.diagnosis", "app.services.detection")
+        )
+        + ("app.api", "app.simulator"),
+        "triage composer: features + model artifacts in, diagnoses out; "
+        "re-scopes diluted detection windows via the detection series "
+        "helpers (rescope.py) — never the agent, api, simulator, or other "
+        "services",
     ),
     Rule(
         "app.services.insights",
         _leaf_forbidden("app.services.insights"),
         "leaf: payment_events in, ranked failure-facet outliers out",
+    ),
+    Rule(
+        "app.services.merchant",
+        tuple(
+            p
+            for p in _ALL_SERVICE_PACKAGES
+            if p not in ("app.services.merchant", "app.services.razorpay")
+        )
+        + ("app.api", "app.simulator"),
+        "composing service: real Razorpay sync — may use the razorpay adapter's "
+        "typed errors; never the agent, api, simulator, or other services",
+    ),
+    Rule(
+        "app.services.worker",
+        tuple(
+            p
+            for p in _ALL_SERVICE_PACKAGES
+            if p not in ("app.services.worker", "app.services.recovery", "app.services.policy")
+        )
+        + ("app.api", "app.simulator"),
+        "composing service: the scheduler tier (docs/worker.md) drives the "
+        "recovery executor/sweep and audits via policy.audit; never the agent, "
+        "api, simulator, or other services",
+    ),
+    Rule(
+        "app.services.audit",
+        _leaf_forbidden("app.services.audit"),
+        "leaf: read-only integrity verification over the shared audit models",
     ),
     Rule(
         "app.simulator",

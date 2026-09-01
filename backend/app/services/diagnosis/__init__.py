@@ -2,6 +2,7 @@
 
 Public surface:
 - ``DiagnosisService.classify(incident_id)`` — inference + persistence.
+- ``rescope_incident_window`` — pre-diagnosis window re-scoping triage.
 - ``compute_features`` / ``features_to_vector`` — the feature contract.
 - ``generate_dataset`` / ``SyntheticConfig`` — standalone labeled data.
 - ``train_and_compare`` / ``save_artifacts`` / ``temporal_split`` — training.
@@ -16,6 +17,12 @@ from app.services.diagnosis.features import (
     load_window_records,
 )
 from app.services.diagnosis.heuristic import heuristic_diagnose
+from app.services.diagnosis.rescope import (
+    ENV_RESCOPE,
+    RescopedWindow,
+    rescope_enabled,
+    rescope_incident_window,
+)
 from app.services.diagnosis.service import DiagnosisError, DiagnosisService
 from app.services.diagnosis.synthetic import SyntheticConfig, generate_dataset
 from app.services.diagnosis.taxonomy import CAUSES, CauseLabel
@@ -29,12 +36,16 @@ from app.services.diagnosis.training import (
 __all__ = [
     "CAUSES",
     "CauseLabel",
+    "ENV_RESCOPE",
     "FEATURE_NAMES",
+    "RescopedWindow",
     "compute_features",
     "compute_features_for_incident",
     "features_to_vector",
     "load_window_records",
     "heuristic_diagnose",
+    "rescope_enabled",
+    "rescope_incident_window",
     "DiagnosisService",
     "DiagnosisError",
     "SyntheticConfig",

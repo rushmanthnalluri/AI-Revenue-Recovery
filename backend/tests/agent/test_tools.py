@@ -213,3 +213,55 @@ def test_high_confidence_small_retry_auto_allows(tools, agent_seed):
     assert d["policy"]["outcome"] == PolicyOutcome.ALLOWED.value
     assert d["status"] == RecoveryStatus.POLICY_EVALUATED.value
     assert d["executed"] is False  # the agent still does not execute
+
+
+# -- audit trail shape (invariant 12: structured from/to on the tool row) -------
+
+
+def _request_audit_entry(db_session, action_id: str) -> AuditLog:
+    return db_session.scalars(
+        sa.select(AuditLog).where(
+            AuditLog.entity_type == "recovery_action",
+            AuditLog.entity_id == action_id,
+            AuditLog.action == "agent.action_requested",
+        )
+    ).one()
+
+
+def test_request_tool_audit_row_carries_structured_from_to_status(
+    tools, agent_seed, db_session
+):
+    """The single agent.action_requested row covers creation (None) AND the
+    gate's verdict, so the from/to audit chain starts at this row
+    (docs/payment-invariants.md invariant 12 note)."""
+    payment = agent_seed["top_failed"]
+    auto = tools.call(
+        "request_payment_link", {"payment_id": payment.id, "confidence": 0.99}
+    )
+    entry = _request_audit_entry(db_session, auto.data["action_id"])
+    assert entry.details["from_status"] is None  # the row's creation
+    assert entry.details["to_status"] == RecoveryStatus.POLICY_EVALUATED.value
+    assert entry.details["policy_outcome"] == PolicyOutcome.ALLOWED.value
+
+    gated = tools.call(
+        "request_payment_link",
+        {"payment_id": payment.id, "confidence": 0.5},
+    )
+    entry = _request_audit_entry(db_session, gated.data["action_id"])
+    assert entry.details["from_status"] is None
+    assert entry.details["to_status"] == RecoveryStatus.PENDING_APPROVAL.value
+    assert entry.details["policy_outcome"] == PolicyOutcome.REQUIRES_APPROVAL.value
+
+
+def test_request_tool_audit_from_to_matches_the_blocked_status(
+    tools, agent_seed, db_session
+):
+    payment = agent_seed["top_failed"]
+    result = tools.call(
+        "request_recovery_execution",
+        {"action_type": "refund", "payment_id": payment.id, "confidence": 0.99},
+    )
+    entry = _request_audit_entry(db_session, result.data["action_id"])
+    assert entry.details["from_status"] is None
+    assert entry.details["to_status"] == RecoveryStatus.REJECTED.value
+    assert entry.details["policy_outcome"] == PolicyOutcome.BLOCKED.value

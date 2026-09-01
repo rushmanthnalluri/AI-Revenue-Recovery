@@ -3,6 +3,8 @@
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
+import { EnvironmentProvider } from "@/components/environment-provider";
+
 export function Providers({ children }: { children: React.ReactNode }) {
   const [client] = React.useState(
     () =>
@@ -17,5 +19,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
       }),
   );
 
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={client}>
+      <EnvironmentProvider>{children}</EnvironmentProvider>
+    </QueryClientProvider>
+  );
 }

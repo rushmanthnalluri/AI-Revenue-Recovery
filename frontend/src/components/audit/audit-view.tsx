@@ -5,9 +5,12 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, ScrollText } from "lucide-react";
 
 import { api } from "@/lib/api";
+import type { Environment } from "@/lib/types";
 import { formatNumber } from "@/lib/format";
 import { AuditTimeline } from "@/components/audit/audit-timeline";
+import { AuditVerifyAction } from "@/components/audit/audit-verify-action";
 import { EmptyState } from "@/components/empty-state";
+import { useEnvironment } from "@/components/environment-provider";
 import { ErrorPanel } from "@/components/error-panel";
 import { PageHeader } from "@/components/page-header";
 import { SectionCard } from "@/components/section-card";
@@ -46,16 +49,25 @@ function TimelineSkeleton() {
 }
 
 export function AuditView() {
+  const { environment } = useEnvironment();
   const [entityType, setEntityType] = React.useState("");
   const [entityId, setEntityId] = React.useState("");
+  // Environment scope — follows the global environment until changed locally.
+  const [envFilter, setEnvFilter] = React.useState<Environment>(environment);
   const [page, setPage] = React.useState(1);
 
+  React.useEffect(() => {
+    setEnvFilter(environment);
+    setPage(1);
+  }, [environment]);
+
   const query = useQuery({
-    queryKey: ["audit", "list", entityType, entityId, page],
+    queryKey: ["audit", "list", envFilter, entityType, entityId, page],
     queryFn: () =>
       api.audit.list({
         entity_type: entityType || null,
         entity_id: entityId || null,
+        environment: envFilter,
         page,
         page_size: PAGE_SIZE,
       }),
@@ -73,7 +85,7 @@ export function AuditView() {
     <div className="space-y-6">
       <PageHeader
         title="Audit Trail"
-        description="Append-only record of every state transition — actor, entity, and request id, newest first."
+        description="Append-only record of every state transition — actor, entity, and request id, newest first. Scoped by environment: research rows (scenario runs, dataset resets) never mix into the real merchant trail."
       />
 
       <SectionCard
@@ -81,6 +93,18 @@ export function AuditView() {
         description="Chronological, immutable log rows — raw JSON details preserved"
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={envFilter}
+              onChange={(e) => {
+                setEnvFilter(e.target.value as Environment);
+                setPage(1);
+              }}
+              aria-label="Filter by environment"
+              className="h-7 w-auto px-2 text-xs"
+            >
+              <option value="real_test">Real Test (Razorpay)</option>
+              <option value="research">Research (synthetic)</option>
+            </Select>
             <Select
               value={entityType}
               onChange={(e) => {
@@ -107,6 +131,7 @@ export function AuditView() {
               aria-label="Filter by entity id"
               className="h-7 w-52 px-2 text-xs"
             />
+            <AuditVerifyAction />
           </div>
         }
         contentClassName="pt-0"
@@ -122,7 +147,9 @@ export function AuditView() {
             description={
               filtered
                 ? "Widen the entity type or clear the entity id filter to see more of the trail."
-                : "Every detection, diagnosis, policy decision, approval, and recovery transition is recorded here as it happens."
+                : envFilter === "real_test"
+                  ? "Actions on your observed Razorpay Test Mode activity are recorded here as they happen."
+                  : "Every research action — scenario runs, dataset resets, synthetic recovery transitions — is recorded here as it happens."
             }
           />
         ) : (

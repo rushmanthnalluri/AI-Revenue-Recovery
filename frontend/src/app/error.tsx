@@ -16,7 +16,7 @@ export default function GlobalError({
         <TriangleAlert className="size-4" aria-hidden />
         <p className="text-sm font-semibold">Something went wrong</p>
       </div>
-      <p className="text-xs text-muted-foreground">{error.message || "Unexpected UI error."}</p>
+      <p className="text-xs text-text-3">{error.message || "Unexpected UI error."}</p>
       <Button variant="outline" size="sm" onClick={reset}>
         Try again
       </Button>

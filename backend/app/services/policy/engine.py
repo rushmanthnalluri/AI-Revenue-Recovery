@@ -46,6 +46,11 @@ META_STRATEGY_ID = "strategy_id"          # enables the per-strategy stopping ru
 META_CURRENT_ACTION_ID = "current_action_id"  # excluded from history (no self-count)
 META_IRREVERSIBLE = "irreversible_action"     # truthy -> hard block
 META_REQUEST_ID = "request_id"                # propagated to the audit trail
+# KYA-lite separation-of-duties signal (opt-in; absent -> byte-identical
+# behavior). When BOTH principals are supplied and equal, the decision
+# records a warning reason — it never changes the outcome.
+META_PROPOSER_PRINCIPAL = "proposer_principal"
+META_APPROVER_PRINCIPAL = "approver_principal"
 
 # Non-financial actions: no money moves and no customer is contacted, so they
 # skip approval thresholds, rate limits, and stopping rules — they ARE the
@@ -54,6 +59,10 @@ META_REQUEST_ID = "request_id"                # propagated to the audit trail
 SAFE_ACTIONS = frozenset({ActionType.NO_ACTION, ActionType.ESCALATE_HUMAN})
 
 _BLOCK, _APPROVAL, _ALLOW = "block", "approval", "allow"
+# _WARN records rule + reason on the decision without touching the outcome —
+# used by signals (e.g. separation of duties) that must be visible in the
+# persisted record but are not (yet) enforcement.
+_WARN = "warn"
 
 
 @dataclass(frozen=True)
@@ -284,6 +293,7 @@ class PolicyEngine:
                 blocked = True
             elif severity == _APPROVAL:
                 needs_approval = True
+            # _WARN intentionally falls through: recorded, never enforced.
 
         # R00 malformed input — fail closed on anything we cannot interpret.
         for rule, reason in norm.errors:
@@ -297,6 +307,28 @@ class PolicyEngine:
         # R02 closed allowlist (refund is deliberately absent: no execution path).
         if norm.action_type is not None and norm.action_name not in cfg.allowlist:
             hit("allowlist", f"action {norm.action_name!r} is not on the policy allowlist", _BLOCK)
+
+        # R10 separation of duties (KYA-lite, opt-in via metadata): when the
+        # caller supplies both the proposer and approver principals and they
+        # are the SAME principal, record a warning. Never blocks — under the
+        # shared demo key a cohort cannot be distinguished from an
+        # individual, so this is an audit signal, not an enforcement
+        # (docs/security-testing.md). Placed before the safe-action early
+        # return so the warning records for every action type.
+        proposer_principal = _meta_str(norm.metadata, META_PROPOSER_PRINCIPAL)
+        approver_principal = _meta_str(norm.metadata, META_APPROVER_PRINCIPAL)
+        if (
+            proposer_principal is not None
+            and approver_principal is not None
+            and proposer_principal == approver_principal
+        ):
+            hit(
+                "separation_of_duties.self_approval",
+                f"approver principal {approver_principal!r} matches the proposer "
+                "principal — separation of duties is unverifiable (self-approval "
+                "cannot be excluded under a shared-cohort key)",
+                _WARN,
+            )
 
         # Safe actions carry no execution risk: if nothing blocked them, allow
         # immediately (they are the escape hatch, never the hazard).
@@ -527,8 +559,10 @@ class PolicyEngine:
 
 
 __all__ = [
+    "META_APPROVER_PRINCIPAL",
     "META_CURRENT_ACTION_ID",
     "META_IRREVERSIBLE",
+    "META_PROPOSER_PRINCIPAL",
     "META_REQUEST_ID",
     "META_STRATEGY_ID",
     "PolicyEngine",

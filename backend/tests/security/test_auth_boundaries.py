@@ -150,6 +150,27 @@ class TestAppEnvExemptionAbuse:
             assert resp.status_code in (401, 404, 422)
 
 
+class TestProdEnvironment:
+    """APP_ENV='prod' is a first-class value: Settings accepts it (the
+    hardening in app.main was unreachable while the Literal excluded it), and
+    under prod the demo/detection API-key exemptions are OFF."""
+
+    def test_prod_app_env_accepted(self):
+        assert Settings(APP_ENV="prod", _env_file=None).APP_ENV == "prod"
+
+    def test_prod_disables_demo_detection_exemption(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "APP_ENV", "prod")
+        for method, path in (("POST", "/api/v1/demo/reset"), ("POST", "/api/v1/detection/run")):
+            resp = client.request(method, path, json={})
+            assert resp.status_code == 401, f"{method} {path} exempt under APP_ENV=prod"
+            assert resp.json()["error"]["code"] == "unauthorized"
+        # The configured key still authorizes the same routes under prod.
+        resp = client.post(
+            "/api/v1/detection/run", json={}, headers={"X-API-Key": "dev-key"}
+        )
+        assert resp.status_code == 200
+
+
 class TestDemoExemptionHasNoFinancialEffect:
     """The exempt demo/detection routes must be structurally incapable of
     moving money: they hold no gateway dependency, and a full trigger causes

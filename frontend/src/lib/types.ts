@@ -14,6 +14,21 @@ export type ISODateTime = string;
 export type JsonObject = Record<string, unknown>;
 
 // ---------------------------------------------------------------------------
+// Environments (backend/app/models/base.py)
+//
+// real_test  — the primary product surface: rows observed from the merchant's
+//              Razorpay Test Mode account (source_type razorpay_test /
+//              razorpay_live).
+// research   — the isolated Research Lab: synthetic simulator rows only
+//              (source_type simulator). Read APIs scope by this parameter and
+//              default to real_test.
+// ---------------------------------------------------------------------------
+
+export type Environment = "real_test" | "research";
+
+export const ENVIRONMENTS: readonly Environment[] = ["real_test", "research"];
+
+// ---------------------------------------------------------------------------
 // Enums
 // ---------------------------------------------------------------------------
 
@@ -50,6 +65,10 @@ export type RecoveryStatus =
   | "POLICY_EVALUATED"
   | "PENDING_APPROVAL"
   | "APPROVED"
+  /** Delayed retry parked until due; the in-process worker fires it
+      (backend/app/ports.py, docs/worker.md). Pre-execution — nothing has
+      reached the gateway yet. */
+  | "SCHEDULED"
   | "REJECTED"
   | "EXECUTING"
   | "VERIFYING"
@@ -144,6 +163,8 @@ export interface DashboardSummary {
   /** True when any open incident's point estimate is low-confidence. */
   revenue_at_risk_low_confidence?: boolean;
   recent_incidents?: IncidentSummary[];
+  /** Environment scope this summary was computed for. */
+  environment?: Environment;
 }
 
 export interface TimeSeriesPoint {
@@ -176,6 +197,8 @@ export interface IncidentSummary {
   affected_payments_count: number;
   revenue_at_risk_paise: number;
   currency: string;
+  /** Environment the incident was detected in (backend stamps it on read). */
+  environment?: Environment;
 }
 
 export interface IncidentListResponse {
@@ -330,6 +353,8 @@ export interface OpportunitySummary {
   reason?: string | null;
   created_at: ISODateTime;
   expires_at?: ISODateTime | null;
+  /** Environment the opportunity belongs to (backend stamps it on read). */
+  environment?: Environment;
 }
 
 export interface OpportunityListResponse {
@@ -464,6 +489,41 @@ export interface BuildResponse {
   opportunities: OpportunitySummary[];
 }
 
+export interface ReconcileRequest {
+  actor?: string;
+}
+
+/**
+ * One reconciliation sweep's report (POST /recovery/reconcile, ADR 0011):
+ * of the `unknown_scanned` UNKNOWN actions re-queried against gateway truth,
+ * `resolved` transitioned to a real status and `still_unknown` stayed
+ * ambiguous; of the failed webhook events re-run through the live handler
+ * registry, `webhooks_reprocessed` are now processed and
+ * `webhooks_still_failing` remain unprocessed. Idempotent — a clean database
+ * is a no-op.
+ */
+export interface ReconcileResponse {
+  sweep_id: string;
+  unknown_scanned: number;
+  resolved: number;
+  still_unknown: number;
+  webhooks_reprocessed: number;
+  webhooks_still_failing: number;
+}
+
+/**
+ * Whole-queue aggregate for the pending-approvals lane
+ * (GET /api/v1/recovery/opportunities/approvals-summary): SQL-side COUNT/SUM
+ * over the ENTIRE pending-approval queue for one environment — the correct
+ * "Value awaiting decision" beyond page 1 of the opportunities list.
+ */
+export interface ApprovalsSummaryResponse {
+  environment: Environment;
+  status: RecoveryStatus;
+  pending_count: number;
+  pending_amount_paise: number;
+}
+
 // ---------------------------------------------------------------------------
 // Audit
 // ---------------------------------------------------------------------------
@@ -477,6 +537,8 @@ export interface AuditLogEntry {
   details?: Record<string, unknown>;
   request_id?: string | null;
   created_at: ISODateTime;
+  /** Environment the audited action ran in (demo.reset → research). */
+  environment?: Environment;
 }
 
 export interface AuditListResponse {
@@ -484,6 +546,179 @@ export interface AuditListResponse {
   total: number;
   page: number;
   page_size: number;
+}
+
+/**
+ * Verdict of the read-only full-chain verification
+ * (GET /api/v1/audit/verify): the hash chain is walked in insertion order —
+ * deliberately NOT environment-scoped, since scoping would break linkage.
+ * `legacy` rows predate the chain (NULL hashes) and are legacy-valid;
+ * `first_bad_id` names the first row that fails recomputation/linkage.
+ */
+export interface AuditVerifyResponse {
+  valid: boolean;
+  /** Rows examined, including the first bad row. */
+  checked: number;
+  /** Examined rows carrying hashes. */
+  chained: number;
+  /** Examined pre-chain rows (NULL hashes) — legacy-valid. */
+  legacy: number;
+  first_bad_id?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Policy backtest (POST /api/v1/policy/backtest — backend/app/schemas/policy.py)
+// ---------------------------------------------------------------------------
+
+/**
+ * Filters for one backtest replay. All optional; an empty body replays every
+ * stored policy decision (up to `limit`, oldest first). `environment: null`
+ * replays across BOTH environments (the report is read-only; the run itself
+ * joins the audit trail, like detection.run).
+ */
+export interface PolicyBacktestRequest {
+  environment?: Environment | null;
+  /** Only decisions with decided_at >= since. */
+  since?: ISODateTime | null;
+  /** Only decisions with decided_at <= until (inclusive). */
+  until?: ISODateTime | null;
+  /** Cap on decisions replayed (1..5000, default 500). */
+  limit?: number;
+}
+
+/** One historical decision whose outcome would change under the current policy. */
+export interface PolicyBacktestFlip {
+  decision_id: string;
+  action_id?: string | null;
+  action_type: string;
+  amount_paise: number;
+  currency: string;
+  actor: string;
+  decided_at: ISODateTime;
+  original_outcome: PolicyOutcome;
+  replayed_outcome: PolicyOutcome;
+  original_rules: string[];
+  replayed_rules: string[];
+  original_policy_version: string;
+}
+
+/** Aggregate paise impact of one outcome transition (e.g. ALLOWED → REQUIRES_APPROVAL). */
+export interface PolicyTransitionImpact {
+  from_outcome: PolicyOutcome;
+  to_outcome: PolicyOutcome;
+  count: number;
+  amount_paise: number;
+}
+
+export interface PolicyBacktestResponse {
+  run_id: string;
+  status: string;
+  started_at: ISODateTime;
+  finished_at?: ISODateTime | null;
+  /** The CURRENT policy every decision was replayed against. */
+  policy_version: string;
+  /** Echo of the filter; null/absent = both environments. */
+  environment?: Environment | null;
+  since?: ISODateTime | null;
+  until?: ISODateTime | null;
+  decisions_scanned: number;
+  /** Outcome tallies always carry all three keys (zero-filled). */
+  outcomes_original: Record<string, number>;
+  outcomes_replayed: Record<string, number>;
+  original_policy_versions: Record<string, number>;
+  unchanged_count: number;
+  flip_count: number;
+  flips: PolicyBacktestFlip[];
+  transitions: PolicyTransitionImpact[];
+  /** Per-rule hit counts: replayed (current policy) vs as originally recorded. */
+  rule_hits: Record<string, number>;
+  rule_hits_original: Record<string, number>;
+  detail?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Payments (GET /api/v1/payments — env-scoped observed payment rows)
+// ---------------------------------------------------------------------------
+
+/** Commerce-row provenance stamp (backend/app/models/base.py). */
+export type SourceType = "simulator" | "razorpay_test" | "razorpay_live";
+
+export interface PaymentSummary {
+  id: string;
+  external_id?: string | null;
+  gateway_payment_id?: string | null;
+  order_id?: string | null;
+  gateway_order_id?: string | null;
+  merchant_id: string;
+  customer_id?: string | null;
+  amount_paise: number;
+  currency: string;
+  method?: string | null;
+  status: string;
+  error_code?: string | null;
+  error_description?: string | null;
+  error_source?: string | null;
+  captured: boolean;
+  created_at: ISODateTime;
+  /** Provenance stamp the environment scope is derived from. */
+  source_type: SourceType | string;
+}
+
+export interface PaymentListResponse {
+  items: PaymentSummary[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+// ---------------------------------------------------------------------------
+// Merchant connection (GET /api/v1/merchant/* — Razorpay Test Mode link)
+// ---------------------------------------------------------------------------
+
+/**
+ * Live state of the merchant's Razorpay Test Mode connection. Secrets never
+ * leave the server: `key_id_masked` is the only credential-shaped field and
+ * arrives already masked (e.g. "rzp_test_••••1234").
+ */
+export interface MerchantConnection {
+  /** True when real keys are present server-side AND SIMULATION_MODE is off. */
+  configured: boolean;
+  /** True when an authenticated probe against the gateway succeeded. */
+  connected: boolean;
+  /** Gateway environment derived from the key id: "test" | "live" | null. */
+  environment?: "test" | "live" | null;
+  key_id_masked?: string | null;
+  webhook_configured: boolean;
+  sync_enabled: boolean;
+  last_sync_at?: ISODateTime | null;
+  last_webhook_at?: ISODateTime | null;
+  last_sync_status?: string | null;
+  /** Typed probe outcome when connected=false (authentication_failed | unreachable | gateway_error). */
+  connection_error?: string | null;
+}
+
+/**
+ * Result of POST /api/v1/merchant/sync — the durable sync_runs row for one
+ * reconciliation pass against the merchant's Razorpay Test Mode account.
+ * `entity_counts` carries per-entity created/updated/fetched counts plus an
+ * `errors` quarantine list; `status` is completed | failed.
+ */
+export interface MerchantSyncResponse {
+  id: string;
+  started_at: ISODateTime;
+  finished_at?: ISODateTime | null;
+  status: string;
+  entity_counts: Record<string, unknown>;
+  error?: string | null;
+  actor: string;
+  request_id?: string | null;
+  created_at: ISODateTime;
+}
+
+/** POST /api/v1/merchant/sync/enable|disable — the sync toggle state. */
+export interface MerchantSyncToggle {
+  sync_enabled: boolean;
+  updated_at: ISODateTime;
 }
 
 // ---------------------------------------------------------------------------
@@ -617,6 +852,7 @@ export interface IncidentListParams extends PageParams {
   metric?: string | null;
   detected_from?: ISODateTime | null;
   detected_to?: ISODateTime | null;
+  environment?: Environment;
 }
 
 export interface OpportunityListParams extends PageParams {
@@ -624,15 +860,27 @@ export interface OpportunityListParams extends PageParams {
   incident_id?: string | null;
   opportunity_type?: string | null;
   customer_id?: string | null;
+  environment?: Environment;
 }
 
 export interface AuditListParams extends PageParams {
   entity_type?: string | null;
   entity_id?: string | null;
+  environment?: Environment;
+}
+
+export interface PaymentListParams extends PageParams {
+  status?: string | null;
+  method?: string | null;
+  source_type?: string | null;
+  from?: ISODateTime | null;
+  to?: ISODateTime | null;
+  environment?: Environment;
 }
 
 export interface TimeseriesParams {
   metric?: string;
   granularity?: Granularity;
   window_hours?: number;
+  environment?: Environment;
 }

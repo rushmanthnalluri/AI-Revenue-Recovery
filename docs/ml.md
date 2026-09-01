@@ -253,9 +253,29 @@ detection window via `GET /api/v1/incidents/{id}` (auto-diagnosis).
 End-to-end scoring of detection-window diagnoses vs ground truth is in
 docs/evaluation.md (measured at this writing: top-1 0.60 / top-3 0.80 on the
 diluted 12h windows the scheduled passes produce — the gap vs exact spans is
-window dilution, and motivates a window re-scoping triage step). The current
+window dilution). The current
 canonical readings live in docs/evaluation.md §3/§3b: top-1 1.000 on the 4
 matched windows of the 2026-08-28 anchor, 0.667 on the 6 of 2026-08-27.
+
+**Window re-scoping triage** (ships in `app/services/diagnosis/rescope.py`;
+tests `backend/tests/diagnosis/test_diag_rescope.py`). Before feature
+computation, the incident's own metric series is rebuilt with the detection
+helpers (same loaders, bucket grid, floor constants, environment + segment
+scoping — no re-implemented stats) and the frame is tightened to the span
+from the first to the last floor-breaching bucket, clamped inside the
+detection window; when recomputation finds no breach, the detector's
+persisted `meta.anomaly_start`/`anomaly_end` span is the fallback, and any
+failure to prove a tighter span passes the original frame through unchanged.
+Both frames are recorded on the companion `model_predictions` row
+(`output["window"]`) and, when the frame changed, on the diagnosis
+explanation; the incident row is never mutated. The step is a config knob —
+`DiagnosisService(rescope_windows=...)` or env `DIAGNOSIS_WINDOW_RESCOPE` —
+**default OFF**, so the anchors quoted above still describe as-detected
+frames. Honest status: the triage is unit-tested (diluted frames tighten to
+the true span, already-tight frames pass through, the other environment's
+rows never leak into the series) but NOT yet re-anchored — readings with the
+knob on must be re-measured in docs/evaluation.md before they are quoted as
+canonical.
 
 ## 9. Production-frame retraining + calibration (outcome: old artifact kept)
 

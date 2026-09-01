@@ -126,3 +126,33 @@ def test_audit_rejects_bad_pagination(client):
     assert client.get("/api/v1/audit", params={"page": 0}).status_code == 422
     assert client.get("/api/v1/audit", params={"page_size": 0}).status_code == 422
     assert client.get("/api/v1/audit", params={"page_size": 201}).status_code == 422
+
+
+def test_audit_filter_environment_all(client, db_session):
+    """Rows stamped environment='all' (unfiltered policy-backtest runs, see
+    api/v1/policy.py) belong to no single environment: they are queryable via
+    ?environment=all and stay out of the scoped real_test/research queries."""
+    row = AuditLog(
+        entity_type="policy_backtest_run",
+        entity_id="pbr_1",
+        actor="system:policy_backtest",
+        action="policy.backtest",
+        details={"environment": None},
+        created_at=utcnow().replace(microsecond=0),
+        environment="all",
+    )
+    db_session.add(row)
+    db_session.commit()
+
+    r = client.get("/api/v1/audit", params={"environment": "all"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 1
+    assert body["items"][0]["id"] == row.id
+    assert body["items"][0]["action"] == "policy.backtest"
+    assert body["items"][0]["environment"] == "all"
+    # scoped queries never surface the unfiltered row
+    assert client.get("/api/v1/audit").json()["total"] == 0  # real_test default
+    assert (
+        client.get("/api/v1/audit", params={"environment": "research"}).json()["total"] == 0
+    )

@@ -14,6 +14,9 @@ test("AI investigation renders facts / inference / recommended action zones", as
 
   await page.goto(`/incidents/${seed.incidentId as string}`);
 
+  // Provenance: the incident is synthetic research data, labeled as such.
+  await expect(page.getByText(/Synthetic Research Dataset/).first()).toBeVisible();
+
   const factsZone = page.getByRole("region", { name: /observed facts/i });
   const runButton = page.getByRole("button", { name: /run ai investigation/i });
 

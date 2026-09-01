@@ -77,6 +77,34 @@ class TestRealDefaultFile:
         monkeypatch.chdir(tmp_path)  # cwd must not matter
         assert load_policy_config(_REAL_POLICY).version == "1.0"
 
+    def test_approval_ttl_is_optional_and_absent_by_default(self):
+        # policies/default.yaml ships without an approval section: the lapse
+        # is disabled and the loader still validates (strict unknown-key
+        # rules mean the section must be explicitly modeled to exist).
+        assert load_policy_config().approval.pending_approval_ttl_hours is None
+
+    def test_approval_ttl_loads_when_present(self, tmp_path):
+        path = _write_variant(
+            tmp_path,
+            lambda d: d.__setitem__("approval", {"pending_approval_ttl_hours": 24}),
+        )
+        config = load_policy_config(path)
+        assert config.approval.pending_approval_ttl_hours == 24
+
+    def test_approval_ttl_rejects_unknown_keys_and_bad_values(self, tmp_path):
+        path = _write_variant(
+            tmp_path,
+            lambda d: d.__setitem__("approval", {"pending_approval_ttl_hours": 0}),
+        )
+        with pytest.raises(PolicyConfigError):
+            load_policy_config(path)
+        path = _write_variant(
+            tmp_path,
+            lambda d: d.__setitem__("approval", {"pending_approval_ttl_hours": 1, "bogus": 2}),
+        )
+        with pytest.raises(PolicyConfigError):
+            load_policy_config(path)
+
 
 class TestFailClosed:
     def test_missing_file_raises(self, tmp_path):

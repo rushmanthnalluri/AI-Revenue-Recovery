@@ -110,6 +110,23 @@ def make_order(db_session: Session, make_merchant):
 
 
 @pytest.fixture()
+def make_subscription(db_session: Session, make_merchant):
+    def _make(merchant=None, **kw) -> models.Subscription:
+        merchant = merchant or make_merchant()
+        subscription = models.Subscription(
+            merchant_id=merchant.id,
+            amount_paise=kw.pop("amount_paise", 25_000),
+            status=kw.pop("status", "halted"),
+            **kw,
+        )
+        db_session.add(subscription)
+        db_session.commit()
+        return subscription
+
+    return _make
+
+
+@pytest.fixture()
 def make_diagnosis(db_session: Session):
     def _make(incident, **kw) -> models.Diagnosis:
         diagnosis = models.Diagnosis(

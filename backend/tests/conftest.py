@@ -4,7 +4,23 @@ The app is built once per test session with get_db overridden to a shared
 in-memory SQLite connection (StaticPool), so tests never touch the file DB.
 """
 
+import os
 from collections.abc import Generator
+
+# Hermetic settings baseline — pinned BEFORE any app import. The suite assumes
+# no real Razorpay credentials and SIMULATION_MODE off (tests/test_smoke.py,
+# tests/environment/test_executor_environments.py, ...), but the repo-root .env
+# may carry a developer's live test-mode keys. pydantic-settings gives process
+# env precedence over the .env file, so these pins isolate the suite from local
+# configuration (and keep tests off the real Razorpay API). Tests that need
+# keys monkeypatch `app.config.settings` explicitly.
+os.environ["RAZORPAY_KEY_ID"] = ""
+os.environ["RAZORPAY_KEY_SECRET"] = ""
+os.environ["RAZORPAY_WEBHOOK_SECRET"] = ""
+os.environ["SIMULATION_MODE"] = "false"
+os.environ["API_KEY"] = "dev-key"
+os.environ["LLM_PROVIDER"] = "none"
+os.environ["OPENAI_API_KEY"] = ""
 
 import pytest
 import sqlalchemy as sa

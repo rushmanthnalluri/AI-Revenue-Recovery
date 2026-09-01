@@ -131,25 +131,32 @@ class HoldoutExcludingBuilder(OpportunityBuilder):
         super().__init__(session)
         self._is_excluded = is_excluded
 
-    def _failed_payments(self, start, end):  # noqa: ANN001 - parent signature
+    def _failed_payments(self, start, end, source_types):  # noqa: ANN001 - parent signature
         return [
             p
-            for p in super()._failed_payments(start, end)
+            for p in super()._failed_payments(start, end, source_types)
             if not self._is_excluded(p.customer_id)
         ]
 
-    def _abandoned_orders(self, start, end):  # noqa: ANN001 - parent signature
+    def _abandoned_orders(self, start, end, source_types):  # noqa: ANN001 - parent signature
         return [
             o
-            for o in super()._abandoned_orders(start, end)
+            for o in super()._abandoned_orders(start, end, source_types)
             if not self._is_excluded(o.customer_id)
         ]
 
-    def _stuck_created_payments(self, start, end, knowledge_edge):  # noqa: ANN001 - parent signature
+    def _stuck_created_payments(self, start, end, knowledge_edge, source_types):  # noqa: ANN001 - parent signature
         return [
             p
-            for p in super()._stuck_created_payments(start, end, knowledge_edge)
+            for p in super()._stuck_created_payments(start, end, knowledge_edge, source_types)
             if not self._is_excluded(p.customer_id)
+        ]
+
+    def _stuck_subscriptions(self, source_types):  # noqa: ANN001 - parent signature
+        return [
+            s
+            for s in super()._stuck_subscriptions(source_types)
+            if not self._is_excluded(s.customer_id)
         ]
 
 

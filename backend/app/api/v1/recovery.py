@@ -2,6 +2,8 @@
 
 Opportunity-centric contract (the frontend calls /api/v1/recovery/{opp_id}/...):
 - GET    /opportunities                list + filters + pagination
+- GET    /opportunities/approvals-summary  whole-queue COUNT/SUM for the
+                                           pending-approval lane (page-independent)
 - POST   /opportunities/build          incident -> opportunities + strategies
 - GET    /{opportunity_id}             detail: actions, policy decisions, audit
 - GET    /{opportunity_id}/plan        strategy comparison + recommendation
@@ -15,19 +17,28 @@ Opportunity-centric contract (the frontend calls /api/v1/recovery/{opp_id}/...):
 
 Every execution flows through the deterministic policy gate before any gateway
 call; the gate's decision is persisted and linked on the action.
+
+Every mutation also binds a KYA-lite principal (X-API-Key-derived, see
+app.api.deps.get_principal): the executor receives the principal-attributed
+actor string, one additive `recovery.principal_bound` audit row records the
+binding, and approve re-gates the action with proposer/approver principals so
+a self-/same-cohort approval leaves a `separation_of_duties.self_approval`
+warning on a persisted policy decision. Demo-grade identity, not SSO —
+docs/security-testing.md.
 """
 
 import sqlalchemy as sa
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from pydantic import BaseModel
+from sqlalchemy.orm import Session, selectinload
 
-from app.api.deps import get_gateway_dependency
+from app.api.deps import Principal, get_gateway_dependency, get_principal
 from app.db import get_db
 from app.logging import request_id_ctx
-from app.models import AuditLog, PolicyDecisionRecord, RecoveryOpportunity
-from app.ports import PaymentGateway, PolicyOutcome, RecoveryStatus
+from app.models import AuditLog, PolicyDecisionRecord, RecoveryAction, RecoveryOpportunity
+from app.ports import ActionContext, PaymentGateway, PolicyOutcome, RecoveryStatus
 from app.schemas.recovery import (
     ActionResponse,
     ApproveRequest,
@@ -49,7 +60,13 @@ from app.schemas.recovery import (
     RejectRequest,
     StrategyOption,
 )
-from app.services.policy import PolicyEngine
+from app.services.policy import PolicyEngine, audit
+from app.services.policy.engine import (
+    META_APPROVER_PRINCIPAL,
+    META_CURRENT_ACTION_ID,
+    META_PROPOSER_PRINCIPAL,
+    META_REQUEST_ID,
+)
 from app.services.recovery import (
     InvalidStateError,
     OpportunityBuilder,
@@ -120,7 +137,51 @@ def _decision_view(record: PolicyDecisionRecord | None) -> PolicyDecisionView | 
     )
 
 
-def _action_view(executor: RecoveryExecutor, action) -> RecoveryActionView:
+def _latest_decisions_for_actions(
+    db: Session, actions: list[RecoveryAction]
+) -> dict[str, PolicyDecisionRecord | None]:
+    """Batch version of `RecoveryExecutor.latest_policy_decision` for the
+    detail view — two IN-queries total (records linked on the actions, then
+    records keyed by action_id) instead of 1-2 queries PER action. Selection
+    semantics match the per-action version exactly: the record linked via
+    `policy_decision_id` wins; otherwise the newest by (created_at, id)."""
+    linked: dict[str, PolicyDecisionRecord] = {}
+    linked_ids = [a.policy_decision_id for a in actions if a.policy_decision_id]
+    if linked_ids:
+        for rec in db.scalars(
+            sa.select(PolicyDecisionRecord).where(PolicyDecisionRecord.id.in_(linked_ids))
+        ):
+            linked[rec.id] = rec
+    latest: dict[str, PolicyDecisionRecord] = {}
+    action_ids = [a.id for a in actions]
+    if action_ids:
+        rows = db.scalars(
+            sa.select(PolicyDecisionRecord).where(
+                PolicyDecisionRecord.action_id.in_(action_ids)
+            )
+        )
+        for rec in rows:
+            current = latest.get(rec.action_id)
+            if current is None or (rec.created_at, rec.id) > (current.created_at, current.id):
+                latest[rec.action_id] = rec
+    result: dict[str, PolicyDecisionRecord | None] = {}
+    for action in actions:
+        rec = linked.get(action.policy_decision_id) if action.policy_decision_id else None
+        result[action.id] = rec if rec is not None else latest.get(action.id)
+    return result
+
+
+_UNSET = object()
+
+
+def _action_view(
+    executor: RecoveryExecutor, action, decision: PolicyDecisionRecord | None | object = _UNSET
+) -> RecoveryActionView:
+    # `decision` lets the detail endpoint pass a batch-prefetched record;
+    # single-action callers (the mutation responses) keep the per-action
+    # lookup, which is one query there.
+    if decision is _UNSET:
+        decision = executor.latest_policy_decision(action)
     return RecoveryActionView(
         id=action.id,
         opportunity_id=action.opportunity_id,
@@ -133,7 +194,7 @@ def _action_view(executor: RecoveryExecutor, action) -> RecoveryActionView:
         actor=action.actor,
         attempts=action.attempts,
         gateway_request_id=action.gateway_request_id,
-        policy_decision=_decision_view(executor.latest_policy_decision(action)),
+        policy_decision=_decision_view(decision),
         proposed_at=action.proposed_at,
         executed_at=action.executed_at,
         verified_at=action.verified_at,
@@ -175,6 +236,94 @@ def _handle_domain_error(exc: RecoveryError) -> None:
 
 
 # ---------------------------------------------------------------------------
+# KYA-lite principal binding (demo-grade — docs/security-testing.md)
+# ---------------------------------------------------------------------------
+
+
+def _record_principal_binding(
+    db: Session,
+    *,
+    principal: Principal,
+    declared_actor: str,
+    endpoint: str,
+    action: RecoveryAction | None,
+    opportunity_id: str,
+    environment: str | None,
+    request_id: str | None,
+) -> None:
+    """Persist WHICH authenticated principal performed a mutating recovery
+    call: one additive row in the same append-only audit trail (same shape —
+    the executor's own transition rows are untouched). KYA-lite, not SSO: the
+    principal comes from the shared API key, so it binds a cohort, and the
+    self-declared actor is recorded alongside it rather than replaced.
+
+    The row keys to the OPPORTUNITY (the action id rides in details): every
+    verb binds uniformly — including opportunity-level reject/escalate/cancel
+    where no action exists — and per-action transition trails keep their
+    exact recovery.action.* shape."""
+    entry = audit.record(
+        db,
+        actor=principal.attributed_actor(declared_actor),
+        action="recovery.principal_bound",
+        entity_type="recovery_opportunity",
+        entity_id=opportunity_id,
+        details={
+            "principal_id": principal.id,
+            "declared_actor": declared_actor,
+            "endpoint": endpoint,
+            "authenticated": principal.authenticated,
+            "action_id": action.id if action is not None else None,
+        },
+        request_id=request_id,
+    )
+    entry.environment = environment or "research"
+
+
+def _separation_of_duties_regate(
+    db: Session,
+    *,
+    action: RecoveryAction,
+    approver: Principal,
+    declared_actor: str,
+    request_id: str | None,
+) -> None:
+    """Re-run the deterministic gate at approval time carrying the proposer
+    and approver principals; a self-/same-cohort approval records the
+    `separation_of_duties.self_approval` warning on the persisted decision
+    (never blocks — the signal is the point; see engine R10).
+
+    The record IS linked to the action (so the warning is discoverable in the
+    action's decision history) but does NOT relink `action.policy_decision_id`
+    — the gate decision that parked the action stays the displayed one. This
+    is a recorded signal, not a re-authorization: the human approval has
+    already been stamped by the executor.
+
+    An unattributed proposer (the norm under the shared demo key) resolves to
+    the approver's own principal — the conservative worst case, so the check
+    fails toward a warning, not toward silence."""
+    proposer_principal = Principal.principal_of_actor(action.actor) or approver.id
+    opp = action.opportunity
+    PolicyEngine.from_file(session=db).evaluate(
+        ActionContext(
+            action_type=action.action_type,
+            amount_paise=action.amount_paise,
+            confidence=action.confidence,
+            actor=approver.attributed_actor(declared_actor),
+            currency=action.currency or "INR",
+            incident_id=action.incident_id,
+            opportunity_id=action.opportunity_id,
+            customer_id=opp.customer_id if opp is not None else None,
+            metadata={
+                META_CURRENT_ACTION_ID: action.id,  # exclude self from history guards
+                META_REQUEST_ID: request_id or "",
+                META_PROPOSER_PRINCIPAL: proposer_principal,
+                META_APPROVER_PRINCIPAL: approver.id,
+            },
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
 # opportunities collection
 # ---------------------------------------------------------------------------
 
@@ -190,7 +339,12 @@ def list_opportunities(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),
 ) -> OpportunityListResponse:
-    stmt = sa.select(RecoveryOpportunity)
+    stmt = sa.select(RecoveryOpportunity).options(
+        # The displayed status is the latest action's status (_projected_status),
+        # so every row needs its actions — eager-load them in ONE extra query
+        # instead of one lazy load per row (up to 200 at max page size).
+        selectinload(RecoveryOpportunity.actions)
+    )
     count_stmt = sa.select(sa.func.count()).select_from(RecoveryOpportunity)
     filters = [RecoveryOpportunity.environment == environment]
     if status is not None:
@@ -215,6 +369,45 @@ def list_opportunities(
         total=total,
         page=page,
         page_size=page_size,
+    )
+
+
+class ApprovalsSummaryResponse(BaseModel):
+    """Whole-queue aggregate for the pending-approvals lane.
+
+    Defined here (not app/schemas/recovery.py) deliberately: it is owned with
+    this router; migrate it into the schemas module if it is reused
+    elsewhere. Additive — no existing response shape changes."""
+
+    environment: str
+    status: str
+    pending_count: int
+    pending_amount_paise: int
+
+
+@router.get("/opportunities/approvals-summary", response_model=ApprovalsSummaryResponse)
+def approvals_summary(
+    db: Session = Depends(get_db),
+    environment: Literal["real_test", "research"] = Query(default="real_test"),
+) -> ApprovalsSummaryResponse:
+    """SQL-side COUNT/SUM over the ENTIRE pending-approval queue for one
+    environment. The Approval Center's 'Value awaiting decision' metric sums
+    page 1 of the opportunities list client-side; this aggregate is the
+    correct value beyond page 1. Mirrors the list endpoint's queue definition
+    (stored opportunity status + environment stamp)."""
+    count, total = db.execute(
+        sa.select(
+            sa.func.count(),
+            sa.func.coalesce(sa.func.sum(RecoveryOpportunity.amount_paise), 0),
+        )
+        .where(RecoveryOpportunity.environment == environment)
+        .where(RecoveryOpportunity.status == RecoveryStatus.PENDING_APPROVAL)
+    ).one()
+    return ApprovalsSummaryResponse(
+        environment=environment,
+        status=RecoveryStatus.PENDING_APPROVAL.value,
+        pending_count=int(count),
+        pending_amount_paise=int(total),
     )
 
 
@@ -275,6 +468,7 @@ def get_opportunity(
 
     actions = sorted(opp.actions, key=lambda a: (a.created_at, a.id))
     action_ids = [a.id for a in actions]
+    decisions = _latest_decisions_for_actions(db, actions)
     audit_filter = sa.or_(
         sa.and_(
             AuditLog.entity_type == "recovery_opportunity",
@@ -291,7 +485,7 @@ def get_opportunity(
     return OpportunityDetail(
         **_summary(opp).model_dump(),
         constraints=dict(opp.constraints or {}),
-        actions=[_action_view(executor, a) for a in actions],
+        actions=[_action_view(executor, a, decision=decisions[a.id]) for a in actions],
         audit=[
             AuditRef(
                 id=row.id,
@@ -346,6 +540,7 @@ def get_plan(
         )
         preview = PolicyPreview(outcome=decision.outcome, reasons=list(decision.reasons))
 
+    db.commit()  # persists generated strategies + the plan-preview policy decision
     return RecoveryPlan(
         opportunity_id=opp.id,
         strategies=[
@@ -380,17 +575,29 @@ def execute(
     body: ExecuteRequest,
     executor: RecoveryExecutor = Depends(get_executor),
     db: Session = Depends(get_db),
+    principal: Principal = Depends(get_principal),
 ) -> ActionResponse:
+    rid = request_id_ctx.get()
     try:
         action = executor.execute(
             opportunity_id,
             strategy_id=body.strategy_id,
-            actor=body.actor,
-            request_id=request_id_ctx.get(),
+            actor=principal.attributed_actor(body.actor),
+            request_id=rid,
         )
     except RecoveryError as exc:
         db.rollback()
         _handle_domain_error(exc)
+    _record_principal_binding(
+        db,
+        principal=principal,
+        declared_actor=body.actor,
+        endpoint="execute",
+        action=action,
+        opportunity_id=opportunity_id,
+        environment=action.environment,
+        request_id=rid,
+    )
     db.commit()
     message = _EXECUTE_MESSAGES.get(action.status, action.status.value)
     if action.status is RecoveryStatus.UNKNOWN and action.last_error:
@@ -404,17 +611,39 @@ def approve(
     body: ApproveRequest,
     executor: RecoveryExecutor = Depends(get_executor),
     db: Session = Depends(get_db),
+    principal: Principal = Depends(get_principal),
 ) -> ActionResponse:
+    rid = request_id_ctx.get()
     try:
         action = executor.approve(
             opportunity_id,
-            actor=body.actor,
+            actor=principal.attributed_actor(body.actor),
             note=body.note,
-            request_id=request_id_ctx.get(),
+            request_id=rid,
         )
     except RecoveryError as exc:
         db.rollback()
         _handle_domain_error(exc)
+    # KYA-lite: record who approved (key-derived principal) and let the
+    # policy gate flag a self-/same-cohort approval. Both are additive
+    # signals; neither changes the approval the executor just stamped.
+    _separation_of_duties_regate(
+        db,
+        action=action,
+        approver=principal,
+        declared_actor=body.actor,
+        request_id=rid,
+    )
+    _record_principal_binding(
+        db,
+        principal=principal,
+        declared_actor=body.actor,
+        endpoint="approve",
+        action=action,
+        opportunity_id=opportunity_id,
+        environment=action.environment,
+        request_id=rid,
+    )
     db.commit()
     return _action_response(
         executor, opportunity_id, action, "approved by human; ready to execute"
@@ -427,20 +656,36 @@ def reject(
     body: RejectRequest,
     executor: RecoveryExecutor = Depends(get_executor),
     db: Session = Depends(get_db),
+    principal: Principal = Depends(get_principal),
 ) -> ActionResponse:
+    rid = request_id_ctx.get()
     try:
         action = executor.reject(
             opportunity_id,
-            actor=body.actor,
+            actor=principal.attributed_actor(body.actor),
             reason=body.reason,
-            request_id=request_id_ctx.get(),
+            request_id=rid,
         )
     except RecoveryError as exc:
         db.rollback()
         _handle_domain_error(exc)
-    db.commit()
     if action is None:
         opp = executor.get_opportunity(opportunity_id)
+        environment = opp.environment
+    else:
+        environment = action.environment
+    _record_principal_binding(
+        db,
+        principal=principal,
+        declared_actor=body.actor,
+        endpoint="reject",
+        action=action,
+        opportunity_id=opportunity_id,
+        environment=environment,
+        request_id=rid,
+    )
+    db.commit()
+    if action is None:
         return ActionResponse(
             action_id=None,
             opportunity_id=opportunity_id,
@@ -456,20 +701,36 @@ def escalate(
     body: EscalateRequest,
     executor: RecoveryExecutor = Depends(get_executor),
     db: Session = Depends(get_db),
+    principal: Principal = Depends(get_principal),
 ) -> ActionResponse:
+    rid = request_id_ctx.get()
     try:
         action = executor.escalate(
             opportunity_id,
-            actor=body.actor,
+            actor=principal.attributed_actor(body.actor),
             reason=body.reason,
-            request_id=request_id_ctx.get(),
+            request_id=rid,
         )
     except RecoveryError as exc:
         db.rollback()
         _handle_domain_error(exc)
-    db.commit()
     if action is None:
         opp = executor.get_opportunity(opportunity_id)
+        environment = opp.environment
+    else:
+        environment = action.environment
+    _record_principal_binding(
+        db,
+        principal=principal,
+        declared_actor=body.actor,
+        endpoint="escalate",
+        action=action,
+        opportunity_id=opportunity_id,
+        environment=environment,
+        request_id=rid,
+    )
+    db.commit()
+    if action is None:
         return ActionResponse(
             action_id=None,
             opportunity_id=opportunity_id,
@@ -487,20 +748,36 @@ def cancel(
     body: CancelRequest,
     executor: RecoveryExecutor = Depends(get_executor),
     db: Session = Depends(get_db),
+    principal: Principal = Depends(get_principal),
 ) -> ActionResponse:
+    rid = request_id_ctx.get()
     try:
         action = executor.cancel(
             opportunity_id,
-            actor=body.actor,
+            actor=principal.attributed_actor(body.actor),
             reason=body.reason,
-            request_id=request_id_ctx.get(),
+            request_id=rid,
         )
     except RecoveryError as exc:
         db.rollback()
         _handle_domain_error(exc)
-    db.commit()
     if action is None:
         opp = executor.get_opportunity(opportunity_id)
+        environment = opp.environment
+    else:
+        environment = action.environment
+    _record_principal_binding(
+        db,
+        principal=principal,
+        declared_actor=body.actor,
+        endpoint="cancel",
+        action=action,
+        opportunity_id=opportunity_id,
+        environment=environment,
+        request_id=rid,
+    )
+    db.commit()
+    if action is None:
         return ActionResponse(
             action_id=None,
             opportunity_id=opportunity_id,

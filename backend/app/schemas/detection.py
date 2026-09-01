@@ -47,6 +47,25 @@ class DetectionRunRequest(BaseModel):
     # incidents/evidence. NEW DEFAULT: 'real_test' (the merchant-facing mode);
     # simulator callers (demo router, evaluation harness, scripts) must pass
     # 'research' explicitly. A pass never sees the other environment's rows.
+    # --- baseline mode (opt-in; docs/detection.md "Known limitations") ---
+    baseline_mode: Literal["leading_window", "same_time_yesterday"] = "leading_window"
+    # leading_window (default): the first baseline_buckets valid buckets of the
+    # analysis window define the baseline — the published operating point.
+    # same_time_yesterday: the baseline is the SAME clock window shifted back
+    # 24h, so a daily-cycle trough/peak compares against yesterday's same
+    # hours instead of the window's leading buckets (the structural fix for
+    # seasonality false positives). Needs >= 4 decidable buckets yesterday or
+    # the metric stays silent for the pass.
+    # --- night-regime floors (opt-in; docs/detection.md "Known limitations") ---
+    night_regime_floors: bool = False
+    # Opt-in, default OFF (the published operating point — every anchor in
+    # docs/evaluation.md §3b — runs with the single global floor set). When
+    # ON, an insufficient_fund_share anomaly whose flagged buckets ALL sit in
+    # the night band (engine constants NIGHT_REGIME_*_HOUR, UTC) is judged by
+    # the lower night floor set — a lower min_observed share bar and a lower
+    # min_absolute_deviation — instead of the global 0.90-share / 25pp floors
+    # that measured organic DAYTIME clusters (0.71 share) force. An anomaly
+    # touching any daytime bucket faces the global floors in both modes.
 
 
 class DetectionIncidentView(BaseModel):

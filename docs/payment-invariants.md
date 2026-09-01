@@ -251,13 +251,13 @@ stack; the Postgres before/after runs above are the live evidence anchor).
   - `backend/tests/recovery/test_executor.py::TestAuditTrail::test_every_transition_is_audited_with_actor_and_request_id` — the canonical happy-path chain
   - `backend/tests/policy/test_policy_engine.py::TestPersistenceAndAudit::test_blocked_decisions_are_mirrored_to_audit_logs` — blocked decisions are audited too
   - `backend/tests/policy/test_audit.py::TestRecord::test_writes_a_complete_row` — the audit writer contract
-- **Note (observed, not a violation):** the agent `request_*` tools record
-  row creation + policy evaluation in a SINGLE `agent.action_requested`
-  audit row whose details carry `policy_outcome` but not structured
-  `from_status`/`to_status` fields; the sweep therefore starts the from/to
-  chain at the executor's first transition for tool-created rows. Every
-  executor-driven transition (the ones that can move money) carries full
-  from/to. Follow-up candidate, not required for the invariant.
+- **Note:** the agent `request_*` tools record row creation + policy
+  evaluation in a SINGLE `agent.action_requested` audit row; its details
+  carry structured `from_status` (`None` — the row's creation) and
+  `to_status` (the status the gate's verdict left the action in) alongside
+  `policy_outcome`, so the sweep's from/to chain starts at the tool row
+  itself. Every executor-driven transition (the ones that can move money)
+  carries full from/to.
 - **Demo:** `.venv/Scripts/python -m pytest tests/invariants/test_audit_transition_sweep.py -q`
 
 ---

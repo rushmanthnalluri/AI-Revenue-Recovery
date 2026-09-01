@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+import { switchToResearchLab } from "./environment";
 import { readSeedState } from "./seed-state";
 
 /**
@@ -18,6 +19,9 @@ test("recovery pipeline and human approval flow", async ({ page }) => {
 
   await page.goto("/recovery");
   await expect(page.getByRole("heading", { level: 1, name: "Recovery" })).toBeVisible();
+
+  // The seeded opportunities are research data — switch the environment.
+  await switchToResearchLab(page);
 
   // Pipeline tab (default): seeded opportunities render as clickable rows.
   await expect(page.getByText("Recovery pipeline", { exact: true })).toBeVisible();

@@ -20,15 +20,18 @@ function isStillRunning(error: unknown): boolean {
 }
 
 /**
- * Demo Control — how judges drive the demo. Lists the simulator scenarios
- * (GET /demo/scenarios), triggers them (POST /demo/scenario/{name} — an
- * idempotent seed + one anchored detection pass), and resets the environment
- * (POST /demo/reset, behind an explicit two-step confirm). Every rendered
- * number comes from the real API responses.
+ * Scenario runner — how the Research Lab dataset is driven. Lists the
+ * simulator scenarios (GET /demo/scenarios), triggers them
+ * (POST /demo/scenario/{name} — an idempotent seed + one anchored detection
+ * pass), and resets the research dataset (POST /demo/reset, behind an
+ * explicit two-step confirm). Every rendered number comes from the real API
+ * responses. All of it is synthetic research data, pinned server-side to the
+ * research environment — the real merchant environment is never touched.
  *
- * Note: the typed client's timeout is 10s; a large seed can outlive it. A
- * timeout is shown as "still running server-side" rather than a failure — the
- * 15s dashboard poll surfaces the data as it lands.
+ * Note: the typed client gives scenario triggers 120s (LONG_RUNNING_TIMEOUT_MS);
+ * a large seed can still outlive it. A timeout is shown as "still running
+ * server-side" rather than a failure — the 15s dashboard poll surfaces the
+ * data as it lands.
  */
 export function DemoControl() {
   const queryClient = useQueryClient();
@@ -76,10 +79,10 @@ export function DemoControl() {
   const busy = trigger.isPending || reset.isPending;
 
   return (
-    <div id="demo-control" className="scroll-mt-20">
+    <div id="scenario-runner" className="scroll-mt-20">
     <SectionCard
-      title="Demo control"
-      description="Deterministic simulator scenarios — seed data, run one anchored detection pass, and watch the console react. This panel is how judges drive the demo."
+      title="Scenario runner"
+      description="Deterministic simulator scenarios — seed the synthetic research dataset, run one anchored detection pass, and watch detection, diagnosis and recovery react. Research data only; the real merchant environment is never touched."
       actions={
         <Button
           variant="outline"
@@ -88,7 +91,7 @@ export function DemoControl() {
           onClick={() => setConfirmReset(true)}
         >
           <RotateCcw aria-hidden />
-          Reset demo data
+          Reset research data
         </Button>
       }
       contentClassName="space-y-4"
@@ -112,7 +115,7 @@ export function DemoControl() {
           description="The backend returned an empty scenario list. Check that the simulator presets are registered."
         />
       ) : (
-        <ul className="divide-y divide-border" aria-label="Demo scenarios">
+        <ul className="divide-y divide-border" aria-label="Research scenarios">
           {scenarios.data.scenarios.map((scenario) => {
             const runningThis = trigger.isPending && trigger.variables === scenario.name;
             return (
@@ -163,7 +166,7 @@ export function DemoControl() {
           >
             <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-accent" />
             <div className="text-[13px] text-text-2">
-              <p className="font-medium text-text">No response within 10 seconds</p>
+              <p className="font-medium text-text">No response within 120 seconds</p>
               <p className="mt-0.5">
                 The simulator run continues on the server. The dashboard polls every 15s
                 and will surface the new data as it lands — no need to retrigger (runs are
@@ -192,12 +195,12 @@ export function DemoControl() {
         >
           <p className="flex items-center gap-2 text-[13.5px] font-semibold text-danger">
             <TriangleAlert aria-hidden className="size-4" />
-            Reset the demo environment?
+            Reset the research dataset?
           </p>
           <p className="mt-1 text-[13px] text-text-2">
-            Deletes every simulator-seeded row and all derived incidents, diagnoses,
+            Deletes every simulator-seeded row and all derived research incidents, diagnoses,
             opportunities and recovery actions. Evaluation runs, model predictions and the
-            audit trail are kept.
+            audit trail are kept. Real merchant (Razorpay Test Mode) data is never touched.
           </p>
           <div className="mt-3 flex items-center gap-2">
             <Button

@@ -397,3 +397,115 @@ def test_unknown_payment_is_stored_for_reconciliation(client, sign, db_session):
     )
     assert row.processed is False
     assert "unknown payment" in row.error
+
+
+# --- environment stamping (real_test/research boundary) ------------------------
+
+
+def test_verify_audit_row_stamped_with_action_environment(
+    client, sign, db_session, make_payment
+):
+    """REGRESSION: webhook verification audit rows used to default to
+    'research', so real_test rows vanished from real_test audit queries."""
+    _, _, action = _make_opportunity_with_action(
+        db_session,
+        make_payment,
+        gateway_payment_id="pay_env1",
+        gateway_request_id="act_env1",
+        action_type=ActionType.RETRY_PAYMENT,
+    )
+    action.environment = "real_test"
+    db_session.commit()
+
+    body = make_event_body("payment.captured", payment_entity("pay_env1"))
+    assert post_event(client, sign, body, "evt_env1").status_code == 200
+
+    audit = db_session.scalar(
+        sa.select(models.AuditLog).where(
+            models.AuditLog.entity_id == action.id,
+            models.AuditLog.action == "verify_recovered",
+        )
+    )
+    assert audit is not None
+    assert audit.environment == "real_test"
+
+
+def test_verification_hold_audit_row_stamped_with_action_environment(
+    client, sign, db_session, make_payment
+):
+    _, _, action = _make_opportunity_with_action(
+        db_session,
+        make_payment,
+        gateway_request_id="act_env2",
+        action_type=ActionType.CREATE_PAYMENT_LINK,
+    )
+    action.environment = "real_test"
+    db_session.commit()
+
+    link_entity = {
+        "id": "plink_env2",
+        "entity": "payment_link",
+        "reference_id": "act_env2",
+        "amount": 49000,  # mismatch vs the action's 50000 -> hold
+        "amount_paid": 49000,
+        "status": "paid",
+    }
+    body = make_event_body("payment_link.paid", link_entity, kind="payment_link")
+    assert post_event(client, sign, body, "evt_env2").status_code == 200
+
+    db_session.refresh(action)
+    assert action.status != RecoveryStatus.RECOVERED  # held, not recovered
+    audit = db_session.scalar(
+        sa.select(models.AuditLog).where(
+            models.AuditLog.entity_id == action.id,
+            models.AuditLog.action == "verification.amount_mismatch",
+        )
+    )
+    assert audit is not None
+    assert audit.environment == "real_test"
+
+
+# --- ingress source stamping ----------------------------------------------------
+
+
+def test_ingress_source_uses_settings_not_gateway_class_name(
+    client, sign, db_session
+):
+    """REGRESSION: ingress used `type(gateway).__name__ == "SimulatedPaymentGateway"`,
+    which any subclass silently breaks; the predicate is use_simulator(settings)."""
+    from app.api.deps import get_gateway_dependency
+    from app.services.razorpay.simulated import SimulatedPaymentGateway
+
+    class RenamedSimulator(SimulatedPaymentGateway):
+        pass
+
+    sub = RenamedSimulator(webhook_secret="whsec_test_secret")
+    client.app.dependency_overrides[get_gateway_dependency] = lambda: sub
+
+    body = make_event_body("payment.captured", payment_entity("pay_src1"))
+    assert post_event(client, sign, body, "evt_src1").status_code == 200
+    row = db_session.scalar(
+        sa.select(models.WebhookEvent).where(
+            models.WebhookEvent.gateway_event_id == "evt_src1"
+        )
+    )
+    # No real keys configured -> simulator, regardless of the class name.
+    assert row.source == "simulator"
+
+
+def test_ingress_source_razorpay_when_real_keys_configured(
+    client, sign, db_session, monkeypatch
+):
+    from app.config import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "RAZORPAY_KEY_ID", "rzp_test_fixture")
+    monkeypatch.setattr(app_settings, "RAZORPAY_KEY_SECRET", "fixture_secret")
+
+    body = make_event_body("payment.captured", payment_entity("pay_src2"))
+    assert post_event(client, sign, body, "evt_src2").status_code == 200
+    row = db_session.scalar(
+        sa.select(models.WebhookEvent).where(
+            models.WebhookEvent.gateway_event_id == "evt_src2"
+        )
+    )
+    assert row.source == "razorpay"

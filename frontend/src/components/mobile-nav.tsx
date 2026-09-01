@@ -2,14 +2,13 @@
 
 import * as React from "react";
 import { createPortal } from "react-dom";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Menu, X } from "lucide-react";
 
-import { NAV_ITEMS, isNavActive } from "@/components/sidebar";
+import { EnvironmentSwitcher } from "@/components/environment-switcher";
+import { NavItems } from "@/components/sidebar";
 import { useModalA11y } from "@/components/recovery/recovery-hooks";
-import { cn } from "@/lib/utils";
 
 /**
  * Mobile navigation (below md, where the sidebar is hidden): a hamburger in
@@ -102,35 +101,13 @@ export function MobileNav() {
                 </button>
               </div>
 
+              {/* Environment switcher — same control as the sidebar */}
+              <div className="border-b border-border px-2.5 pb-3 pt-3">
+                <EnvironmentSwitcher />
+              </div>
+
               <nav aria-label="Mobile" className="flex-1 overflow-y-auto px-2.5 pb-2">
-                <p className="px-2 pb-1.5 pt-4 font-mono text-[10px] uppercase tracking-[0.11em] text-text-3">
-                  Console
-                </p>
-                <div className="space-y-0.5">
-                  {NAV_ITEMS.map((item) => {
-                    const active = isNavActive(pathname, item.href);
-                    return (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        aria-current={active ? "page" : undefined}
-                        className={cn(
-                          "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] transition-colors duration-150 ease-apple",
-                          active
-                            ? "nav-item-active"
-                            : "text-text-2 hover:bg-raised hover:text-text",
-                        )}
-                      >
-                        <item.icon
-                          className={cn("size-[18px]", active ? "text-accent" : "text-text-3")}
-                          strokeWidth={1.5}
-                          aria-hidden
-                        />
-                        {item.label}
-                      </Link>
-                    );
-                  })}
-                </div>
+                <NavItems pathname={pathname} />
               </nav>
             </motion.div>
                 </motion.div>

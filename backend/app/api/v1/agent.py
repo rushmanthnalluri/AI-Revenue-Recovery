@@ -57,6 +57,7 @@ def _report_view(row: AgentReport) -> InvestigationReportView:
         recommended_next_step=_action_view(out.recommended_next_step)
         if out.recommended_next_step
         else None,
+        recommended_candidates=[_action_view(c) for c in out.recommended_candidates],
         alternative_hypotheses=[
             AlternativeHypothesisView(**h.model_dump()) for h in out.alternative_hypotheses
         ],

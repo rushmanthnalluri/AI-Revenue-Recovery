@@ -20,7 +20,6 @@ import type {
   OpportunityDetail,
   PolicyDecisionView,
   PolicyOutcome,
-  PolicyPreview,
   RecoveryActionView,
   RecoveryPlan,
   RecoveryStatus,
@@ -30,7 +29,6 @@ import type {
 export type { PolicyOutcome };
 
 export type StrategyOptionView = StrategyOption;
-export type PolicyPreviewView = PolicyPreview;
 export type RecoveryPlanView = RecoveryPlan;
 export type PolicyDecisionItem = PolicyDecisionView;
 export type RecoveryActionItem = RecoveryActionView;
@@ -73,6 +71,7 @@ const RECOVERY_STATUSES: RecoveryStatus[] = [
   "POLICY_EVALUATED",
   "PENDING_APPROVAL",
   "APPROVED",
+  "SCHEDULED",
   "REJECTED",
   "EXECUTING",
   "VERIFYING",
@@ -91,6 +90,11 @@ function status(value: unknown): RecoveryStatus {
 function outcome(value: unknown): PolicyOutcome {
   const s = str(value);
   return s === "ALLOWED" || s === "BLOCKED" || s === "REQUIRES_APPROVAL" ? s : "BLOCKED";
+}
+
+/** Backend stamps `environment or "research"` on read — mirror that fallback. */
+function environment(value: unknown): "real_test" | "research" {
+  return value === "real_test" ? "real_test" : "research";
 }
 
 // ---------------------------------------------------------------------------
@@ -202,6 +206,7 @@ export function parseOpportunityDetail(value: unknown): OpportunityDetailView {
     reason: strOrNull(r.reason),
     created_at: str(r.created_at),
     expires_at: strOrNull(r.expires_at),
+    environment: environment(r.environment),
     constraints: asRecord(r.constraints),
     actions: Array.isArray(r.actions) ? r.actions.map(parseAction) : [],
     audit: Array.isArray(r.audit) ? r.audit.map(parseAuditRef) : [],
@@ -283,11 +288,3 @@ export function latestAction(detail: OpportunityDetailView): RecoveryActionItem 
   if (actions.length === 0) return null;
   return actions[actions.length - 1] ?? null;
 }
-
-export const TERMINAL_STATUSES: RecoveryStatus[] = [
-  "RECOVERED",
-  "FAILED",
-  "REJECTED",
-  "CANCELLED",
-  "ESCALATED",
-];

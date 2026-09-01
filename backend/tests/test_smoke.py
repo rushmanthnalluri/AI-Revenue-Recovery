@@ -21,7 +21,10 @@ def test_system_health(client):
     assert r.status_code == 200
     body = r.json()
     assert set(body["checks"]) >= {"database", "policy_engine", "llm_provider", "gateway"}
-    assert body["simulation_mode"] is True
+    # With no Razorpay keys configured, gateway falls back to simulator,
+    # but SIMULATION_MODE setting is False (don't force sim when keys exist).
+    assert body["simulation_mode"] is False
+    assert body["checks"]["gateway"]["detail"] == "simulator"
 
 
 def test_404_error_shape(client):

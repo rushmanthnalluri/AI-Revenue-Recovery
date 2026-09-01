@@ -16,6 +16,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from app.services.agent.report import AUTO_EXECUTE_CONFIDENCE_FLOOR
+
 # ---------------------------------------------------------------------------
 # LLM draft schema (what the model is allowed to produce). Lenient on extra
 # keys — the system rebuilds a strict InvestigationOutput from the draft.
@@ -134,6 +136,25 @@ def collect_numbers(obj: Any) -> set[float]:
     return out
 
 
+def collect_target_ids(obj: Any) -> set[str]:
+    """Every ``payment_id``/``opportunity_id`` value inside a JSON-like
+    structure — the action targets a tool actually surfaced this run."""
+    out: set[str] = set()
+
+    def walk(v: Any) -> None:
+        if isinstance(v, dict):
+            for k, x in v.items():
+                if k in ("payment_id", "opportunity_id") and isinstance(x, str) and x:
+                    out.add(x)
+                walk(x)
+        elif isinstance(v, (list, tuple)):
+            for x in v:
+                walk(x)
+
+    walk(obj)
+    return out
+
+
 def _text_amounts_paise(text: str) -> list[tuple[str, float]]:
     """(matched span, paise value) for every money phrase in ``text``."""
     found: list[tuple[str, float]] = []
@@ -211,6 +232,7 @@ def validate_llm_payload(
     tools_called: set[str],
     known_evidence_ids: set[str],
     tool_numbers: set[float],
+    known_target_ids: set[str] | None = None,
 ) -> ValidationResult:
     """Schema-validate an LLM draft, then apply the hallucination guard.
 
@@ -218,6 +240,17 @@ def validate_llm_payload(
     numeric claims and bogus evidence citations are stripped into
     ``stripped_claims`` and degrade the report — they are not retried, because
     the correct behavior is to continue with the lie removed, flagged.
+
+    Beyond the phrase-level guards, two STRUCTURED checks run on the draft
+    (they do not depend on wording, so paraphrasing cannot evade them):
+
+    - proposal grounding: a recommended action may only target a
+      ``payment_id``/``opportunity_id`` a tool surfaced this run
+      (``known_target_ids``); anything else is stripped like a fake citation.
+    - confidence vs evidence coverage: self-reported confidence at or above
+      the auto-execute floor while some (or all) of the cited evidence failed
+      validation is flagged as a degraded reason — the numeric cap itself is
+      applied by the caller at the evidence-calibrated ceiling.
     """
     result = ValidationResult(draft=None)
     try:
@@ -341,6 +374,35 @@ def validate_llm_payload(
                 )
             draft.recommended_next_step = None
 
+    # -- structured check 1: the proposal may only target an id a tool
+    #    surfaced this run (candidate, sampled payment, request result).
+    if draft.recommended_next_step is not None and known_target_ids is not None:
+        step = draft.recommended_next_step
+        cited = [t for t in (step.payment_id, step.opportunity_id) if t]
+        unknown_targets = [t for t in cited if t not in known_target_ids]
+        if unknown_targets:
+            stripped.append(
+                {
+                    "location": "recommended_next_step",
+                    "excerpt": ",".join(unknown_targets),
+                    "reason": "recommended action targets an id no tool returned this run",
+                }
+            )
+            draft.recommended_next_step = None
+
+    # -- structured check 2: confidence at the auto-execute floor while cited
+    #    evidence failed validation is wrong-but-confident by construction.
+    n_cited_facts = len(payload.get("observed_facts") or [])
+    if draft.confidence >= AUTO_EXECUTE_CONFIDENCE_FLOOR and (
+        n_cited_facts == 0 or len(draft.observed_facts) < n_cited_facts
+    ):
+        result.degraded_reasons.append(
+            f"model confidence {draft.confidence} meets the "
+            f"{AUTO_EXECUTE_CONFIDENCE_FLOOR} auto-execute floor but only "
+            f"{len(draft.observed_facts)}/{n_cited_facts} cited fact(s) survived "
+            "validation — confidence exceeds evidence coverage"
+        )
+
     if stripped:
         result.degraded_reasons.append(f"hallucination guard stripped {len(stripped)} unverifiable claim(s)")
     result.draft = draft
@@ -360,6 +422,7 @@ __all__ = [
     "LlmNextStep",
     "ValidationResult",
     "collect_numbers",
+    "collect_target_ids",
     "extract_json",
     "validate_llm_payload",
 ]

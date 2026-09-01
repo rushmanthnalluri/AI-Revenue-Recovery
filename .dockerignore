@@ -11,8 +11,9 @@
 backend/.venv
 .venv
 # Local ML experiment artifacts stay out of images — except the committed
-# ACTIVE diagnosis model (two tiny files) so container diagnosis matches
-# local demo diagnosis deterministically.
+# ACTIVE diagnosis model files (active RF ~9.8 MB, its LR rollback ~10 KB,
+# plus the tiny diagnosis_active.json pointer) so container diagnosis
+# matches local demo diagnosis deterministically.
 backend/artifacts/*
 !backend/artifacts/diagnosis_active.json
 !backend/artifacts/diagnosis_logistic_regression_v20260826T234303Z-c5434878.joblib

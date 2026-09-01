@@ -17,5 +17,6 @@ COPY policies/ ./policies/
 
 EXPOSE 8000
 
-# Migrate then serve. DATABASE_URL is injected by docker-compose.
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# Migrate then serve. DATABASE_URL is injected by docker-compose / Render.
+# Render routes traffic to $PORT (default 10000); compose/local stays on 8000.
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

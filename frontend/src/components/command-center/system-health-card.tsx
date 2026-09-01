@@ -35,7 +35,7 @@ export function SystemHealthCard() {
     >
       {health.isPending ? (
         <div aria-busy="true" aria-label="Loading system health" className="space-y-2">
-          {Array.from({ length: 4 }).map((_, i) => (
+          {Array.from({ length: 5 }).map((_, i) => (
             <Skeleton key={i} className="h-8 w-full" />
           ))}
         </div>
@@ -53,10 +53,17 @@ export function SystemHealthCard() {
               <dd className="normal-case text-text-2">{health.data.app_env}</dd>
             </div>
             <div className="flex items-center gap-1.5">
-              <dt>mode</dt>
+              <dt>gateway</dt>
               <dd>
-                <Badge variant={health.data.simulation_mode ? "accent" : "outline"}>
-                  {health.data.simulation_mode ? "simulation" : "live gateway"}
+                <Badge
+                  variant={health.data.simulation_mode ? "info" : "success"}
+                  title={
+                    health.data.simulation_mode
+                      ? "Backend is configured with the synthetic gateway twin — real Razorpay calls require keys and SIMULATION_MODE=false"
+                      : "Backend is configured for live Razorpay API calls"
+                  }
+                >
+                  {health.data.simulation_mode ? "synthetic gateway" : "razorpay api"}
                 </Badge>
               </dd>
             </div>

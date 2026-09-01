@@ -113,11 +113,16 @@ class RevenueConfig:
     )
 
     # Default failure class per opportunity_type when the opportunity has no
-    # classifiable payment attached (used by opportunity_estimate only).
+    # classifiable payment signal — either no payment is attached or the
+    # payment's telemetry classifies as unknown (used by opportunity_estimate).
     opportunity_class_defaults: dict[str, FailureClass] = field(
         default_factory=lambda: {
             "failed_payment_retry": FailureClass.UNKNOWN,
             "dropped_checkout": FailureClass.ABANDONMENT,
+            # A payment stuck in 'created' past the inactivity threshold is an
+            # abandoned checkout with an attempt id attached — same intent
+            # class as dropped_checkout, just observed one step further in.
+            "stuck_checkout_payment": FailureClass.ABANDONMENT,
             # Razorpay's own T+1..T+3 retries already exhausted the transient
             # share, so what remains behaves like a soft decline, not a timeout.
             "subscription_halted": FailureClass.SOFT_DECLINE,

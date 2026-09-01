@@ -99,6 +99,10 @@ class InvestigationReportView(BaseModel):
     ai_inferences: list[AiInferenceView] = Field(default_factory=list)
     recommended_actions: list[RecommendedActionView] = Field(default_factory=list)
     recommended_next_step: RecommendedActionView | None = None
+    # Ranked top-N candidate proposals ([0] is the headline, i.e. identical to
+    # recommended_next_step); additive — recommended_actions/recommended_next_step
+    # are unchanged.
+    recommended_candidates: list[RecommendedActionView] = Field(default_factory=list)
     alternative_hypotheses: list[AlternativeHypothesisView] = Field(default_factory=list)
     revenue_implications: RevenueImplicationsView | None = None
     uncertainties: list[str] = Field(default_factory=list)

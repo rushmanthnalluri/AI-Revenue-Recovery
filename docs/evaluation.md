@@ -574,8 +574,16 @@ the stored runs on 7/7 anchors.
    the signal on the 2026-08-27 anchor, where it *did* cross (§3b recall
    6/6). Counting that anchor, the kind is caught **1/8** — the clearest
    evidence in this section that a single-window detection headline
-   overstates recall, and a candidate follow-up (night-bucket floors),
-   disclosed rather than tuned here.
+   overstates recall. The candidate follow-up named here — night-bucket
+   floors — has since landed as an **opt-in, default-OFF** mode
+   (`night_regime_floors` on the detection request: an all-night anomaly
+   is judged by a 0.60 share / 15pp absolute floor set instead of the
+   global 0.90 / 25pp; see docs/detection.md "Incident-level noise
+   floors"). It ships dark precisely so this 0/7 reading and every other
+   published number stay valid: no anchor above was re-run with it, and
+   its only evidence so far is synthetic-fixture tests
+   (`backend/tests/detection/test_night_regime_floors.py`) — disclosed,
+   not tuned, exactly as this note promised.
 3. **`subscription_failure_spike` is a knife-edge: exactly 5 injected
    failures over its 48h window on every anchor, found 3/7** (08-10,
    08-18, 08-25; 4/8 counting 2026-08-27). Window failure totals

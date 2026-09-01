@@ -23,7 +23,7 @@ function runName(): string {
   return `console-${new Date().toISOString().slice(0, 16).replace("T", "-").replace(":", "-")}`;
 }
 
-export function EvaluationView() {
+export function EvaluationView({ embedded = false }: { embedded?: boolean }) {
   const queryClient = useQueryClient();
   const router = useRouter();
   const pathname = usePathname();
@@ -32,11 +32,15 @@ export function EvaluationView() {
   const selectedId = searchParams.get("run");
   const selectRun = React.useCallback(
     (id: string | null) => {
-      router.replace(id ? `${pathname}?run=${encodeURIComponent(id)}` : pathname, {
-        scroll: false,
-      });
+      // Preserve sibling params (e.g. tab=evaluation when embedded in the
+      // Research Lab) so deep links keep working.
+      const params = new URLSearchParams(searchParams.toString());
+      if (id) params.set("run", id);
+      else params.delete("run");
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     },
-    [router, pathname],
+    [router, pathname, searchParams],
   );
 
   const scenarios = useQuery({
@@ -74,9 +78,9 @@ export function EvaluationView() {
     },
     onError: (error, variables) => {
       void queryClient.invalidateQueries({ queryKey: ["evaluation"] });
-      // The harness runs synchronously and usually outlives the 10s client
-      // timeout — that is not a failure: the run row already exists and the
-      // runs table polls until it completes.
+      // The harness runs synchronously and can outlive even the 120s
+      // long-running client timeout — that is not a failure: the run row
+      // already exists and the runs table polls until it completes.
       if (error instanceof ApiError && error.isUnreachable && error.code === "timeout") {
         setAwaitingName(variables.name);
       }
@@ -113,17 +117,31 @@ export function EvaluationView() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Evaluation Lab"
-        description="Detection, diagnosis, and recovery scored against simulator ground truth — two arms, same seed, stored rows only."
-        actions={
+      {embedded ? (
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <p className="max-w-2xl text-sm text-text-2">
+            Detection, diagnosis, and recovery scored against simulator ground truth — two
+            arms, same seed, stored rows only.
+          </p>
           <EvaluationRunTrigger
             scenarios={scenarios.data?.scenarios}
             isPending={runMutation.isPending}
             onRun={startRun}
           />
-        }
-      />
+        </div>
+      ) : (
+        <PageHeader
+          title="Evaluation Lab"
+          description="Detection, diagnosis, and recovery scored against simulator ground truth — two arms, same seed, stored rows only."
+          actions={
+            <EvaluationRunTrigger
+              scenarios={scenarios.data?.scenarios}
+              isPending={runMutation.isPending}
+              onRun={startRun}
+            />
+          }
+        />
+      )}
 
       {awaitingName ? (
         <div className="flex items-center gap-2.5 rounded-lg border border-accent-border bg-accent-wash px-4 py-3.5 text-[13.5px] text-text-2">

@@ -14,9 +14,11 @@
 import type {
   ActionResponse,
   ApiErrorEnvelope,
+  ApprovalsSummaryResponse,
   ApproveRequest,
   AuditListParams,
   AuditListResponse,
+  AuditVerifyResponse,
   BuildRequest,
   BuildResponse,
   CancelRequest,
@@ -24,6 +26,7 @@ import type {
   DashboardTimeseries,
   DemoResetResponse,
   DetectionRunRequest,
+  Environment,
   EscalateRequest,
   EvaluationMetrics,
   EvaluationRunDetail,
@@ -36,11 +39,20 @@ import type {
   IncidentListResponse,
   InvestigateRequest,
   JsonObject,
+  MerchantConnection,
+  MerchantSyncResponse,
+  MerchantSyncToggle,
   OpportunityDetail,
   OpportunityListParams,
   OpportunityListResponse,
   PageParams,
+  PaymentListParams,
+  PaymentListResponse,
+  PolicyBacktestRequest,
+  PolicyBacktestResponse,
   QueryValue,
+  ReconcileRequest,
+  ReconcileResponse,
   RecoveryPlan,
   RejectRequest,
   RunEvaluationRequest,
@@ -95,6 +107,8 @@ interface RequestOptions {
   body?: unknown;
   headers?: Record<string, string>;
   timeoutMs?: number;
+  /** "blob" returns the raw response body as a Blob (file downloads). */
+  responseType?: "blob";
 }
 
 function buildUrl(path: string, query?: Record<string, QueryValue>): string {
@@ -119,7 +133,7 @@ function isErrorEnvelope(body: unknown): body is ApiErrorEnvelope {
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = "GET", query, body, headers = {}, timeoutMs = DEFAULT_TIMEOUT_MS } = options;
+  const { method = "GET", query, body, headers = {}, timeoutMs = DEFAULT_TIMEOUT_MS, responseType } = options;
 
   const finalHeaders: Record<string, string> = {
     Accept: "application/json",
@@ -152,7 +166,9 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   }
 
   let parsed: unknown = null;
-  const text = await response.text();
+  // Blob responses keep the body untouched on success; error bodies are still
+  // read as text so the envelope/detail mapping below works unchanged.
+  const text = response.ok && responseType === "blob" ? "" : await response.text();
   if (text) {
     try {
       parsed = JSON.parse(text);
@@ -190,6 +206,10 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     throw new ApiError(response.status, "http_error", `HTTP ${response.status} ${response.statusText}`);
   }
 
+  if (responseType === "blob") {
+    return (await response.blob()) as T;
+  }
+
   return parsed as T;
 }
 
@@ -208,15 +228,37 @@ export const api = {
     health: () => request<SystemHealth>("/api/v1/system/health"),
   },
   dashboard: {
-    summary: () => request<DashboardSummary>("/api/v1/dashboard/summary"),
+    summary: (environment: Environment = "real_test") =>
+      request<DashboardSummary>("/api/v1/dashboard/summary", {
+        query: { environment },
+      }),
     timeseries: (params: TimeseriesParams = {}) =>
       request<DashboardTimeseries>("/api/v1/dashboard/timeseries", {
         query: {
           metric: params.metric ?? "payment_success_rate",
           granularity: params.granularity ?? ("hour" satisfies Granularity),
           window_hours: params.window_hours ?? 24,
+          environment: params.environment ?? "real_test",
         },
       }),
+  },
+  payments: {
+    list: (params: PaymentListParams = {}) =>
+      request<PaymentListResponse>("/api/v1/payments", { query: { ...params } }),
+  },
+  merchant: {
+    /** Live Razorpay Test Mode connection state (secrets stay server-side). */
+    connection: () => request<MerchantConnection>("/api/v1/merchant/connection"),
+    /** Pull the latest orders/payments/links/subscriptions from the gateway. */
+    sync: () =>
+      request<MerchantSyncResponse>("/api/v1/merchant/sync", {
+        method: "POST",
+        timeoutMs: LONG_RUNNING_TIMEOUT_MS,
+      }),
+    enable: () =>
+      request<MerchantSyncToggle>("/api/v1/merchant/sync/enable", { method: "POST" }),
+    disable: () =>
+      request<MerchantSyncToggle>("/api/v1/merchant/sync/disable", { method: "POST" }),
   },
   incidents: {
     list: (params: IncidentListParams = {}) =>
@@ -241,6 +283,18 @@ export const api = {
         long-running timeout with demo.triggerScenario / evaluation.run. */
     buildOpportunities: (body: BuildRequest) =>
       request<BuildResponse>("/api/v1/recovery/opportunities/build", {
+        method: "POST",
+        body,
+        timeoutMs: LONG_RUNNING_TIMEOUT_MS,
+      }),
+    /** Operator-triggered reconciliation sweep (ADR 0011): every UNKNOWN
+        action is re-queried against gateway truth (GETs only — never a blind
+        retry) and each failed webhook event is re-run through the live
+        handler registry. Synchronous server-side (per-action gateway
+        round-trips), so it shares the long-running timeout. Idempotent — a
+        second sweep over a clean database is a no-op. */
+    reconcile: (body: ReconcileRequest = {}) =>
+      request<ReconcileResponse>("/api/v1/recovery/reconcile", {
         method: "POST",
         body,
         timeoutMs: LONG_RUNNING_TIMEOUT_MS,
@@ -274,10 +328,32 @@ export const api = {
         method: "POST",
         body,
       }),
+    /** Whole-queue COUNT/SUM over the pending-approval lane — the correct
+        "Value awaiting decision" beyond page 1 of the opportunities list. */
+    approvalsSummary: (environment: Environment = "real_test") =>
+      request<ApprovalsSummaryResponse>("/api/v1/recovery/opportunities/approvals-summary", {
+        query: { environment },
+      }),
   },
   audit: {
     list: (params: AuditListParams = {}) =>
       request<AuditListResponse>("/api/v1/audit", { query: { ...params } }),
+    /** Read-only full-chain verification of the hash-chained audit trail.
+        Deliberately not environment-scoped — the chain spans both
+        environments in insertion order. */
+    verify: () => request<AuditVerifyResponse>("/api/v1/audit/verify"),
+  },
+  policy: {
+    /** Replay stored policy decisions against the CURRENT policy document.
+        The replay writes nothing (read-only report); only the run itself
+        joins the audit trail. Synchronous server-side (up to `limit`
+        decisions re-evaluated), so it shares the long-running timeout. */
+    backtest: (body: PolicyBacktestRequest = {}) =>
+      request<PolicyBacktestResponse>("/api/v1/policy/backtest", {
+        method: "POST",
+        body,
+        timeoutMs: LONG_RUNNING_TIMEOUT_MS,
+      }),
   },
   evaluation: {
     runs: (params: PageParams = {}) =>
@@ -313,6 +389,18 @@ export const api = {
         body: payload,
         headers: signature ? { "X-Razorpay-Signature": signature } : {},
       }),
+  },
+  export: {
+    audit: (params: { environment: Environment; format: "csv" | "json"; entity_type?: string; entity_id?: string }) =>
+      request<Blob>("/api/v1/export/audit", { query: params, headers: { Accept: params.format === "json" ? "application/json" : "text/csv" }, responseType: "blob" }),
+    incidents: (params: { environment: Environment; format: "csv" | "json"; status?: string; severity?: string; metric?: string; detected_from?: string; detected_to?: string }) =>
+      request<Blob>("/api/v1/export/incidents", { query: params, headers: { Accept: params.format === "json" ? "application/json" : "text/csv" }, responseType: "blob" }),
+    recovery: (params: { environment: Environment; format: "csv" | "json" }) =>
+      request<Blob>("/api/v1/export/recovery", { query: params, headers: { Accept: params.format === "json" ? "application/json" : "text/csv" }, responseType: "blob" }),
+    payments: (params: { environment: Environment; format: "csv" | "json"; status?: string; method?: string }) =>
+      request<Blob>("/api/v1/export/payments", { query: params, headers: { Accept: params.format === "json" ? "application/json" : "text/csv" }, responseType: "blob" }),
+    summary: (params: { environment: Environment; format: "csv" | "json" }) =>
+      request<Blob>("/api/v1/export/summary", { query: params, headers: { Accept: params.format === "json" ? "application/json" : "text/csv" }, responseType: "blob" }),
   },
 };
 

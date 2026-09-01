@@ -15,6 +15,13 @@ incident instead; the row is flagged ``heuristic=true`` in the prediction
 output, uses model_name ``diagnosis-heuristic``, and its explanation starts
 with ``[heuristic]``.
 
+Re-scoping triage (rescope.py, default OFF — env ``DIAGNOSIS_WINDOW_RESCOPE``
+or the constructor knob): before feature computation the detection window is
+tightened to the floor-breaching span, so diluted scheduled-pass frames do
+not wash out the signatures the model was selected on. Both frames are
+recorded on the companion prediction row (``output["window"]``) and, when
+the frame changed, on the explanation; the incident row is never mutated.
+
 Schema note: the shared ``diagnoses`` table has no dedicated proba/top3/
 heuristic columns and this package may not edit shared models — so the
 structured output lives on the companion ``model_predictions`` row (the
@@ -30,8 +37,17 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from app.models import Diagnosis, Incident, ModelPrediction
-from app.services.diagnosis.features import compute_features_for_incident, features_to_vector
+from app.services.diagnosis.features import (
+    compute_features_for_incident,
+    features_to_vector,
+    incident_windows,
+)
 from app.services.diagnosis.heuristic import HEURISTIC_VERSION, heuristic_diagnose
+from app.services.diagnosis.rescope import (
+    RescopedWindow,
+    rescope_enabled,
+    rescope_incident_window,
+)
 from app.services.diagnosis.training import load_active_artifact
 
 logger = logging.getLogger(__name__)
@@ -45,9 +61,19 @@ class DiagnosisError(RuntimeError):
 
 
 class DiagnosisService:
-    def __init__(self, session: Session, artifacts_dir: Path | str | None = None) -> None:
+    def __init__(
+        self,
+        session: Session,
+        artifacts_dir: Path | str | None = None,
+        *,
+        rescope_windows: bool | None = None,
+    ) -> None:
         self.session = session
         self.artifacts_dir = Path(artifacts_dir) if artifacts_dir else DEFAULT_ARTIFACTS_DIR
+        # Window re-scoping triage knob: None defers to the
+        # DIAGNOSIS_WINDOW_RESCOPE env var; default OFF keeps the published
+        # evaluation anchors (measured on as-detected frames) deterministic.
+        self.rescope_windows = rescope_windows
 
     # -- public API ---------------------------------------------------------
 
@@ -57,7 +83,9 @@ class DiagnosisService:
             raise DiagnosisError(f"incident {incident_id!r} not found")
 
         try:
-            features = compute_features_for_incident(self.session, incident)
+            scope = self._resolve_scope(incident)
+            window = (scope.scored_start, scope.scored_end) if scope.applied else None
+            features = compute_features_for_incident(self.session, incident, window=window)
         except ValueError as exc:
             raise DiagnosisError(str(exc)) from exc
 
@@ -69,7 +97,7 @@ class DiagnosisService:
             outcome = self._predict_with_heuristic(features)
 
         version = self._next_version(incident_id)
-        explanation = self._explain(outcome)
+        explanation = self._explain(outcome, scope)
         diagnosis = Diagnosis(
             incident_id=incident_id,
             version=version,
@@ -100,23 +128,42 @@ class DiagnosisService:
                     "top3": outcome["top3"],
                     "heuristic": outcome["heuristic"],
                     "reasons": outcome.get("reasons", []),
+                    "window": scope.as_dict(),
                 },
                 score=outcome["confidence"],
             )
         )
         self.session.commit()
         logger.info(
-            "diagnosed incident %s as %s (conf=%.3f, model=%s@%s, heuristic=%s)",
+            "diagnosed incident %s as %s (conf=%.3f, model=%s@%s, heuristic=%s, window_rescoped=%s)",
             incident_id,
             outcome["label"],
             outcome["confidence"],
             outcome["model_name"],
             outcome["model_version"],
             outcome["heuristic"],
+            scope.applied,
         )
         return diagnosis
 
     # -- internals ----------------------------------------------------------
+
+    def _resolve_scope(self, incident: Incident) -> RescopedWindow:
+        """The frame diagnosis will score. When the knob is off — or the
+        triage cannot prove a tighter span — this is the incident's own
+        window. Triage failures degrade to the original frame (logged), never
+        to a failed diagnosis."""
+        if not rescope_enabled(self.rescope_windows):
+            _, _, w_start, w_end = incident_windows(incident)
+            return RescopedWindow(w_start, w_end, w_start, w_end, False, "disabled")
+        try:
+            return rescope_incident_window(self.session, incident)
+        except ValueError:
+            raise  # bad incident window — classify()'s error contract
+        except Exception:  # noqa: BLE001 — triage must never break diagnosis
+            logger.exception("window re-scoping failed for incident %s; scoring the original frame", incident.id)
+            _, _, w_start, w_end = incident_windows(incident)
+            return RescopedWindow(w_start, w_end, w_start, w_end, False, "error")
 
     def _next_version(self, incident_id: str) -> int:
         current = self.session.execute(
@@ -165,15 +212,22 @@ class DiagnosisService:
         }
 
     @staticmethod
-    def _explain(outcome: dict[str, Any]) -> str:
+    def _explain(outcome: dict[str, Any], scope: RescopedWindow) -> str:
         top3 = ", ".join(f"{t['label']} {t['probability']:.2f}" for t in outcome["top3"])
         prefix = "[heuristic] " if outcome["heuristic"] else ""
         reasons = ""
         if outcome.get("reasons"):
             reasons = " Rules fired: " + "; ".join(outcome["reasons"]) + "."
+        window_note = ""
+        if scope.applied:
+            window_note = (
+                " Detection window re-scoped to the anomalous span "
+                f"{scope.scored_start.isoformat()}..{scope.scored_end.isoformat()} "
+                f"(detection frame {scope.original_start.isoformat()}..{scope.original_end.isoformat()})."
+            )
         return (
             f"{prefix}Predicted {outcome['label']} "
-            f"(confidence {outcome['confidence']:.2f}). Top-3: {top3}.{reasons}"
+            f"(confidence {outcome['confidence']:.2f}). Top-3: {top3}.{reasons}{window_note}"
         )
 
 

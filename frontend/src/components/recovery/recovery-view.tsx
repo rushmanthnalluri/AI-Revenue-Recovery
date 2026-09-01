@@ -6,7 +6,9 @@ import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useEnvironment } from "@/components/environment-provider";
 import { PageHeader } from "@/components/page-header";
+import { ProvenanceChip } from "@/components/provenance";
 import { Badge } from "@/components/ui/badge";
 import { PipelinePanel } from "@/components/recovery/pipeline-panel";
 import { ApprovalsPanel } from "@/components/recovery/approvals-panel";
@@ -32,6 +34,7 @@ export function RecoveryPlannerView() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
+  const { environment } = useEnvironment();
   const tab = tabFromParam(searchParams.get("tab"));
   const tabRefs = React.useRef<(HTMLButtonElement | null)[]>([]);
 
@@ -48,9 +51,14 @@ export function RecoveryPlannerView() {
 
   // Same key as the ApprovalsPanel queue — one shared fetch feeds the badge.
   const pending = useQuery({
-    queryKey: ["recovery", "opportunities", "pending-approval"],
+    queryKey: ["recovery", "opportunities", "pending-approval", environment],
     queryFn: () =>
-      api.recovery.opportunities({ status: "PENDING_APPROVAL", page: 1, page_size: 50 }),
+      api.recovery.opportunities({
+        status: "PENDING_APPROVAL",
+        page: 1,
+        page_size: 50,
+        environment,
+      }),
     refetchInterval: 10_000,
   });
   const pendingCount = pending.data?.total ?? 0;
@@ -73,7 +81,12 @@ export function RecoveryPlannerView() {
     <div className="space-y-6">
       <PageHeader
         title="Recovery"
-        description="Policy-gated revenue recovery — AI proposes and ranks strategies, the deterministic policy engine decides, humans settle the edge cases."
+        description={
+          environment === "real_test"
+            ? "Policy-gated revenue recovery on your Razorpay Test Mode activity — AI proposes and ranks strategies, the deterministic policy engine decides, humans settle the edge cases."
+            : "Policy-gated revenue recovery on the synthetic research dataset — AI proposes and ranks strategies, the deterministic policy engine decides, humans settle the edge cases."
+        }
+        actions={<ProvenanceChip environment={environment} />}
       />
 
       <div

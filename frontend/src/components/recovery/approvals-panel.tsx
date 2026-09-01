@@ -9,6 +9,7 @@ import type { OpportunitySummary } from "@/lib/types";
 import { formatINR, formatNumber, timeAgo } from "@/lib/format";
 import { ConfidenceBar } from "@/components/confidence-bar";
 import { EmptyState } from "@/components/empty-state";
+import { useEnvironment } from "@/components/environment-provider";
 import { ErrorPanel } from "@/components/error-panel";
 import { MetricStrip } from "@/components/metric-strip";
 import { SectionCard } from "@/components/section-card";
@@ -326,20 +327,34 @@ function UnknownActionCard({ opportunity }: { opportunity: OpportunitySummary })
 // ---------------------------------------------------------------------------
 
 export function ApprovalsPanel() {
+  const { environment } = useEnvironment();
   const pending = useQuery({
-    queryKey: ["recovery", "opportunities", "pending-approval"],
-    queryFn: () => api.recovery.opportunities({ status: "PENDING_APPROVAL", page: 1, page_size: 50 }),
+    queryKey: ["recovery", "opportunities", "pending-approval", environment],
+    queryFn: () =>
+      api.recovery.opportunities({
+        status: "PENDING_APPROVAL",
+        page: 1,
+        page_size: 50,
+        environment,
+      }),
     refetchInterval: 10_000,
   });
   const unknown = useQuery({
-    queryKey: ["recovery", "opportunities", "unknown"],
-    queryFn: () => api.recovery.opportunities({ status: "UNKNOWN", page: 1, page_size: 50 }),
+    queryKey: ["recovery", "opportunities", "unknown", environment],
+    queryFn: () =>
+      api.recovery.opportunities({ status: "UNKNOWN", page: 1, page_size: 50, environment }),
     refetchInterval: 15_000,
+  });
+  // Whole-queue aggregate (SQL COUNT/SUM over the ENTIRE pending-approval
+  // lane) — the correct queue value beyond page 1 of the list.
+  const summary = useQuery({
+    queryKey: ["recovery", "approvals-summary", environment],
+    queryFn: () => api.recovery.approvalsSummary(environment),
+    refetchInterval: 10_000,
   });
 
   const pendingItems = pending.data?.items ?? [];
   const unknownItems = unknown.data?.items ?? [];
-  const pendingValue = pendingItems.reduce((sum, o) => sum + o.amount_paise, 0);
   const showUnknownSection = unknown.isPending || unknown.isError || unknownItems.length > 0;
 
   return (
@@ -357,9 +372,9 @@ export function ApprovalsPanel() {
           {
             key: "pending-value",
             label: "Value awaiting decision",
-            value: pending.data ? formatINR(pendingValue) : "—",
-            loading: pending.isPending,
-            hint: "summed over the pending queue",
+            value: summary.data ? formatINR(summary.data.pending_amount_paise) : "—",
+            loading: summary.isPending,
+            hint: "summed across the entire pending queue",
           },
           {
             key: "unknown",
@@ -387,7 +402,11 @@ export function ApprovalsPanel() {
         ) : pendingItems.length === 0 ? (
           <EmptyState
             title="Approval queue is clear"
-            description="Nothing is waiting on a human decision. Items land here when the policy gate returns REQUIRES_APPROVAL — trigger a demo scenario from the Command Center and build opportunities from an incident to see the flow."
+            description={
+              environment === "real_test"
+                ? "Nothing is waiting on a human decision. Items land here when the policy gate returns REQUIRES_APPROVAL on your observed Razorpay Test Mode activity."
+                : "Nothing is waiting on a human decision. Items land here when the policy gate returns REQUIRES_APPROVAL — run a scenario from the Research Lab and build opportunities from an incident to see the flow."
+            }
           />
         ) : (
           pendingItems.map((opportunity) => (

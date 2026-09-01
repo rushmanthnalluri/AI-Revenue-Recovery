@@ -965,10 +965,23 @@ class EvaluationRunner:
                     )
 
         interventions = sum(by_type.values())
+        # Per-type opportunity breakdown (claim-matrix 16.1): the
+        # failed-payment vs stuck-checkout vs subscription split, persisted in
+        # the run metrics so it is machine-checkable instead of derived during
+        # run analysis. Additive: older runs simply lack the key.
+        opportunity_types = {
+            str(otype): int(count)
+            for otype, count in db.execute(
+                sa.select(
+                    RecoveryOpportunity.opportunity_type, sa.func.count()
+                ).group_by(RecoveryOpportunity.opportunity_type)
+            )
+        }
         return {
             "opportunities_count": int(
                 db.scalar(sa.select(sa.func.count()).select_from(RecoveryOpportunity)) or 0
             ),
+            "opportunity_types": opportunity_types,
             "actions_count": len(actions),
             "interventions_count": interventions,
             "interventions_by_type": by_type,

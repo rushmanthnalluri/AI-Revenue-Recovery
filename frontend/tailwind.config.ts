@@ -42,7 +42,7 @@ const config: Config = {
         /* status */
         success: { DEFAULT: "#6FBF8C", dim: "rgba(111, 191, 140, 0.1)" },
         warning: { DEFAULT: "#D9A63F", dim: "rgba(217, 166, 63, 0.14)" },
-        danger: { DEFAULT: "#D36B62", dim: "rgba(211, 107, 98, 0.1)" },
+        danger: { DEFAULT: "#D36B62", dim: "rgba(211, 107, 98, 0.1)", ink: "#21100E" },
         info: { DEFAULT: "#6E8FA0", dim: "rgba(110, 143, 160, 0.12)" },
 
         /* legacy semantic aliases → new ramp */

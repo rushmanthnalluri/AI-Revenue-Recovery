@@ -25,10 +25,10 @@ class Settings(BaseSettings):
     )
 
     DATABASE_URL: str = "sqlite:///./pulserecover.db"
-    # "prod" is reserved: when APP_ENV == "prod" the demo/detection API-key
-    # exemptions in app.main are disabled. Only dev/test/demo are used today.
-    APP_ENV: Literal["dev", "test", "demo"] = "dev"
-    SIMULATION_MODE: bool = True
+    # "prod" is reachable: when APP_ENV == "prod" the demo/detection API-key
+    # exemptions in app.main are disabled.
+    APP_ENV: Literal["dev", "test", "demo", "prod"] = "dev"
+    SIMULATION_MODE: bool = False
 
     RAZORPAY_KEY_ID: str = ""
     RAZORPAY_KEY_SECRET: str = ""
@@ -50,17 +50,23 @@ class Settings(BaseSettings):
     POLICY_FILE: str = "policies/default.yaml"
     LOG_LEVEL: str = "INFO"
 
+    # In-process worker tier (docs/worker.md). OFF by default: the test suite,
+    # one-shot scripts, and the evaluation harness must never spawn the
+    # background tick loop; production/demo deployments opt in explicitly.
+    WORKER_ENABLED: bool = False
+    WORKER_TICK_SECONDS: float = 30.0
+    # Reconciliation sweep cadence (ADR 0011), run by the worker.
+    WORKER_RECONCILE_SECONDS: float = 900.0
+    # NotificationSender selection: "logging" (simulated default) |
+    # "razorpay_notes" (real-environment seam — see app.services.worker.senders).
+    WORKER_NOTIFICATION_SENDER: str = "logging"
+
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def _split_cors(cls, v: object) -> object:
         if isinstance(v, str):
             return [o.strip() for o in v.split(",") if o.strip()]
         return v
-
-    @property
-    def simulation_mode(self) -> bool:
-        """True unless explicitly disabled AND running against real keys."""
-        return self.SIMULATION_MODE
 
 
 @lru_cache

@@ -216,6 +216,26 @@ incident only when it clears **all three** floors:
 Per-metric floor defaults apply only when the request does not set the floor
 explicitly (`model_fields_set`); an explicit request field always wins.
 
+**Opt-in night-regime floors (`insufficient_fund_share` only).** The request
+knob `night_regime_floors: true` (default **false** — the published operating
+point) swaps the share/absolute bars for an anomaly whose flagged buckets
+**all** sit inside the night band (engine constants: UTC hour ≥ 18 or < 1,
+i.e. 18:00–01:00 UTC ≈ 00:00–06:30 IST, the measured night trough): the
+`min_observed` bar drops 0.90 → **0.60** and the absolute-deviation floor
+25pp → **15pp**. Rationale, from the published measurements: the 0.90 bar
+exists only because organic *daytime* clusters reach 0.71 share — at night
+the mix has no such competitor, while the injected wave's failures spread
+across trough buckets and dilute under 0.90 (docs/evaluation.md §3b note 2).
+One daytime bucket in the episode disqualifies the night set, so organic
+daytime clusters are judged by the global floors in both modes; the
+volume/persistence floors and every detector are untouched. Incidents
+admitted under the night set are stamped `meta.night_regime_floors: true`
+(and the run detail carries `night_regime_floors=on`) so downstream readers
+can tell them apart from the published operating point. The values are
+chosen from the published measurements and validated on synthetic fixtures
+(`backend/tests/detection/test_night_regime_floors.py`) — disclosed, not
+re-tuned on the anchor suite.
+
 Fires that fail a floor are counted in the run response as
 `anomalies_filtered` (and logged with the failed floor), not persisted.
 Every floor is request-configurable, so threshold tuning via `dry_run` can
@@ -476,8 +496,13 @@ Per-scenario detail (recorded at the same run):
 - Baseline poisoning: a window that starts inside an ongoing outage detects
   nothing (accepted trade-off of baselines-first). The error-share metric
   sidesteps this for the insufficient-funds wave only in the ONE pass that
-  straddles the wave start; a same-time-yesterday baseline remains the
-  structural fix and is deliberately out of scope.
+  straddles the wave start. The structural fix now exists as an OPT-IN:
+  `baseline_mode: "same_time_yesterday"` on the run request builds the
+  baseline from the same clock window shifted back 24h (implemented in
+  `app/services/detection/engine.py`; tested in
+  `backend/tests/detection/test_same_time_yesterday.py`). It defaults OFF —
+  every number above was measured with the leading window, so the published
+  operating point stays the default.
 - Sparse traffic: buckets under `min_bucket_count` are skipped; very quiet
   merchants get no detection rather than noisy detection. The two share
   metrics carry their own lower count floors (measured above), which moves
@@ -493,7 +518,13 @@ Per-scenario detail (recorded at the same run):
   7) — statistically *stronger* than the wave's night bucket (3 failures,
   share 1.0, z 3.2). Only near-single-class hours are admitted; a wave whose
   night band never produces one is missed (see
-  `ml/experiments/detection/exp003/failure_analysis.md`).
+  `ml/experiments/detection/exp003/failure_analysis.md`). The structural
+  follow-up now exists as an OPT-IN: `night_regime_floors: true` on the run
+  request judges an all-night anomaly by a lower share/absolute floor set
+  (0.60 / 15pp; implemented in `app/services/detection/engine.py`, tested in
+  `backend/tests/detection/test_night_regime_floors.py`). It defaults OFF —
+  every number above was measured with the global floor set, so the
+  published operating point stays the default.
 - The route scan can admit a strong organic latency episode when it rises
   across methods (measured once on standard/seed7: dev +907%, 1h span) —
   corroboration kills mix shifts, not genuine organic multi-method latency
@@ -504,8 +535,13 @@ Per-scenario detail (recorded at the same run):
 - Seasonality: the leading-window baseline cannot tell a daily-cycle trough
   from a degradation. The noise floors + episode dedup suppress the
   resulting incidents (measured above), but multi-hour organic swings still
-  occasionally admit (2 residual FPs in the measured run). A same-time-
-  yesterday baseline is the real fix and is deliberately out of scope.
+  occasionally admit (2 residual FPs in the measured run). The real fix is
+  implemented and opt-in: `baseline_mode: "same_time_yesterday"` compares
+  each bucket against yesterday's same hours (a daily dip compares against
+  yesterday's dip and stays silent; a genuinely new degradation against a
+  healthy yesterday still fires). It needs >= 4 decidable baseline buckets
+  yesterday or the metric stays silent for the pass, and it defaults OFF to
+  preserve the measured operating point above.
 - The noise floors trade detection latency for precision: first persisted
   detection waits for persistence + volume evidence (MTTD 415 → 895 min on
   the standard harness). `min_flagged_run=1` / `min_flagged_volume=0`

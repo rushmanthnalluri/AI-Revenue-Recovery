@@ -12,6 +12,7 @@ import {
 } from "@/components/audit/audit-action-meta";
 import { AuditEntityChip } from "@/components/audit/audit-entity-chip";
 import { AuditEntryDetails } from "@/components/audit/audit-entry-details";
+import { EnvironmentBadge } from "@/components/provenance";
 
 export function auditAnchorId(entryId: string): string {
   return `audit-${entryId}`;
@@ -133,6 +134,7 @@ export function AuditTimeline({ entries }: AuditTimelineProps) {
               </div>
 
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <EnvironmentBadge environment={entry.environment} />
                 <ActorChip actor={entry.actor} />
                 <AuditEntityChip entityType={entry.entity_type} entityId={entry.entity_id} />
                 {entry.request_id ? (

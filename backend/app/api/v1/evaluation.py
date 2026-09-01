@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import EvaluationRun, Experiment
+from app.models.base import ENVIRONMENT_RESEARCH
 from app.schemas.evaluation import (
     EvaluationMetrics,
     EvaluationRunDetail,
@@ -24,6 +25,7 @@ from app.schemas.evaluation import (
     RunEvaluationResponse,
 )
 from app.services.evaluation import EvaluationRunner
+from app.services.policy import audit
 
 router = APIRouter(prefix="/api/v1/evaluation", tags=["evaluation"])
 
@@ -139,6 +141,28 @@ def run_evaluation(
         raise HTTPException(
             status_code=500, detail=f"evaluation run failed: {type(exc).__name__}: {exc}"
         ) from exc
+    # The run persisted its own record: the run itself joins the audit trail.
+    # Arms ran in scratch DBs on simulator data, so the row is research-stamped
+    # (the honest environment for simulator-derived records — same convention
+    # as the demo reset's self-record).
+    entry = audit.record(
+        db,
+        actor="system:evaluation",
+        action="evaluation.run",
+        entity_type="evaluation_run",
+        entity_id=run.id,
+        details={
+            "name": run.name,
+            "scenario": scenario,
+            "seed": body.seed,
+            "evaluation_type": run.evaluation_type,
+            "status": run.status,
+            "started_at": run.started_at.isoformat() if run.started_at else None,
+            "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+        },
+    )
+    entry.environment = ENVIRONMENT_RESEARCH
+    db.commit()
     experiment_id = db.scalar(
         sa.select(Experiment.id).where(Experiment.name == f"{body.name}:{run.id}")
     )

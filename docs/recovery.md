@@ -112,9 +112,10 @@ always reference the proposal of record):
 | baseline | `no_action` | `{}` | comparison anchor, expected = 0 |
 
 Delayed retry is not a separate `ActionType` — per `app/ports.py` it is
-`retry_payment` + `constraints.delay_seconds`. The monolith has no scheduler,
-so the executor fires immediately and records the requested delay in the
-gateway order's notes; the constraint is part of the audited proposal.
+`retry_payment` + `constraints.delay_seconds`. When the gate ALLOWs a
+delayed retry, the executor parks the action in `SCHEDULED` (§4) and the
+in-process worker fires it when due (docs/worker.md); the requested delay is
+still recorded in the gateway order's notes as part of the audited proposal.
 
 Each candidate carries:
 
@@ -151,8 +152,11 @@ PROPOSED ──evaluate──▶ POLICY_EVALUATED ──┬─ ALLOWED ───
                                           └─ BLOCKED ──────────▶ REJECTED (terminal)
 PENDING_APPROVAL ──approve──▶ APPROVED ──▶ EXECUTING
 PENDING_APPROVAL ──reject───▶ REJECTED (terminal)
-PROPOSED/POLICY_EVALUATED/PENDING_APPROVAL/APPROVED ──cancel──▶ CANCELLED (terminal)
+PROPOSED/POLICY_EVALUATED/PENDING_APPROVAL/APPROVED/SCHEDULED ──cancel──▶ CANCELLED (terminal)
 any non-terminal state ──escalate──▶ ESCALATED (terminal; human owns it)
+
+ALLOWED delayed retry ──park──▶ SCHEDULED ──due──▶ re-gate ──▶ EXECUTING (worker-fired)
+SCHEDULED ──not due──▶ execute() is an idempotent no-op (still parked)
 
 EXECUTING ──gateway 4xx──▶ FAILED (terminal, definitive: nothing happened)
 EXECUTING ──response──▶ VERIFYING ──webhook / inline / fetch──▶ RECOVERED
@@ -162,6 +166,12 @@ UNKNOWN ──resolve() re-query──▶ RECOVERED   (only on positive gateway 
 
 Notes:
 
+- `SCHEDULED` is the delayed-retry parking state (docs/worker.md): the
+  action holds the opportunity's execution slot, consumes no attempt, and
+  stays cancellable — nothing has reached the gateway. The worker fires due
+  actions through the normal `execute()` path, which RE-GATES at fire time
+  (duplicate protection, stopping rules, rate limits re-checked fresh); a
+  fire-time BLOCKED ends REJECTED, REQUIRES_APPROVAL takes the human lane.
 - There is no `BLOCKED` status: a policy-blocked action ends `REJECTED` with
   the decision linked (`policy_decision_id`) and `note = "blocked by the
   deterministic policy gate"`. REJECTED/CANCELLED consume no attempt budget
@@ -189,9 +199,10 @@ Four independent layers; each proven by a dedicated test.
 
 1. **One open action per opportunity.** `execute()` is find-or-create: a
    second execute reuses the action in
-   `PROPOSED/POLICY_EVALUATED/PENDING_APPROVAL/APPROVED/EXECUTING/VERIFYING/UNKNOWN`
+   `PROPOSED/POLICY_EVALUATED/PENDING_APPROVAL/APPROVED/SCHEDULED/EXECUTING/VERIFYING/UNKNOWN`
    instead of creating a new one. In-flight (`EXECUTING/VERIFYING`) → 409;
-   `PENDING_APPROVAL` → 409 until a human approves.
+   `PENDING_APPROVAL` → 409 until a human approves; a parked (`SCHEDULED`)
+   delayed retry is an idempotent no-op until due.
 2. **`gateway_request_id` as the gateway idempotency key.** Minted once per
    action (`gwr_<uuid32>`, 36 chars — inside Razorpay's 40-char limit),
    `UNIQUE` column, mapped to order `receipt` / payment-link `reference_id`
@@ -226,7 +237,7 @@ Four independent layers; each proven by a dedicated test.
 | `POST /opportunities/build` | `{incident_id}` → idempotent opportunity build + strategy generation |
 | `GET /{opportunity_id}` | detail: actions with linked policy decisions + full audit refs |
 | `GET /{opportunity_id}/plan` | strategy comparison table + recommendation + policy preview |
-| `POST /{opportunity_id}/execute` | find-or-create action → policy gate → fire if ALLOWED; resolves UNKNOWN by re-query |
+| `POST /{opportunity_id}/execute` | find-or-create action → policy gate → fire if ALLOWED (delayed retries park in `SCHEDULED` until due — docs/worker.md); resolves UNKNOWN by re-query |
 | `POST /{opportunity_id}/approve` | `PENDING_APPROVAL → APPROVED` (actor from body) |
 | `POST /{opportunity_id}/reject` | → `REJECTED` (action-level, or opportunity-level when no action exists) |
 | `POST /{opportunity_id}/escalate` | → `ESCALATED` from any non-terminal state (human handoff) |
@@ -246,7 +257,7 @@ firing, approve with nothing pending, switching strategies on an open action).
 |---|---|---|
 | `retry_payment` | `create_order` (fresh payable order; `receipt` = `gateway_request_id`) | order `amount_paid` inline, else webhook `payment.captured` on the linked payment, else `resolve()` fetch |
 | `create_payment_link` | `create_payment_link` (`reference_id` = `gateway_request_id`) | link `status == "paid"` inline, else webhook `payment_link.paid` |
-| `notify_customer` | no gateway mutation (recorded; no notification worker in the monolith) | `VERIFYING` until the customer's payment webhook lands |
+| `notify_customer` | no gateway mutation (queued to the notification outbox; the worker delivers via the `NotificationSender` port — docs/worker.md) | `VERIFYING` until the customer's payment webhook lands |
 | `escalate_human` / `no_action` | none | terminal immediately (`ESCALATED` / `CANCELLED`) |
 | subscription actions | no executor mapping → definitive `FAILED` | — |
 

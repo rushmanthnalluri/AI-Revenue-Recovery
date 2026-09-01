@@ -9,8 +9,10 @@ import type { IncidentStatus, IncidentSummary, Severity } from "@/lib/types";
 import { formatINR, formatNumber, timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { DataTable, type ColumnDef } from "@/components/data-table";
+import { useEnvironment } from "@/components/environment-provider";
 import { ErrorPanel } from "@/components/error-panel";
 import { PageHeader } from "@/components/page-header";
+import { ProvenanceChip } from "@/components/provenance";
 import { SectionCard } from "@/components/section-card";
 import { StatusPill } from "@/components/status-pill";
 import { Button } from "@/components/ui/button";
@@ -116,21 +118,28 @@ const columns: ColumnDef<IncidentSummary>[] = [
   },
 ];
 
-/** /incidents — filterable, paginated register of every detected incident. */
+/** /incidents — filterable, paginated register of the environment's incidents. */
 export function IncidentListView() {
   const router = useRouter();
+  const { environment } = useEnvironment();
   const [status, setStatus] = React.useState<IncidentStatus | "">("");
   const [severity, setSeverity] = React.useState<Severity | "">("");
   const [metric, setMetric] = React.useState<string>("");
   const [page, setPage] = React.useState(1);
 
+  // Switching environments is a different dataset — restart pagination.
+  React.useEffect(() => {
+    setPage(1);
+  }, [environment]);
+
   const query = useQuery({
-    queryKey: ["incidents", "list", { status, severity, metric, page }],
+    queryKey: ["incidents", "list", environment, { status, severity, metric, page }],
     queryFn: () =>
       api.incidents.list({
         status: status || null,
         severity: severity || null,
         metric: metric || null,
+        environment,
         page,
         page_size: PAGE_SIZE,
       }),
@@ -146,7 +155,12 @@ export function IncidentListView() {
     <div className="space-y-6">
       <PageHeader
         title="Incidents"
-        description="Detected payment degradation events, from anomaly to resolution."
+        description={
+          environment === "real_test"
+            ? "Detected payment degradation events from your Razorpay Test Mode activity, from anomaly to resolution."
+            : "Detected degradation events in the synthetic research dataset, from anomaly to resolution."
+        }
+        actions={<ProvenanceChip environment={environment} records={query.data?.total} />}
       />
 
       <SectionCard
@@ -233,7 +247,9 @@ export function IncidentListView() {
               emptyDescription={
                 hasFilters
                   ? "Try widening the status, severity, or metric filters."
-                  : "When the detection engine flags a degradation, it will appear here."
+                  : environment === "real_test"
+                    ? "When the detection engine flags a degradation in your observed Razorpay Test Mode activity, it will appear here."
+                    : "When the detection engine flags a degradation in the research dataset, it will appear here. Run a scenario from the Research Lab to generate one."
               }
               onRowClick={(row) => router.push(`/incidents/${row.id}`)}
             />

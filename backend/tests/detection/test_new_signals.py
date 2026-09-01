@@ -191,6 +191,8 @@ ABND_BODY = {
     "detector": "zscore",
     "metrics": [METRIC_CHECKOUT_ABANDONMENT],
     "baseline_buckets": 4,
+    # seeded fixtures are simulator-provenance: research environment
+    "environment": "research",
 }
 
 
@@ -261,6 +263,8 @@ IFS_BODY = {
     "metrics": [METRIC_INSUFFICIENT_FUND_SHARE],
     # 8 valid 60-min buckets over the 480-min fixture; leave scored buckets
     "baseline_buckets": 4,
+    # seeded fixtures are simulator-provenance: research environment
+    "environment": "research",
 }
 
 
@@ -350,6 +354,8 @@ SCAN_BODY = {
     "metrics": [METRIC_CAPTURE_LATENCY],
     "baseline_buckets": 12,
     "min_bucket_count": 5,
+    # seeded fixtures are simulator-provenance: research environment
+    "environment": "research",
 }
 
 

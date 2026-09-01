@@ -43,6 +43,19 @@ class Base(DeclarativeBase):
     pass
 
 
+def _normalize_url(url: str) -> str:
+    """Select the psycopg v3 driver for bare `postgresql://` URLs (demo-chaos
+    F4): without the suffix SQLAlchemy falls back to psycopg2, which the stack
+    does not ship, and boot crashes with ModuleNotFoundError. `postgres://`
+    (no -ql) is the same case — that is the shape Render/Heroku-style hosts
+    hand out in their managed connection strings."""
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url[len("postgresql://"):]
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg://" + url[len("postgres://"):]
+    return url
+
+
 def _connect_args(url: str) -> dict:
     if url.startswith("sqlite"):
         return {"check_same_thread": False}
@@ -73,7 +86,7 @@ def enable_sqlite_fk(engine: sa.engine.Engine) -> None:
 
 
 engine = sa.create_engine(
-    settings.DATABASE_URL,
+    _normalize_url(settings.DATABASE_URL),
     connect_args=_connect_args(settings.DATABASE_URL),
     pool_pre_ping=True,
 )

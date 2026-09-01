@@ -59,13 +59,16 @@ from app.config import settings
 from app.db import utcnow
 from app.logging import get_logger, request_id_ctx
 from app.models import (
+    CONNECTION_STATE_SINGLETON_ID,
     AuditLog,
+    ConnectionState,
     Payment,
     PaymentEvent,
     RecoveryAction,
     RecoveryOpportunity,
 )
 from app.models.base import (
+    ENVIRONMENT_RESEARCH,
     RAZORPAY_SOURCE_SYSTEM,
     SIMULATOR_SOURCE_SYSTEM,
     SOURCE_TYPE_RAZORPAY_TEST,
@@ -107,18 +110,40 @@ def dispatch_event(
     `webhook_events` row. `processed=False` keeps the event reconcilable.
     `detail` is capped at `_DETAIL_MAX_CHARS` (see above).
     """
+    _stamp_connection_webhook_activity(db)
     handler = EVENT_HANDLERS.get(event_type)
     if handler is None:
         return True, _cap_detail(f"event {event_type!r} stored; no handler registered")
     try:
         detail = handler(db, payload)
     except Exception as exc:  # keep the stored event; reconcile later
-        db.rollback()
+        db.rollback()  # also undoes the activity stamp above
         logger.exception(
             "webhook handler failed", extra={"event_type": event_type}
         )
+        # Re-stamp: the delivery WAS verified even though the handler failed.
+        _stamp_connection_webhook_activity(db)
         return False, _cap_detail(f"handler error: {type(exc).__name__}: {exc}")
     return detail is None, _cap_detail(detail)
+
+
+def _stamp_connection_webhook_activity(db: Session) -> None:
+    """Stamp `connection_state.last_webhook_at` for a verified delivery.
+
+    Only a deployment wired to the REAL Razorpay gateway earns the stamp —
+    a simulated-gateway delivery must never fake real-connection webhook
+    activity (same predicate as `_webhook_provenance`). Flush-only; the
+    caller commits. Reconciled re-runs stamp like live ones — a reprocessed
+    event behaves bit-for-bit like a live one by design (module docstring).
+    """
+    if use_simulator(settings):
+        return
+    state = db.get(ConnectionState, CONNECTION_STATE_SINGLETON_ID)
+    if state is None:
+        state = ConnectionState(id=CONNECTION_STATE_SINGLETON_ID)
+        db.add(state)
+    state.last_webhook_at = utcnow()
+    db.flush()
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +363,7 @@ def _mark_action(
                 "error": error,
             },
             request_id=request_id_ctx.get(),
+            environment=action.environment or ENVIRONMENT_RESEARCH,
         )
     )
     logger.info(
@@ -423,7 +449,7 @@ def _flag_verification_hold(
         f"amount_paid={details['amount_paid_paise']} "
         f"status={details['link_status']}"
     )
-    audit.record(
+    entry = audit.record(
         db,
         actor="system:webhook",
         action="verification.amount_mismatch",
@@ -437,6 +463,7 @@ def _flag_verification_hold(
             "held_status": action.status.value,
         },
     )
+    entry.environment = action.environment or ENVIRONMENT_RESEARCH
     logger.warning(
         "payment_link.paid verification hold",
         extra={

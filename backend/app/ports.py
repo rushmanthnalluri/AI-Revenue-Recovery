@@ -58,6 +58,9 @@ class RecoveryStatus(str, Enum):
     POLICY_EVALUATED = "POLICY_EVALUATED"
     PENDING_APPROVAL = "PENDING_APPROVAL"
     APPROVED = "APPROVED"
+    # Delayed retry parked until due; the in-process worker fires it
+    # (docs/worker.md). Pre-execution: nothing has reached the gateway yet.
+    SCHEDULED = "SCHEDULED"
     REJECTED = "REJECTED"
     EXECUTING = "EXECUTING"
     VERIFYING = "VERIFYING"
@@ -73,6 +76,14 @@ class Severity(str, Enum):
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
     CRITICAL = "CRITICAL"
+
+
+class NotificationStatus(str, Enum):
+    """Delivery state of a notification_outbox row (docs/worker.md)."""
+
+    PENDING = "PENDING"
+    SENT = "SENT"
+    FAILED = "FAILED"  # attempts exhausted — surfaced, never silently dropped
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +132,32 @@ class PaymentGateway(Protocol):
     ) -> dict[str, Any]: ...
 
     def verify_webhook_signature(self, payload: bytes, signature: str) -> bool: ...
+
+
+# ---------------------------------------------------------------------------
+# Notification sender port — customer comms delivery for the worker's outbox
+# ---------------------------------------------------------------------------
+
+@runtime_checkable
+class NotificationSender(Protocol):
+    """Delivers one queued notification outbox row (docs/worker.md).
+
+    Notifications are customer comms only — implementations MUST NOT move
+    money (no gateway mutation). `send` returns a provenance receipt dict
+    (at least ``{"via": <sender name>}``) recorded on the outbox row;
+    raising marks the attempt failed and the worker retries with backoff
+    before parking the row FAILED.
+    """
+
+    name: str
+
+    def send(
+        self,
+        *,
+        customer: dict[str, Any] | None,
+        channel: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]: ...
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +258,9 @@ __all__ = [
     "IncidentStatus",
     "RecoveryStatus",
     "Severity",
+    "NotificationStatus",
     "PaymentGateway",
+    "NotificationSender",
     "ActionContext",
     "PolicyDecision",
     "PolicyEngineProto",

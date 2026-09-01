@@ -23,11 +23,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_gateway_dependency
+from app.config import settings
 from app.db import get_db, utcnow
 from app.logging import get_logger
 from app.models import WebhookEvent
 from app.ports import PaymentGateway
 from app.schemas.webhooks import WebhookAck
+from app.services.razorpay.factory import use_simulator
 from app.services.recovery.webhook_handlers import EVENT_HANDLERS, dispatch_event
 
 logger = get_logger("app.api.v1.webhooks")
@@ -93,7 +95,7 @@ async def razorpay_webhook(
         signature_valid=True,
         processed=False,
         received_at=received_at,
-        source="simulator" if _is_simulator(gateway) else "razorpay",
+        source="simulator" if use_simulator(settings) else "razorpay",
     )
     db.add(row)
     try:
@@ -124,10 +126,6 @@ async def razorpay_webhook(
         processed=processed,
         detail=detail,
     )
-
-
-def _is_simulator(gateway: PaymentGateway) -> bool:
-    return type(gateway).__name__ == "SimulatedPaymentGateway"
 
 
 __all__ = ["router", "EVENT_HANDLERS", "get_gateway_dependency"]

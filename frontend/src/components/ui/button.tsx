@@ -18,7 +18,7 @@ const buttonVariants = cva(
         secondary: "border border-border-strong bg-transparent text-text hover:bg-surface",
         outline: "border border-border bg-transparent text-text-2 hover:bg-raised hover:text-text",
         ghost: "text-text-2 hover:bg-raised hover:text-text",
-        destructive: "bg-danger text-[#21100E] hover:bg-danger/90",
+        destructive: "bg-danger text-danger-ink hover:bg-danger/90",
         success: "border border-transparent bg-success-dim text-success hover:bg-success/20",
       },
       size: {

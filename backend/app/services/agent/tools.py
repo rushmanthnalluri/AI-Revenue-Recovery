@@ -812,6 +812,13 @@ class AgentTools:
             entity_type="recovery_action",
             entity_id=action.id,
             details={
+                # Structured transition fields (docs/payment-invariants.md
+                # invariant 12): this single row covers the action's creation
+                # (from_status None) AND the gate's verdict, so the from/to
+                # audit chain starts at this row instead of at the executor's
+                # first transition.
+                "from_status": None,
+                "to_status": action.status.value,
                 "incident_id": self._incident_id,
                 "action_type": action_type.value,
                 "amount_paise": amount,
