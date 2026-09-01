@@ -273,6 +273,7 @@
 | No subscription idempotency | Cannot safely retry subscription create | Never retry; log warning; ledger guards |
 | Webhook delivery not guaranteed ordered | Handlers must be out-of-order safe | Payment state machine handles this |
 | Test Mode rate limits apply | Sync may hit 429 on large merchants | Backoff retry; paginate; `MAX_PAGE_SIZE=100` |
+| Subscriptions product not enabled on the account | `GET /v1/subscriptions` answers **401** while all other endpoints authenticate (observed in production 2026-09-01) | Probe canary (`payments?count=1`) proves the keys first; per-endpoint 4xx then degrades per entity — skip quarantined in `entity_counts.errors`, rest of the catalog syncs |
 | Payment Link `reference_id` max 40 chars | `gateway_request_id` must be ≤40 chars | Generated IDs fit (prefix + uuid8 = ~28 chars) |
 | No sandbox "bulk" endpoints | Mass actions must loop individually | Recovery executor processes sequentially |
 

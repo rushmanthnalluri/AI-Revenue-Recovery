@@ -60,7 +60,12 @@ from app.services.merchant.normalize import (
     normalize_payment_link,
     normalize_subscription,
 )
-from app.services.razorpay.errors import GatewayAuthenticationError, GatewayError, GatewayTransientError
+from app.services.razorpay.errors import (
+    GatewayAuthenticationError,
+    GatewayClientError,
+    GatewayError,
+    GatewayTransientError,
+)
 
 logger = get_logger("app.services.merchant.service")
 
@@ -235,10 +240,14 @@ class SyncService:
         """One synchronous sync pass. Returns the completed `sync_runs` row.
 
         Raises SyncNotConfiguredError / SyncDisabledError BEFORE any network
-        or database writes. Gateway failures mid-run are caught, recorded on
-        the run row (status='failed'), and returned — the row is the honest
-        durable record; partial upserts already flushed are kept (the next
-        run reconciles them idempotently).
+        or database writes. A definitive per-endpoint refusal (4xx, e.g. the
+        Subscriptions product not enabled on the account) degrades per entity:
+        the skip is quarantined in `entity_counts.errors` and the rest of the
+        catalog still syncs; the run is `failed` only when EVERY entity pull
+        is refused. Ambiguous gateway failures mid-run (5xx/timeout) are
+        caught, recorded on the run row (status='failed'), and returned — the
+        row is the honest durable record; partial upserts already flushed are
+        kept (the next run reconciles them idempotently).
         """
         if not self._configured or self._client is None:
             raise SyncNotConfiguredError(
@@ -269,15 +278,54 @@ class SyncService:
             "errors": [],
         }
         try:
+            # Auth canary: one cheap authenticated GET. A 4xx here means the
+            # KEYS themselves are refused (nothing can sync) -> fail the run.
+            # Once the keys are proven, a later per-endpoint 4xx is genuinely
+            # endpoint/product-specific and degrades per entity below.
+            self._client.probe()
             merchant = self._ensure_merchant(db, source_type)
             now = utcnow()
             to_ts = int(now.timestamp())
             from_ts = int((now - timedelta(days=window_days)).timestamp())
-            self._sync_orders(db, merchant, source_type, from_ts, to_ts, counts)
-            self._sync_payments(db, merchant, source_type, from_ts, to_ts, counts)
-            self._sync_payment_links(db, merchant, source_type, counts)
-            self._sync_subscriptions(db, merchant, source_type, from_ts, to_ts, counts)
-            run.status = "completed"
+            pulls = (
+                ("orders", "order", lambda: self._sync_orders(db, merchant, source_type, from_ts, to_ts, counts)),
+                ("payments", "payment", lambda: self._sync_payments(db, merchant, source_type, from_ts, to_ts, counts)),
+                ("payment_links", "payment_link", lambda: self._sync_payment_links(db, merchant, source_type, counts)),
+                ("subscriptions", "subscription", lambda: self._sync_subscriptions(db, merchant, source_type, from_ts, to_ts, counts)),
+            )
+            refused = 0
+            for path, kind, pull in pulls:
+                try:
+                    pull()
+                except GatewayClientError as exc:
+                    # Definitive per-endpoint refusal (4xx) — e.g. the
+                    # Subscriptions product not enabled on this account, which
+                    # Razorpay answers with a 401 on GET /v1/subscriptions
+                    # while every other endpoint authenticates fine. Degrade
+                    # per entity: record the skip and keep syncing the rest of
+                    # the catalog. Ambiguous/transient failures (5xx, timeout)
+                    # still fail the run honestly.
+                    refused += 1
+                    self._quarantine(
+                        counts,
+                        kind,
+                        {"id": None},
+                        SyncError(
+                            f"endpoint skipped: {type(exc).__name__}: {exc.message} "
+                            f"(GET /v1/{path} refused — is the product enabled on this Razorpay account?)"
+                        ),
+                    )
+            if refused == len(pulls):
+                run.status = "failed"
+                run.error = (
+                    "every entity pull was refused by the gateway "
+                    "(check RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET and the enabled products)"
+                )
+                logger.warning(
+                    "merchant sync failed", extra={"run_id": run.id, "error": run.error}
+                )
+            else:
+                run.status = "completed"
         except GatewayError as exc:
             run.status = "failed"
             run.error = f"{type(exc).__name__}: {exc.message}"[:500]

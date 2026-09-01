@@ -58,6 +58,23 @@ function entityCountText(value: unknown): string | null {
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
+/** Quarantine entries arrive as {entity, id, reason} dicts from the sync
+ * service — render them readably instead of "[object Object]". */
+function quarantineText(entry: unknown): string {
+  if (typeof entry === "string") return entry;
+  if (typeof entry === "object" && entry !== null) {
+    const e = entry as { entity?: unknown; id?: unknown; reason?: unknown };
+    const head = [e.entity, e.id]
+      .filter((p): p is string => typeof p === "string" && p.length > 0)
+      .join(" ");
+    const text = [head, typeof e.reason === "string" ? e.reason : ""]
+      .filter(Boolean)
+      .join(" — ");
+    return text || JSON.stringify(entry);
+  }
+  return String(entry);
+}
+
 /** Real POST /merchant/sync run summary — per-entity counts + quarantine errors. */
 function SyncRunSummary({ result }: { result: MerchantSyncResponse }) {
   const counts = result.entity_counts ?? {};
@@ -109,8 +126,8 @@ function SyncRunSummary({ result }: { result: MerchantSyncResponse }) {
             </p>
             <ul className="mt-1 list-inside list-disc text-text-3">
               {quarantine.slice(0, 5).map((err, i) => (
-                <li key={i} className="truncate" title={String(err)}>
-                  {String(err)}
+                <li key={i} className="truncate" title={quarantineText(err)}>
+                  {quarantineText(err)}
                 </li>
               ))}
             </ul>

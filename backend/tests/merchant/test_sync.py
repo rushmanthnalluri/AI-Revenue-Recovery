@@ -83,11 +83,14 @@ def test_sync_paginates_normalizes_and_stamps_provenance(
     assert run.entity_counts["subscriptions"] == {"created": 1, "updated": 0}
     assert run.entity_counts["errors"] == []
 
+    # The auth canary probes payments?count=1 first (no window params).
+    probe_requests = [p for c, p in stocked_api.requests if c == "payments" and "from" not in p]
+    assert [p["count"] for p in probe_requests] == ["1"]
     # Pagination: page_size=2 over 3 payments -> two count/skip requests with
     # the documented window parameters.
-    payment_requests = [p for c, p in stocked_api.requests if c == "payments"]
+    payment_requests = [p for c, p in stocked_api.requests if c == "payments" and "from" in p]
     assert [(p["count"], p["skip"]) for p in payment_requests] == [("2", "0"), ("2", "2")]
-    assert all("from" in p and "to" in p for p in payment_requests)
+    assert all("to" in p for p in payment_requests)
 
     # Provenance + normalization on a captured payment.
     payment = db_session.scalar(
@@ -249,13 +252,54 @@ def test_malformed_collection_envelope_fails_the_run(
 def test_gateway_auth_failure_marks_run_failed(
     db_session: Session, sync_service: SyncService, fake_api: FakeRazorpayAPI
 ) -> None:
-    fake_api.failures["orders"] = error_response(401, "Your api key/secret is invalid")
+    # Bad keys: the probe canary (GET /v1/payments?count=1) is refused, so
+    # nothing can sync — the run fails before any catalog pull.
+    fake_api.failures["payments"] = error_response(401, "Your api key/secret is invalid")
     run = sync_service.run_sync(db_session, actor="test:sync")
     assert run.status == "failed"
     assert run.error is not None and "GatewayAuthenticationError" in run.error
     state = db_session.get(models.ConnectionState, "merchant")
     assert state.last_sync_status == "failed"
     assert state.last_sync_at is not None
+
+
+def test_endpoint_refusal_degrades_per_entity(
+    db_session: Session, sync_service: SyncService, stocked_api: FakeRazorpayAPI
+) -> None:
+    """Regression for the 2026-09-01 production incident: Razorpay answers 401
+    on GET /v1/subscriptions when the Subscriptions product is not enabled on
+    the account, while every other endpoint authenticates fine. The run must
+    complete with the rest of the catalog ingested and the skip recorded."""
+    stocked_api.failures["subscriptions"] = error_response(401, "unauthorized")
+    run = sync_service.run_sync(db_session, actor="test:sync")
+
+    assert run.status == "completed"
+    assert run.entity_counts["orders"] == {"created": 2, "updated": 0}
+    assert run.entity_counts["payments"] == {"created": 3, "updated": 0}
+    assert run.entity_counts["subscriptions"] == {"created": 0, "updated": 0}
+    errors = run.entity_counts["errors"]
+    assert len(errors) == 1
+    assert errors[0]["entity"] == "subscription"
+    assert "endpoint skipped" in errors[0]["reason"]
+    assert "GatewayAuthenticationError" in errors[0]["reason"]
+    assert "enabled" in errors[0]["reason"]
+    # The rest of the catalog really landed.
+    assert _count(db_session, models.Order) == 2
+    assert _count(db_session, models.Payment) == 3
+
+
+def test_partial_endpoint_refusals_complete_with_skips(
+    db_session: Session, sync_service: SyncService, stocked_api: FakeRazorpayAPI
+) -> None:
+    """Multiple endpoints 4xx-refused (probe target payments excepted, so the
+    canary passes): the run still completes with every skip recorded."""
+    for collection in ("orders", "subscriptions"):
+        stocked_api.failures[collection] = error_response(403, "forbidden")
+    run = sync_service.run_sync(db_session, actor="test:sync")
+    # orders + subscriptions refused; payments + payment_links pulled clean ->
+    # the run completes with two skips recorded.
+    assert run.status == "completed"
+    assert {e["entity"] for e in run.entity_counts["errors"]} == {"order", "subscription"}
 
 
 # ---------------------------------------------------------------------------
