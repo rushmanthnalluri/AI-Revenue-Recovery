@@ -139,12 +139,19 @@ RULES: tuple[Rule, ...] = (
         tuple(
             p
             for p in _ALL_SERVICE_PACKAGES
-            if p not in ("app.services.worker", "app.services.recovery", "app.services.policy")
+            if p
+            not in (
+                "app.services.worker",
+                "app.services.recovery",
+                "app.services.policy",
+                "app.services.detection",
+            )
         )
         + ("app.api", "app.simulator"),
         "composing service: the scheduler tier (docs/worker.md) drives the "
-        "recovery executor/sweep and audits via policy.audit; never the agent, "
-        "api, simulator, or other services",
+        "recovery executor/sweep, runs the detection cadence via the "
+        "detection service's public entry point, and audits via policy.audit; "
+        "never the agent, api, simulator, or other services",
     ),
     Rule(
         "app.services.audit",

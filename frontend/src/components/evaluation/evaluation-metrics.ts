@@ -123,11 +123,25 @@ export interface EvalHoldout {
   notes: string[];
 }
 
+export interface EvalOutcomeModel {
+  provenance?: string;
+  assumptions: string[];
+}
+
+export interface EvalRunProvenance {
+  seed?: number;
+  datasetVersion?: string;
+  anchor?: string;
+  diagnosisArtifact?: string;
+  policyVersion?: string;
+}
+
 export interface ParsedRunMetrics {
   baseline: EvalArm | null;
   pulsecover: EvalArm | null;
   comparison: EvalComparison | null;
   holdout: EvalHoldout | null;
+  outcomeModel: EvalOutcomeModel | null;
 }
 
 function asRecord(value: unknown): JsonObject | null {
@@ -345,5 +359,32 @@ export function parseRunMetrics(metrics: JsonObject): ParsedRunMetrics {
     pulsecover: parseArm(arms?.pulsecover),
     comparison: parseComparison(metrics.comparison),
     holdout: parseHoldout(metrics.holdout),
+    outcomeModel: parseOutcomeModel(metrics.outcome_model),
+  };
+}
+
+function parseOutcomeModel(value: unknown): EvalOutcomeModel | null {
+  const rec = asRecord(value);
+  if (!rec) return null;
+  return {
+    provenance: asString(rec.provenance),
+    assumptions: asStringArray(rec.assumptions),
+  };
+}
+
+/**
+ * Run-record completeness fields (runner.py writes `metrics.dataset` /
+ * `metrics.versions` on completion; older runs simply lack the keys, and
+ * every field degrades to absent rather than to a placeholder).
+ */
+export function parseRunProvenance(metrics: JsonObject): EvalRunProvenance {
+  const dataset = asRecord(metrics.dataset);
+  const versions = asRecord(metrics.versions);
+  return {
+    seed: asNumber(dataset?.seed),
+    datasetVersion: asString(dataset?.dataset_version),
+    anchor: asString(dataset?.anchor),
+    diagnosisArtifact: asString(versions?.diagnosis_artifact),
+    policyVersion: asString(versions?.policy),
   };
 }
