@@ -525,3 +525,40 @@ def test_handler_registry_is_exactly_the_supported_events():
         "payment.failed",
         "payment_link.paid",
     }
+
+
+def test_sync_recorded_transition_is_not_duplicated_by_webhook(
+    client, sign, db_session, make_payment
+):
+    """Mirror of the sync-side guard: a sync observation event for a
+    transition lands first; the late authoritative webhook for the same
+    transition must advance payment state without double-writing the event."""
+    p = make_payment(gateway_payment_id="pay_sync_first", status="captured")
+    db_session.add(
+        models.PaymentEvent(
+            payment_id=p.id,
+            event_type="payment.captured",
+            from_status=None,
+            to_status="captured",
+            source="sync",
+            payload={},
+            occurred_at=utcnow(),
+            source_type=p.source_type,
+            source_system=p.source_system,
+            external_id=p.external_id,
+        )
+    )
+    db_session.commit()
+
+    body = make_event_body("payment.captured", payment_entity("pay_sync_first"))
+    assert post_event(client, sign, body, "evt_sync_first").status_code == 200
+    events = list(
+        db_session.scalars(
+            sa.select(models.PaymentEvent).where(
+                models.PaymentEvent.payment_id == p.id,
+                models.PaymentEvent.to_status == "captured",
+            )
+        )
+    )
+    assert len(events) == 1
+    assert events[0].source == "sync"  # the original observation row stands

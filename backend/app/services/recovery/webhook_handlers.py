@@ -295,6 +295,20 @@ def _transition_payment(
 ) -> None:
     from_status = payment.status
     payment.status = to_status
+    # Cross-source dedupe (mirror of the sync-side guard): if this transition
+    # is already recorded — e.g. the sync observation event landed before the
+    # webhook, or a distinct event id repeats the same transition — the webhook
+    # still advances payment state above but does not double-write the event.
+    already_recorded = db.scalar(
+        sa.select(PaymentEvent.id)
+        .where(
+            PaymentEvent.payment_id == payment.id,
+            PaymentEvent.to_status == to_status,
+        )
+        .limit(1)
+    )
+    if already_recorded is not None:
+        return
     db.add(
         PaymentEvent(
             payment_id=payment.id,
