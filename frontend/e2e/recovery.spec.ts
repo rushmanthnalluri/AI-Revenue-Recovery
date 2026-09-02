@@ -24,8 +24,10 @@ test("recovery pipeline and human approval flow", async ({ page }) => {
   await switchToResearchLab(page);
 
   // Pipeline tab (default): seeded opportunities render as clickable rows.
+  // Rows open a drawer, so the table marks them role="button" (a11y rowRole
+  // change) — not role="link".
   await expect(page.getByText("Recovery pipeline", { exact: true })).toBeVisible();
-  await expect(page.locator('tr[role="link"]').first()).toBeVisible();
+  await expect(page.locator('tr[role="button"]').first()).toBeVisible();
 
   // Approval center: the pending card for our opportunity.
   await page.getByRole("tab", { name: /approval center/i }).click();

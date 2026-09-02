@@ -12,8 +12,10 @@ import { EvaluationMethodology } from "@/components/evaluation/evaluation-method
 import { EvaluationMetricBars } from "@/components/evaluation/evaluation-metric-bars";
 import {
   parseRunMetrics,
+  parseRunProvenance,
   type ParsedRunMetrics,
 } from "@/components/evaluation/evaluation-metrics";
+import { EvaluationOperational } from "@/components/evaluation/evaluation-operational";
 import { EvaluationPerIncident } from "@/components/evaluation/evaluation-per-incident";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -28,6 +30,7 @@ function durationLabel(run: EvaluationRunDetail): string {
 }
 
 function HeaderFacts({ run }: { run: EvaluationRunDetail }) {
+  const provenance = parseRunProvenance(run.metrics);
   const facts: [string, string][] = [
     ["run id", run.id],
     ["scenario", run.dataset],
@@ -36,6 +39,13 @@ function HeaderFacts({ run }: { run: EvaluationRunDetail }) {
     ["finished", formatDateTime(run.finished_at)],
     ["duration", durationLabel(run)],
   ];
+  // Run-record completeness (runner.py writes metrics.dataset / metrics.versions
+  // on completion) — surfaced compactly, only the fields the row actually has.
+  if (provenance.seed !== undefined) facts.push(["seed", String(provenance.seed)]);
+  if (provenance.datasetVersion) facts.push(["dataset version", provenance.datasetVersion]);
+  if (provenance.anchor) facts.push(["anchor", formatDateTime(provenance.anchor)]);
+  if (provenance.diagnosisArtifact) facts.push(["diagnosis model", provenance.diagnosisArtifact]);
+  if (provenance.policyVersion) facts.push(["policy version", provenance.policyVersion]);
   return (
     <dl className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3">
       {facts.map(([label, value]) => (
@@ -89,7 +99,7 @@ function FailedState({ run }: { run: EvaluationRunDetail }) {
 }
 
 function CompletedSections({ run, parsed }: { run: EvaluationRunDetail; parsed: ParsedRunMetrics }) {
-  const { baseline, pulsecover, comparison, holdout } = parsed;
+  const { baseline, pulsecover, comparison, holdout, outcomeModel } = parsed;
   const detection = pulsecover?.detection;
   const diagnosis = pulsecover?.diagnosis;
 
@@ -153,6 +163,20 @@ function CompletedSections({ run, parsed }: { run: EvaluationRunDetail; parsed: 
           description="The stored metrics payload carries no arms.baseline / arms.pulsecover objects — only completed end-to-end runs produce them."
         />
       )}
+
+      {baseline && pulsecover ? (
+        <SectionCard
+          title="Operational outcomes — measured, not incremental"
+          description="Action-level facts from the stored run: the executed actions worked and were safe. By itself this says nothing about fleet-level causal lift — that estimate, with its uncertainty, is the holdout section below."
+        >
+          <EvaluationOperational
+            baseline={baseline}
+            pulsecover={pulsecover}
+            comparison={comparison}
+            holdout={holdout}
+          />
+        </SectionCard>
+      ) : null}
 
       {holdout ? (
         <SectionCard
@@ -225,7 +249,7 @@ function CompletedSections({ run, parsed }: { run: EvaluationRunDetail; parsed: 
 
         <SectionCard
           title="Recovery rate"
-          description="Verified recovered ÷ failed amount, per arm"
+          description="Recovered ÷ failed amount, per arm — gross for the baseline, verified for PulseRecover"
         >
           {recoveryData.length > 0 ? (
             <EvaluationMetricBars
@@ -268,7 +292,7 @@ function CompletedSections({ run, parsed }: { run: EvaluationRunDetail; parsed: 
         title="Methodology & honest caveats"
         description="What these numbers mean — and where they are weak (docs/evaluation.md)"
       >
-        <EvaluationMethodology notes={run.notes} />
+        <EvaluationMethodology notes={run.notes} assumptions={outcomeModel?.assumptions} />
       </SectionCard>
     </>
   );

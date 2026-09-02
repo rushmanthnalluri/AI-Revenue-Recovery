@@ -45,7 +45,7 @@ export function EvaluationComparison({ baseline, pulsecover, comparison }: Evalu
   const rows: CompareRow[] = [
     {
       key: "recovered",
-      label: "Recovered revenue (verified)",
+      label: "Recovered revenue (per-arm standard)",
       baseline: formatINR(baseline.recoveredRevenuePaise ?? 0),
       pulsecover: formatINR(pulsecover.recoveredRevenuePaise ?? 0),
       delta:
@@ -55,6 +55,7 @@ export function EvaluationComparison({ baseline, pulsecover, comparison }: Evalu
             {formatINR(Math.abs(comparison.recoveredRevenueDeltaPaise), { compact: true })}
           </DeltaChip>
         ) : undefined,
+      hint: "Baseline: GROSS recovery — gateway-twin captures, never verified. PulseRecover: VERIFIED recovery — webhook/resolve-verified RECOVERED actions only (action-attributed).",
     },
     {
       key: "rate",
@@ -65,6 +66,7 @@ export function EvaluationComparison({ baseline, pulsecover, comparison }: Evalu
         comparison?.recoveryRateDelta !== undefined ? (
           <DeltaChip tone="neutral">{formatDeltaPP(comparison.recoveryRateDelta)}</DeltaChip>
         ) : undefined,
+      hint: "Same per-arm standards as above — gross for the baseline, verified for PulseRecover. Arm totals, not incremental: the causal estimate is the holdout-adjusted lift, reported separately.",
     },
     {
       key: "interventions",

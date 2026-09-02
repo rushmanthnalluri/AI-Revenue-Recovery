@@ -25,6 +25,67 @@ function ciTone(lift: EvalLift): Tone {
   return "neutral";
 }
 
+interface LiftStatus {
+  tone: Tone;
+  label: string;
+  detail: string;
+}
+
+/**
+ * Statistical status of a lift estimate, derived from its stored 95% CI —
+ * the point estimate is never allowed to read as a proven positive. Only a
+ * CI lying entirely above zero may read "significant"; a CI bracketing zero
+ * is reported as measured but inconclusive (underpowered), matching
+ * docs/evaluation.md §3.
+ */
+function liftStatus(lift: EvalLift): LiftStatus {
+  if (lift.ci95Low === undefined || lift.ci95High === undefined) {
+    return {
+      tone: "neutral",
+      label: "measured · no CI stored",
+      detail:
+        "This run stored no confidence interval for the lift — treat the point estimate as unverified, not as an effect size.",
+    };
+  }
+  if (lift.ci95Low > 0) {
+    return {
+      tone: "success",
+      label: "significant · 95% CI above zero",
+      detail:
+        "The 95% CI lies entirely above zero — a statistically significant positive fleet-level effect at this run's sample size.",
+    };
+  }
+  if (lift.ci95High < 0) {
+    return {
+      tone: "danger",
+      label: "significant · 95% CI below zero",
+      detail:
+        "The 95% CI lies entirely below zero — the measured fleet-level effect is significantly negative at this run's sample size.",
+    };
+  }
+  return {
+    tone: "neutral",
+    label: "measured · inconclusive (underpowered)",
+    detail:
+      "The 95% CI brackets zero — the point estimate is not statistically distinguishable from no effect. This run is underpowered for the effect the current policy envelope produces; the operational outcomes above are the measured evidence, not this number.",
+  };
+}
+
+function LiftStatusChip({ status }: { status: LiftStatus }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-sm border px-[7px] py-[2px] font-mono text-[10px] uppercase tracking-[0.07em]",
+        status.tone === "success" && "border-transparent bg-success-dim text-success",
+        status.tone === "danger" && "border-transparent bg-danger-dim text-danger",
+        status.tone === "neutral" && "border-border-strong text-text-3",
+      )}
+    >
+      {status.label}
+    </span>
+  );
+}
+
 function LiftChip({ lift, label }: { lift: EvalLift; label: string }) {
   const tone = ciTone(lift);
   return (
@@ -151,12 +212,16 @@ function StrataTable({
 
 export function EvaluationHoldout({ holdout }: { holdout: EvalHoldout }) {
   const { treatment, holdout: control, lift, liftAdjusted } = holdout;
+  const status = liftStatus(lift);
 
   return (
     <div className="space-y-4">
-      {/* Headline: the pre-registered ITT contrast + the mix-adjusted check */}
+      {/* Headline: the pre-registered ITT contrast + the mix-adjusted check,
+          with the statistical status derived from the CI — the point
+          estimate never stands alone as a claim. */}
       <div className="flex flex-wrap items-center gap-2">
         <LiftChip lift={lift} label="Lift (ITT)" />
+        <LiftStatusChip status={status} />
         {liftAdjusted?.point !== undefined ? (
           <LiftChip lift={liftAdjusted} label="Class-adjusted" />
         ) : null}
@@ -167,6 +232,8 @@ export function EvaluationHoldout({ holdout }: { holdout: EvalHoldout }) {
           </span>
         ) : null}
       </div>
+
+      <p className="text-xs leading-relaxed text-text-3">{status.detail}</p>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <GroupColumn
@@ -231,10 +298,11 @@ export function EvaluationHoldout({ holdout }: { holdout: EvalHoldout }) {
           ))}
           <li className="text-xs leading-relaxed text-text-3">
             Simulated fleet, disclosed harness roles: the operator (approves gated actions)
-            and the customer (documented conversion priors, identical across groups). CI:
-            Newcombe/Wilson 95% for the ITT contrast; pooled-weight post-stratification
-            for the class-adjusted check. Tiny strata yield wide bands by design — never
-            a bare point estimate.
+            and the customer (conversion and self-resolution rates measured from the
+            simulator&apos;s own behavior on each arm&apos;s data — metrics.outcome_model; the
+            same fitted generator scores both groups). CI: Newcombe/Wilson 95% for the ITT
+            contrast; pooled-weight post-stratification for the class-adjusted check. Tiny
+            strata yield wide bands by design — never a bare point estimate.
           </li>
         </ul>
       </div>
