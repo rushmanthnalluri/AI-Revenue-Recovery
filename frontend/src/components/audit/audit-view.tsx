@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, ScrollText } from "lucide-react";
 
@@ -50,8 +51,11 @@ function TimelineSkeleton() {
 
 export function AuditView() {
   const { environment } = useEnvironment();
+  const searchParams = useSearchParams();
   const [entityType, setEntityType] = React.useState("");
-  const [entityId, setEntityId] = React.useState("");
+  // Deep links (`/audit?entity_id=act_…`, e.g. from the Approval Center)
+  // pre-fill the entity-id filter — an exact server-side match.
+  const [entityId, setEntityId] = React.useState(searchParams.get("entity_id") ?? "");
   // Environment scope — follows the global environment until changed locally.
   const [envFilter, setEnvFilter] = React.useState<Environment>(environment);
   const [page, setPage] = React.useState(1);
@@ -157,7 +161,8 @@ export function AuditView() {
             <AuditTimeline entries={query.data.items} />
             <div className="mt-5 flex items-center justify-between border-t border-border pt-4 text-xs text-text-3">
               <span className="font-mono tabular-nums">
-                {formatNumber(query.data.total)} events · page {query.data.page} of {totalPages}
+                {formatNumber(query.data.total)} {query.data.total === 1 ? "event" : "events"} ·
+                page {query.data.page} of {totalPages}
               </span>
               <div className="flex gap-2">
                 <Button

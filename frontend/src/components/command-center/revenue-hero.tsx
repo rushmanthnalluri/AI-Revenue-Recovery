@@ -2,6 +2,7 @@ import * as React from "react";
 
 import type { DashboardSummary } from "@/lib/types";
 import { formatINR } from "@/lib/format";
+import { ChainStrip } from "@/components/command-center/chain-strip";
 import { StatusPill } from "@/components/status-pill";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -121,6 +122,8 @@ export function RevenueHero({ summary, loading }: RevenueHeroProps) {
           />
         </div>
       </div>
+
+      <ChainStrip summary={summary} />
     </section>
   );
 }

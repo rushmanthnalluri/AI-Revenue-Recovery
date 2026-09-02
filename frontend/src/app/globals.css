@@ -95,4 +95,21 @@
       radial-gradient(circle at 15% 0%, rgba(217, 166, 63, 0.05), transparent 30%),
       radial-gradient(circle at 85% 5%, rgba(110, 143, 160, 0.05), transparent 25%);
   }
+
+  /* Horizontal-scroll affordance for wide data tables: edge shadows that
+     appear only when more content hides in that direction. The opaque cover
+     gradients scroll with the content (attachment: local) and mask the fixed
+     shadows (attachment: scroll) at the extremes, so a fully-scrolled edge
+     shows no shadow. Surface-coloured covers keep the hairline look intact. */
+  .scroll-shadows-x {
+    background-image:
+      linear-gradient(to right, #141715 30%, rgba(20, 23, 21, 0)),
+      linear-gradient(to left, #141715 30%, rgba(20, 23, 21, 0)),
+      linear-gradient(to right, rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0)),
+      linear-gradient(to left, rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0));
+    background-position: left center, right center, left center, right center;
+    background-repeat: no-repeat;
+    background-size: 32px 100%, 32px 100%, 12px 100%, 12px 100%;
+    background-attachment: local, local, scroll, scroll;
+  }
 }

@@ -288,3 +288,32 @@ export function latestAction(detail: OpportunityDetailView): RecoveryActionItem 
   if (actions.length === 0) return null;
   return actions[actions.length - 1] ?? null;
 }
+
+/**
+ * One-line state semantics for a recovery action, so an attempted action is
+ * never confused with recovered money: only RECOVERED is verification-sourced
+ * (webhook/inline verify against gateway truth); everything before it is a
+ * promise, not an outcome. Returns null for states that need no disambiguation
+ * (UNKNOWN carries its own richer explainer; terminal FAILED shows last_error).
+ */
+export function actionStateNote(status: RecoveryStatus): string | null {
+  switch (status) {
+    case "PROPOSED":
+    case "POLICY_EVALUATED":
+      return "Proposed only — nothing has fired.";
+    case "PENDING_APPROVAL":
+      return "Waiting on a human decision — nothing has fired.";
+    case "APPROVED":
+      return "Approved — cleared to fire, not yet executed.";
+    case "SCHEDULED":
+      return "Parked until due — pre-execution; nothing has reached the gateway.";
+    case "EXECUTING":
+      return "Attempt fired at the gateway — outcome not yet verified.";
+    case "VERIFYING":
+      return "Verifying the outcome against gateway records — not yet counted as recovered.";
+    case "RECOVERED":
+      return "Verified against gateway truth — counted in recovered revenue.";
+    default:
+      return null;
+  }
+}

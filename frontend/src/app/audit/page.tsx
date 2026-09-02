@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import * as React from "react";
 
 import { AuditView } from "@/components/audit/audit-view";
 
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function AuditPage() {
-  return <AuditView />;
+  return (
+    <React.Suspense fallback={null}>
+      <AuditView />
+    </React.Suspense>
+  );
 }

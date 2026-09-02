@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  actionStateNote,
   actionTypeLabel,
   detailFailureClass,
   failureClassLabel,
@@ -116,6 +117,17 @@ function ActionCard({ action }: { action: RecoveryActionItem }) {
         {action.attempts} attempt{action.attempts === 1 ? "" : "s"}
         {action.approved_by ? ` · approved by ${action.approved_by}` : ""}
       </p>
+
+      {actionStateNote(action.status) && !isUnknown ? (
+        <p
+          className={cn(
+            "mt-2 text-xs",
+            action.status === "RECOVERED" ? "text-success" : "text-text-3",
+          )}
+        >
+          {actionStateNote(action.status)}
+        </p>
+      ) : null}
 
       {isUnknown ? (
         <div className="mt-2.5 space-y-2">

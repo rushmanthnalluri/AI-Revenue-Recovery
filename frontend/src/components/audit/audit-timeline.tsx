@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import {
   AUDIT_TONE_TILE,
   auditActionMeta,
+  auditPhase,
 } from "@/components/audit/audit-action-meta";
 import { AuditEntityChip } from "@/components/audit/audit-entity-chip";
 import { AuditEntryDetails } from "@/components/audit/audit-entry-details";
@@ -110,6 +111,9 @@ export function AuditTimeline({ entries }: AuditTimelineProps) {
               <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                 <p className="text-sm font-medium text-text">
                   {meta.label}
+                  <span className="ml-2 rounded-sm border border-border-strong px-[5px] py-[1px] font-mono text-[9px] font-normal uppercase tracking-[0.07em] text-text-3">
+                    {auditPhase(entry.action, entry.entity_type)}
+                  </span>
                   <span className="ml-2 font-mono text-[10px] font-normal tracking-[0.02em] text-text-3">
                     {entry.action}
                   </span>

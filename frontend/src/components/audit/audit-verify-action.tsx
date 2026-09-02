@@ -58,17 +58,24 @@ export function AuditVerifyAction() {
           <div
             role="status"
             aria-live="polite"
-            className="flex basis-full flex-wrap items-center gap-2 rounded-md border border-border bg-raised/40 px-3 py-2"
+            className="basis-full rounded-md border border-border bg-raised/40 px-3 py-2"
           >
-            <Badge variant="success">chain valid</Badge>
-            <span className="font-mono text-[10px] uppercase tracking-[0.07em] text-text-3">
-              <span className="tnum normal-case text-text-2">{formatNumber(report.checked)}</span>
-              {" rows checked · "}
-              <span className="tnum normal-case text-text-2">{formatNumber(report.chained)}</span>
-              {" chained · "}
-              <span className="tnum normal-case text-text-2">{formatNumber(report.legacy)}</span>
-              {" legacy"}
-            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="success">chain valid</Badge>
+              <span className="font-mono text-[10px] uppercase tracking-[0.07em] text-text-3">
+                <span className="tnum normal-case text-text-2">{formatNumber(report.checked)}</span>
+                {" rows checked · "}
+                <span className="tnum normal-case text-text-2">{formatNumber(report.chained)}</span>
+                {" chained · "}
+                <span className="tnum normal-case text-text-2">{formatNumber(report.legacy)}</span>
+                {" legacy"}
+              </span>
+            </div>
+            <p className="mt-1 text-[11px] text-text-3">
+              Whole-chain verification across BOTH environments (Real Test + Research) — the
+              hash chain links every row in insertion order, so it always covers more than the
+              filtered stream above.
+            </p>
           </div>
         ) : (
           <div
@@ -96,6 +103,10 @@ export function AuditVerifyAction() {
               {" chained · "}
               <span className="tnum normal-case text-text-2">{formatNumber(report.legacy)}</span>
               {" legacy"}
+            </p>
+            <p className="mt-1 text-[11px] text-text-3">
+              Verification walks the whole chain across both environments (Real Test + Research),
+              not just the filtered stream above.
             </p>
           </div>
         )

@@ -17,6 +17,12 @@ interface ProvenanceChipProps {
   window?: string | null;
   /** Observed record count, only when it comes from real response fields. */
   records?: number | null;
+  /**
+   * Unit noun for the record count ("records" default). Pass "events" where
+   * the count covers the payment-event stream rather than synced rows, so
+   * two surfaces never claim the same noun for different semantics.
+   */
+  recordsLabel?: string;
   /** Extra provenance detail (e.g. a simulator run id already on the row). */
   detail?: string | null;
   className?: string;
@@ -32,6 +38,7 @@ export function ProvenanceChip({
   environment,
   window,
   records,
+  recordsLabel = "records",
   detail,
   className,
 }: ProvenanceChipProps) {
@@ -39,7 +46,7 @@ export function ProvenanceChip({
   if (environment === "real_test") {
     if (window) parts.push(window);
     if (records !== null && records !== undefined) {
-      parts.push(`${formatNumber(records)} records`);
+      parts.push(`${formatNumber(records)} ${recordsLabel}`);
     }
   } else if (detail) {
     parts.push(detail);

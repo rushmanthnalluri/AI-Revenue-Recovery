@@ -1,4 +1,5 @@
 import * as React from "react";
+import { ShieldCheck } from "lucide-react";
 
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -93,9 +94,15 @@ interface StatusPillProps {
 
 export function StatusPill({ status, dot = true, pulse = false, className }: StatusPillProps) {
   const tone = STATUS_TONES[status] ?? "neutral";
+  // RECOVERED is verification-sourced (webhook/inline verify only) — it gets
+  // a shield-check instead of the plain dot so "money recovered" can never be
+  // confused with "action attempted" (EXECUTING/VERIFYING keep the info dot).
+  const isVerifiedRecovered = status === "RECOVERED";
   return (
     <Badge variant={TONE_VARIANT[tone]} className={cn("normal-case", className)}>
-      {dot ? (
+      {isVerifiedRecovered ? (
+        <ShieldCheck aria-hidden className="size-3" strokeWidth={1.5} />
+      ) : dot ? (
         <span
           aria-hidden
           className={cn("size-[7px] rounded-full", TONE_DOT[tone], pulse && "animate-status-pulse")}

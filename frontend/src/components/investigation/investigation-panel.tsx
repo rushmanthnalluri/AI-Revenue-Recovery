@@ -213,7 +213,7 @@ function Zone({
         tone === "plain" && "border-border bg-surface",
       )}
     >
-      <h4
+      <h3
         className={cn(
           "flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.11em]",
           tone === "slate" && "text-info",
@@ -223,7 +223,7 @@ function Zone({
       >
         <Icon className="size-3.5" strokeWidth={1.5} aria-hidden />
         {kicker}
-      </h4>
+      </h3>
       <div className="mt-3">{children}</div>
     </section>
   );
@@ -330,9 +330,9 @@ function InvestigationReportView({ report }: { report: InvestigationReport }) {
         )}
         {report.alternative_hypotheses.length > 0 ? (
           <div className="mt-3 border-t border-accent-border pt-3">
-            <h5 className="font-mono text-[10px] uppercase tracking-[0.09em] text-text-3">
+            <h4 className="font-mono text-[10px] uppercase tracking-[0.09em] text-text-3">
               alternative hypotheses
-            </h5>
+            </h4>
             <ul className="mt-2 space-y-1.5">
               {report.alternative_hypotheses.map((hyp) => (
                 <li key={`${hyp.rank}-${hyp.cause}`} className="flex items-center justify-between gap-3">
@@ -379,9 +379,9 @@ function InvestigationReportView({ report }: { report: InvestigationReport }) {
       {/* uncertainties */}
       {report.uncertainties.length > 0 ? (
         <div className="rounded-md border border-dashed border-border-strong px-4 py-3">
-          <h4 className="font-mono text-[10px] uppercase tracking-[0.11em] text-text-3">
+          <h3 className="font-mono text-[10px] uppercase tracking-[0.11em] text-text-3">
             uncertainties
-          </h4>
+          </h3>
           <ul className="mt-2 space-y-1">
             {report.uncertainties.map((u, i) => (
               <li key={i} className="text-xs leading-relaxed text-text-2">

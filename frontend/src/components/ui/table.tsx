@@ -5,11 +5,13 @@ import { cn } from "@/lib/utils";
 /**
  * Table — spec: bordered rounded wrapper with overflow-auto; mono 10px
  * uppercase header cells on bg-surface (sticky for long tables); 13px cells,
- * hairline row dividers, subtle row hover.
+ * hairline row dividers, subtle row hover. The wrapper carries
+ * `.scroll-shadows-x`: when columns overflow horizontally, an edge shadow
+ * marks the hidden side(s) so the scroll is discoverable on any viewport.
  */
 function Table({ className, ...props }: React.HTMLAttributes<HTMLTableElement>) {
   return (
-    <div className="relative w-full overflow-auto rounded-lg border border-border">
+    <div className="scroll-shadows-x relative w-full overflow-auto rounded-lg border border-border bg-surface">
       <table className={cn("w-full caption-bottom text-[13px]", className)} {...props} />
     </div>
   );

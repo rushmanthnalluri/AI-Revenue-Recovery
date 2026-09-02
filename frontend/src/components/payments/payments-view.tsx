@@ -30,7 +30,7 @@ const columns: ColumnDef<PaymentSummary>[] = [
     key: "payment",
     header: "Payment",
     render: (row) => (
-      <div className="max-w-[220px]">
+      <div className="max-w-[190px]">
         <p className="truncate font-mono text-xs text-text" title={row.external_id ?? row.id}>
           {row.external_id ?? row.gateway_payment_id ?? row.id}
         </p>
@@ -45,7 +45,7 @@ const columns: ColumnDef<PaymentSummary>[] = [
     header: "Order",
     render: (row) => (
       <span
-        className="block max-w-[180px] truncate font-mono text-xs text-text-2"
+        className="block max-w-[130px] truncate font-mono text-xs text-text-2"
         title={row.order_id ?? row.gateway_order_id ?? undefined}
       >
         {row.order_id ?? row.gateway_order_id ?? "—"}
@@ -81,7 +81,7 @@ const columns: ColumnDef<PaymentSummary>[] = [
     header: "Error reason",
     render: (row) =>
       row.error_code || row.error_description ? (
-        <div className="max-w-[220px]">
+        <div className="max-w-[180px]">
           <p className="truncate font-mono text-2xs uppercase tracking-[0.05em] text-danger">
             {row.error_code ?? "error"}
           </p>

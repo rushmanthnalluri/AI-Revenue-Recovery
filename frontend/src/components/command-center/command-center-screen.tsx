@@ -97,6 +97,22 @@ export function CommandCenterScreen() {
   const showEmptyState =
     showNotConnected || showConnectedNoData || showUnknownNoData || showResearchEmpty;
 
+  /**
+   * HIGH-1 reconciliation: the dashboard reads the terminal payment-EVENT
+   * stream (1h window anchored to the latest event), while /payments lists
+   * all synced rows. A connected merchant can therefore have synced payments
+   * with an empty analytics window. Only in that state, probe the payments
+   * register (page_size 1 — we just need the total) so the empty state can
+   * say WHICH of the two truths applies instead of claiming "no activity".
+   */
+  const syncedPayments = useQuery({
+    queryKey: ["payments", "list", environment, "count-probe"],
+    queryFn: () => api.payments.list({ environment, page: 1, page_size: 1 }),
+    enabled: showConnectedNoData,
+    staleTime: 30_000,
+  });
+  const syncedTotal = syncedPayments.data?.total ?? 0;
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -112,6 +128,7 @@ export function CommandCenterScreen() {
               environment={environment}
               window={isReal ? "1h window" : undefined}
               records={isReal ? s?.payments_observed : undefined}
+              recordsLabel="events"
             />
             {s?.generated_at ? (
               <span className="font-mono text-[10px] uppercase tracking-[0.07em] text-text-3">
@@ -152,21 +169,47 @@ export function CommandCenterScreen() {
           ) : null}
 
           {showConnectedNoData ? (
-            <EmptyState
-              icon={Activity}
-              title="No payment activity yet"
-              description="Process your first test payment — PulseRecover analyzes observed activity automatically. Detection, diagnosis, and recovery appear here as activity lands."
-              action={
-                <Button size="sm" disabled={sync.isPending} onClick={() => sync.mutate()}>
-                  {sync.isPending ? (
-                    <Loader2 aria-hidden className="animate-spin" />
-                  ) : (
-                    <RefreshCw aria-hidden />
-                  )}
-                  {sync.isPending ? "Syncing" : "Sync now"}
-                </Button>
-              }
-            />
+            syncedTotal > 0 ? (
+              <EmptyState
+                icon={Activity}
+                title="No terminal payment events in the analytics window yet"
+                description={`${formatNumber(syncedTotal)} payment${syncedTotal === 1 ? "" : "s"} synced from Razorpay Test Mode — listed on the Payments page. This dashboard reads the terminal payment-event stream (1h window ending at the latest event): events land here via Razorpay webhooks and as sync observations when payments settle, then detection, diagnosis and recovery run automatically.`}
+                action={
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <Button size="sm" disabled={sync.isPending} onClick={() => sync.mutate()}>
+                      {sync.isPending ? (
+                        <Loader2 aria-hidden className="animate-spin" />
+                      ) : (
+                        <RefreshCw aria-hidden />
+                      )}
+                      {sync.isPending ? "Syncing" : "Sync now"}
+                    </Button>
+                    <Link
+                      href="/payments"
+                      className={buttonVariants({ variant: "secondary", size: "sm" })}
+                    >
+                      View synced payments
+                    </Link>
+                  </div>
+                }
+              />
+            ) : (
+              <EmptyState
+                icon={Activity}
+                title="No payment activity yet"
+                description="Process your first test payment — synced rows list on the Payments page, and terminal payment events (Razorpay webhooks plus sync observations) feed the detection → diagnosis → recovery chain here automatically."
+                action={
+                  <Button size="sm" disabled={sync.isPending} onClick={() => sync.mutate()}>
+                    {sync.isPending ? (
+                      <Loader2 aria-hidden className="animate-spin" />
+                    ) : (
+                      <RefreshCw aria-hidden />
+                    )}
+                    {sync.isPending ? "Syncing" : "Sync now"}
+                  </Button>
+                }
+              />
+            )
           ) : null}
 
           {showResearchEmpty ? (
@@ -248,7 +291,7 @@ export function CommandCenterScreen() {
                 label: "Recoveries in flight",
                 loading: summary.isPending,
                 value: formatNumber(s?.active_recoveries ?? 0),
-                hint: "executing or verifying",
+                hint: "approved, executing or verifying — not yet settled",
               },
             ]}
           />
@@ -277,7 +320,7 @@ export function CommandCenterScreen() {
                   title="No telemetry in this window"
                   description={
                     isReal
-                      ? "No payment outcomes were recorded in the last 24 hours."
+                      ? "No payment outcomes were recorded in the last 24 hours of the event stream. Outcomes arrive automatically via Razorpay webhooks and sync observations as payments settle — every synced row is listed on the Payments page."
                       : "No payment outcomes were recorded in the last 24 hours. Run a scenario from the Research Lab to generate synthetic traffic."
                   }
                 />

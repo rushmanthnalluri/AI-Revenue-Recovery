@@ -20,9 +20,9 @@ function CardHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement
   return <div className={cn("flex flex-col space-y-1.5 p-4", className)} {...props} />;
 }
 
-function CardTitle({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+function CardTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
-    <div
+    <h2
       className={cn(
         "font-mono text-[11px] font-medium uppercase tracking-[0.11em] text-text-3",
         className,

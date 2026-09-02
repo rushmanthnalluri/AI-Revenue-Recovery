@@ -305,6 +305,12 @@ def _event_latency_ms(event: PaymentEvent, payment: Payment) -> float | None:
     start = payment.gateway_created_at or payment.created_at
     if start is None:
         return None
+    if event.source == "sync":
+        # Sync observation events are stamped at ingestion time, so this delta
+        # would be observation lag (first sync days after capture), NOT gateway
+        # capture latency. Honest no-data instead of a phantom latency spike
+        # (phase-b adversarial F1).
+        return None
     delta_ms = (event.occurred_at - start).total_seconds() * 1000.0
     return max(delta_ms, 0.0)
 

@@ -104,9 +104,9 @@ export function IncidentDiagnosisCard({ diagnosis }: IncidentDiagnosisCardProps)
 
       {alternatives.length > 0 ? (
         <div>
-          <h4 className="font-mono text-[10px] uppercase tracking-[0.09em] text-text-3">
+          <h3 className="font-mono text-[10px] uppercase tracking-[0.09em] text-text-3">
             alternative causes
-          </h4>
+          </h3>
           <ul className="mt-2 space-y-1.5">
             {alternatives.map((alt, i) => (
               <li key={alt.cause} className="flex items-center justify-between gap-3">

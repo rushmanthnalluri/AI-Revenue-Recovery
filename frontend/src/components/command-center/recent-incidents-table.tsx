@@ -93,7 +93,7 @@ export function RecentIncidentsTable({ incidents, loading, environment }: Recent
       emptyTitle="No incidents detected"
       emptyDescription={
         environment === "real_test"
-          ? "Detection has not flagged any payment degradation. Once payments are observed from Razorpay Test Mode, anomalies appear here."
+          ? "Detection has not flagged any payment degradation — this is zero observations of a problem, not missing data. The background worker evaluates the observed event stream on every tick (its last run shows under System health); anomalies appear here."
           : "Detection has not flagged any degradation in the research dataset. Run a scenario from the Research Lab to watch the pipeline fire end-to-end."
       }
       onRowClick={(row) => router.push(`/incidents/${row.id}`)}

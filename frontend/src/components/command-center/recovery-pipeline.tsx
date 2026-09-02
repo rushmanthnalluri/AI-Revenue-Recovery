@@ -104,7 +104,7 @@ export function RecoveryPipeline({
           title="No opportunities yet"
           description={
             environment === "real_test"
-              ? "Opportunities are built once an incident is diagnosed from observed Razorpay Test Mode activity."
+              ? "Nothing is waiting to be recovered — this is zero open recovery work, not missing data. Opportunities are built once the worker's detection flags an incident in your observed Razorpay Test Mode activity, and land here automatically."
               : "Opportunities are built once an incident is diagnosed. Run a scenario from the Research Lab to see the pipeline fill."
           }
         />

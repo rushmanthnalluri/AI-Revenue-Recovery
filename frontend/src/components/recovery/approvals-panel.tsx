@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { TriangleAlert } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 
@@ -62,15 +63,22 @@ function PolicySummary({ decision }: { decision: PolicyDecisionItem | null }) {
         <span className="font-mono text-2xs text-text-3">v{decision.policy_version}</span>
       </div>
       {decision.rules_matched.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5">
-          {decision.rules_matched.map((rule) => (
-            <span
-              key={rule}
-              className="rounded-sm border border-border-strong px-[7px] py-[3px] font-mono text-[10px] text-text-2"
-            >
-              {rule}
-            </span>
-          ))}
+        <div>
+          <p className="font-mono text-[10px] uppercase tracking-[0.09em] text-text-3">
+            {decision.outcome === "REQUIRES_APPROVAL"
+              ? `stopping rule${decision.rules_matched.length === 1 ? "" : "s"} — auto-execution held for a human`
+              : `matched rule${decision.rules_matched.length === 1 ? "" : "s"}`}
+          </p>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {decision.rules_matched.map((rule) => (
+              <span
+                key={rule}
+                className="rounded-sm border border-border-strong px-[7px] py-[3px] font-mono text-[10px] text-text-2"
+              >
+                {rule}
+              </span>
+            ))}
+          </div>
         </div>
       ) : null}
       {decision.reasons.length > 0 ? (
@@ -145,6 +153,13 @@ function PendingApprovalCard({ opportunity }: { opportunity: OpportunitySummary 
             {opportunity.customer_id ? ` · customer ${opportunity.customer_id}` : ""}
             {opportunity.payment_id ? ` · order/payment ${opportunity.payment_id}` : ""}
             {" · "}opened {timeAgo(opportunity.created_at)}
+            {" · "}
+            <Link
+              href={`/audit?entity_id=${encodeURIComponent(action?.id ?? opportunity.id)}`}
+              className="text-accent underline-offset-2 hover:underline"
+            >
+              audit trail
+            </Link>
           </p>
         </div>
         <div className="text-right">
@@ -275,6 +290,13 @@ function UnknownActionCard({ opportunity }: { opportunity: OpportunitySummary })
             {opportunity.customer_id ? ` · customer ${opportunity.customer_id}` : ""}
             {opportunity.payment_id ? ` · order/payment ${opportunity.payment_id}` : ""}
             {" · "}opened {timeAgo(opportunity.created_at)}
+            {" · "}
+            <Link
+              href={`/audit?entity_id=${encodeURIComponent(action?.id ?? opportunity.id)}`}
+              className="text-accent underline-offset-2 hover:underline"
+            >
+              audit trail
+            </Link>
           </p>
         </div>
         <p className="font-mono text-sm tabular-nums text-text">

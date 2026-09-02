@@ -527,13 +527,55 @@ def test_handler_registry_is_exactly_the_supported_events():
     }
 
 
-def test_sync_recorded_transition_is_not_duplicated_by_webhook(
+def test_stale_capture_cannot_regress_a_refunded_payment(
     client, sign, db_session, make_payment
 ):
-    """Mirror of the sync-side guard: a sync observation event for a
-    transition lands first; the late authoritative webhook for the same
-    transition must advance payment state without double-writing the event."""
-    p = make_payment(gateway_payment_id="pay_sync_first", status="captured")
+    """Phase-b adversarial F2: sync observed captured, then a refund; a stale
+    payment.captured webhook (replay/late redelivery) must NOT flip the
+    payment back to captured, set the captured flag, write a duplicate event,
+    or mark anything RECOVERED — the money is gone."""
+    p = make_payment(gateway_payment_id="pay_refunded1", status="refunded", captured=False)
+    for to_status in ("captured", "refunded"):
+        db_session.add(
+            models.PaymentEvent(
+                payment_id=p.id,
+                event_type=f"payment.{to_status}",
+                from_status=None,
+                to_status=to_status,
+                source="sync",
+                payload={},
+                occurred_at=utcnow(),
+                source_type=p.source_type,
+                source_system=p.source_system,
+                external_id=p.external_id,
+            )
+        )
+    db_session.commit()
+
+    body = make_event_body("payment.captured", payment_entity("pay_refunded1"))
+    assert post_event(client, sign, body, "evt_stale_capture").status_code == 200
+    db_session.refresh(p)
+    assert p.status == "refunded"  # never regressed
+    assert p.captured is False
+    events = list(
+        db_session.scalars(
+            sa.select(models.PaymentEvent).where(
+                models.PaymentEvent.payment_id == p.id,
+                models.PaymentEvent.to_status == "captured",
+            )
+        )
+    )
+    assert len(events) == 1  # the original sync row; no webhook duplicate
+    assert events[0].source == "sync"
+
+
+def test_webhook_after_sync_observation_does_not_double_write(
+    client, sign, db_session, make_payment
+):
+    """The benign mirror: sync observed the capture first; the authoritative
+    webhook arriving later advances nothing new but also writes no duplicate
+    event row (dedupe fires inside the transition, not by skipping it)."""
+    p = make_payment(gateway_payment_id="pay_sync_first", status="captured", captured=True)
     db_session.add(
         models.PaymentEvent(
             payment_id=p.id,
@@ -561,4 +603,4 @@ def test_sync_recorded_transition_is_not_duplicated_by_webhook(
         )
     )
     assert len(events) == 1
-    assert events[0].source == "sync"  # the original observation row stands
+    assert events[0].source == "sync"

@@ -31,6 +31,7 @@ import {
 import { IncidentDiagnosisCard } from "@/components/incident/incident-diagnosis-card";
 import { IncidentAuditTimeline } from "@/components/incident/incident-audit-timeline";
 import { BuildOpportunitiesAction } from "@/components/incident/build-opportunities-action";
+import { ReasoningChain } from "@/components/incident/reasoning-chain";
 import {
   formatDeviation,
   formatMetricValue,
@@ -257,6 +258,9 @@ export function IncidentDetailView({ incidentId }: { incidentId: string }) {
       {/* stat band */}
       <MetricStrip items={statBand(incident)} className="min-[1440px]:grid-cols-5" />
 
+      {/* reasoning chain — signal → diagnosis → risk → recovery → outcome */}
+      <ReasoningChain incident={incident} />
+
       {/* metric timeline */}
       <SectionCard
         title="Metric timeline"
@@ -271,7 +275,8 @@ export function IncidentDetailView({ incidentId }: { incidentId: string }) {
           />
         ) : (
           <p className="text-xs text-text-3">
-            No metric-series evidence is attached to this incident.
+            No metric-series evidence is attached to this incident — the detector stores a
+            bucketed snapshot when it flags a degradation; none was recorded for this one.
           </p>
         )}
       </SectionCard>

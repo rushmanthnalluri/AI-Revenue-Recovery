@@ -161,10 +161,11 @@ def _handle_payment_captured(db: Session, payload: dict[str, Any]) -> str | None
     occurred_at = _event_ts(payload)
     if payment.status != "captured":
         _transition_payment(db, payment, entity, "captured", occurred_at)
+    if payment.status == "captured":
         payment.captured = True
-    # Late success wins over an earlier failure for linked recovery actions.
-    for action in _linked_actions(db, payment):
-        _mark_action(db, action, RecoveryStatus.RECOVERED, "payment.captured")
+        # Late success wins over an earlier failure for linked recovery actions.
+        for action in _linked_actions(db, payment):
+            _mark_action(db, action, RecoveryStatus.RECOVERED, "payment.captured")
     return None
 
 
@@ -203,7 +204,8 @@ def _handle_payment_link_paid(db: Session, payload: dict[str, Any]) -> str | Non
         payment = _find_payment(db, payment_entity["id"])
         if payment is not None and payment.status != "captured":
             _transition_payment(db, payment, payment_entity, "captured", _event_ts(payload))
-            payment.captured = True
+            if payment.status == "captured":
+                payment.captured = True
 
     reference_id = link.get("reference_id")
     note: str | None = None
@@ -293,6 +295,15 @@ def _transition_payment(
     to_status: str,
     occurred_at: datetime,
 ) -> None:
+    # Lifecycle guard (phase-b adversarial F2): `refunded` is post-capture —
+    # a stale capture event must never regress a refunded payment (the money
+    # is gone; flipping it back would also falsely mark actions RECOVERED).
+    if payment.status == "refunded" and to_status == "captured":
+        logger.info(
+            "stale capture ignored on refunded payment",
+            extra={"payment_id": payment.id, "external_id": payment.external_id},
+        )
+        return
     from_status = payment.status
     payment.status = to_status
     # Cross-source dedupe (mirror of the sync-side guard): if this transition

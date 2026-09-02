@@ -154,3 +154,44 @@ export const AUDIT_TONE_TILE: Record<AuditTone, string> = {
   info: "border-transparent bg-info-dim text-info",
   neutral: "border-border-strong bg-transparent text-text-3",
 };
+
+/**
+ * Chain phase vocabulary — where an audit row sits in the
+ * event → decision → action → verification → outcome flow. Derived only from
+ * the action string / entity type already on the row, so new backend actions
+ * fall back to "event" (the safe default: something happened, nothing more
+ * claimed).
+ */
+export type AuditPhase = "event" | "decision" | "action" | "verification" | "outcome";
+
+const DECISION_SUFFIXES = new Set([
+  "policy_evaluated",
+  "pending_approval",
+  "approved",
+  "rejected",
+  "escalated",
+]);
+const OUTCOME_SUFFIXES = new Set(["recovered", "failed", "unknown", "completed"]);
+
+export function auditPhase(action: string, entityType: string): AuditPhase {
+  // Webhook verification rows: verify_recovered / verify_failed / verify_unknown.
+  if (action.startsWith("verify_")) return "verification";
+  if (action === "recovery.action.resolve_check") return "verification";
+  // Policy engine + human verdicts.
+  if (entityType === "policy_decision" || action.startsWith("policy.")) return "decision";
+  if (action === "recovery.approve") return "decision";
+  if (action.startsWith("recovery.action.")) {
+    const suffix = action.slice("recovery.action.".length);
+    if (suffix === "verifying") return "verification";
+    if (DECISION_SUFFIXES.has(suffix)) return "decision";
+    if (OUTCOME_SUFFIXES.has(suffix)) return "outcome";
+    return "action";
+  }
+  if (action.startsWith("recovery.opportunity.")) {
+    const suffix = action.slice("recovery.opportunity.".length);
+    if (DECISION_SUFFIXES.has(suffix)) return "decision";
+    if (OUTCOME_SUFFIXES.has(suffix)) return "outcome";
+    return "event";
+  }
+  return "event";
+}
