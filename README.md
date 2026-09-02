@@ -294,24 +294,31 @@ failed payment once" — and at what intervention cost?** Each run executes two
 arms of the same deterministic simulator scenario in isolated scratch
 databases: **BASELINE** (one generic retry per failed payment; no detection,
 no policy, no verification) vs **PULSECOVER** (the real product loop,
-unchanged). All harness roles (the approving operator, the customer
-conversion table) are deterministic and disclosed in the doc. Measurement
-discipline: "recovered" counts only webhook/inline-confirmed `RECOVERED`
-actions (UNKNOWN never counts), recovery rates name their denominators, and
-lift is measured against a **randomized holdout** — a deterministically
-assigned share of customers that receives no PulseRecover action — reported
-as a pre-registered ITT estimand with Newcombe 95% confidence intervals.
+unchanged). All harness roles (the approving operator, the measured
+customer-outcome model) are deterministic and disclosed in the doc. Crucially,
+customer outcomes are **measured from the simulator's own behavior** —
+per-class re-attempt success and late-capture self-resolution fitted on each
+arm's data (DEF-03; the hand-set conversion table is gone from the outcome
+path). Measurement discipline: "recovered" counts only
+webhook/inline-confirmed `RECOVERED` actions (UNKNOWN never counts), recovery
+rates name their denominators, and lift is measured against a **randomized
+holdout** — a deterministically assigned share of customers that receives no
+PulseRecover action — reported as a pre-registered ITT estimand with Newcombe
+95% confidence intervals.
 
 Reproduced results — scenario `standard`, seed 42 (30 days anchored to
 2026-08-28 00:00 UTC, 68,410 simulator payment_events, 4,897 failed
-payments, 6 injected incidents; canonical run `run_b371e5b4…`, stored and
-browsable in the Evaluation Lab — version history with the two previous
-published runs in [docs/evaluation.md](docs/evaluation.md) §3b).
+payments, 6 injected incidents; canonical run
+`run_333d3e45c19b4c2e94b8cc3547ee2fab` "canonical-v3-measured-outcomes",
+stored and browsable in the Evaluation Lab — version history with the
+prior-model published runs in [docs/evaluation.md](docs/evaluation.md) §3b).
 
 > **Metric card — every number in this section:**
-> run `run_b371e5b40dc9450a88d052deb03809fe` ("canonical-v2"), scenario
-> `standard`, seed 42, holdout 0.10, dataset anchored 2026-08-28 00:00 UTC,
-> diagnosis artifact `random_forest v20260828T013109Z-77a4ef3b`.
+> run `run_333d3e45c19b4c2e94b8cc3547ee2fab` ("canonical-v3-measured-outcomes"),
+> scenario `standard`, seed 42, holdout 0.10, dataset anchored 2026-08-28
+> 00:00 UTC (`sim_42_2b55f523ad@2026-08-28`), diagnosis artifact
+> `random_forest v20260828T013109Z-77a4ef3b`, policy
+> `1.0+sha256.5a6afe61d6db`.
 > **Denominators:** recovery rates are over all 4,897 first-attempt failed
 > payment rows (364,686,600 paise), snapshotted before any action; lift
 > denominators are all first-attempt failures per group (ITT).
@@ -321,9 +328,11 @@ published runs in [docs/evaluation.md](docs/evaluation.md) §3b).
 > **Gross vs incremental:** the recovery table is *gross* verified recovery;
 > the holdout table is *incremental* lift vs a randomized no-action control
 > (pre-registered estimand, Newcombe 95% CI).
-> **Basis:** simulator ground truth (synthetic data, documented priors) —
-> not Razorpay Test Mode, not production traffic; **canonical**, with the
-> 2026-08-27 readings published alongside in docs/evaluation.md §3b.
+> **Basis:** simulator ground truth (synthetic data); customer outcomes
+> measured from the simulator's own re-attempt/late-capture behavior
+> (docs/evaluation.md §1a) — not Razorpay Test Mode, not production traffic;
+> **canonical**, with the prior-model readings published alongside in
+> docs/evaluation.md §3b.
 
 **Detection** (scheduled 12h/6h passes, production defaults, detection v2):
 precision **0.333**, recall **0.667** (4/6 injected incidents found), F1
@@ -348,62 +357,78 @@ flow through the real signed-webhook path):
 | Metric | BASELINE (retry everything) | PULSECOVER |
 |---|---:|---:|
 | Interventions (actions reaching the gateway) | 4,897 | **100** (98.0% fewer) |
-| Recovered revenue (gross, verified) | 95,016,400 paise (26.1%) | 2,521,400 paise (28 actions) |
-| False interventions (never-approve resubmissions) | **421** | **6** |
+| Recovered revenue (gross, verified) | 211,560,400 paise (58.0%) | 5,285,300 paise (61 actions) |
+| Recovered per intervention | 43,202 paise | **52,853 paise** |
+| False interventions (never-approve resubmissions) | **421** | **8** |
 | Unsafe actions (no gate, no approval) | 4,897 ungated | **0** |
 | Human approvals required | 0 | 94 |
 
-*1,472 opportunities built — 1,116 failed-payment + **356 stuck-checkout**
-(the new loop: payments stranded in `created` > 30 min, ₹254,080 of
-abandoned checkouts surfaced). The gate's rate brakes (10 per incident,
-100 per hour globally — hit exactly) held volume at 100 executed actions
-and blocked all 356 stuck-checkout proposals: the deterministic gate
-absorbing a volume spike as configured. The stuck-checkout lane itself is
-proven end-to-end in `tests/recovery/test_stuck_checkout.py`.*
+*1,517 opportunities built — 1,098 failed-payment + 359 stuck-checkout
+(payments stranded in `created` > 30 min) + 60 subscription-arrears. The
+gate's rate brakes (10 per incident, 100 per hour globally — hit exactly)
+held volume at 100 executed actions: the deterministic gate absorbing a
+volume spike as configured. The stuck-checkout lane itself is proven
+end-to-end in `tests/recovery/test_stuck_checkout.py`.*
 
-**Incremental lift (randomized holdout, pre-registered estimand):** 9.2% of
-customers (170/1,847) were deterministically held out of all PulseRecover
-actions. Treatment recovered 13.79% of first-attempt failures (610/4,424)
-vs holdout 14.80% (70/473): raw ITT lift **−1.0 pp [−4.6, +2.1]**
-(Newcombe 95% CI), class-adjusted **+0.1 pp [−2.9, +3.2]**. Meanwhile
-**executed actions convert at 28.0% vs ~13.3% organic** — the intervention
-works where it fires; the fleet-level effect is underpowered at 2.3%
-action coverage (100 actions over 4,424 treatment failures; expected
-effect ≈ +0.3 pp vs ±1.7 pp of sampling noise). That is the Lewis & Rao
-measurement-power problem, reported instead of hidden — full analysis in
+**Incremental lift (randomized holdout, pre-registered estimand):** 10.1% of
+customers (187/1,847) were deterministically held out of all PulseRecover
+actions. Treatment recovered 2.25% of first-attempt failures (98/4,355 —
+61 via verified actions + 37 measured-organic) vs holdout 1.66% (9/542):
+raw ITT lift **+0.6 pp [−0.9, +1.5]** (Newcombe 95% CI), class-adjusted
+**+0.7 pp [−0.5, +1.8]**. Meanwhile **executed actions convert at 61.0%
+verified vs ~0.9% measured organic** — the intervention works where it
+fires; the fleet-level effect is underpowered at 2.3% action coverage
+(100 actions over 4,355 treatment failures). Both rates are now *measured*:
+action conversion from the simulator's own re-attempt behavior (~0.58
+pooled), the organic control from its late-capture mechanism (~0.01) — the
+prior hand-set tables inflated the control to 12–15% and pushed the same
+estimate negative (DEF-03's stored −2.55 pp). The CI still brackets zero;
+that is the Lewis & Rao measurement-power problem, reported instead of
+hidden — full analysis in
 [docs/evaluation.md](docs/evaluation.md).
 
 **The honest read:** the naive baseline recovers more *gross* revenue by
-construction — it fires at every organic failure too, and 26% of a much
-larger blast radius is a big number. It pays with 49× the interventions,
-421 never-approve resubmissions (network-penalty territory), zero
-verification, and zero auditability. PulseRecover's number is small but
-*clean*: gated, verified, audited, and it never touches a customer it
-shouldn't — including the 356 stuck-checkout proposals it surfaced but
-refused to fire past the rate brakes. Widening recovery volume is a
-policy-file decision (per-incident caps, the global rate brake), not a
-code change.
+construction — it fires at every organic failure too, and 58% of a much
+larger blast radius is a big number (the simulator's re-attempt mechanism
+rewards retry-everything; that is measured, not assumed). It pays with 49×
+the interventions, 421 never-approve resubmissions (network-penalty
+territory), zero verification, and zero auditability. PulseRecover's number
+is small but *clean*: gated, verified, audited, more recovered money **per
+intervention** (52,853 vs 43,202 paise), and it never touches a customer it
+shouldn't — including the stuck-checkout proposals it surfaced but refused
+to fire past the rate brakes. Widening recovery volume is a policy-file
+decision (per-incident caps, the global rate brake), not a code change.
 
-**Cross-day reproducibility — the canonical spec.** The simulator anchors an
-unset `end_date` to *today* 00:00 UTC, so [ml/experiments/canonical_spec.json](ml/experiments/canonical_spec.json)
+**Cross-day reproducibility — the canonical spec.**
+[ml/experiments/canonical_spec.json](ml/experiments/canonical_spec.json)
 pins every input the metrics depend on (scenario, seed, `--end-date
 2026-08-28`, holdout, diagnosis artifact, policy content hash, harness git
-sha) and records the exact command. Three consecutive executions stored
-**pairwise bit-identical metrics** (two documented exception classes:
-wall-clock MTTR; 17th-significant-digit float wobble in stored confidences).
-The pinned run reproduces every data-derived figure above exactly; its two
-id-keyed randomizations (holdout assignment, conversion draws) re-key, so
-draw-derived numbers legitimately differ — 1,457 opportunities, 3,670,700
-paise recovered, lift +2.2 pp [−0.9, +5.0] — same underpowered band, same
-conclusion, disclosed in [docs/evaluation.md](docs/evaluation.md) §3c.
+sha) and records the exact command. Its recorded expected values predate
+the DEF-03 outcome-model fix (superseded — docs/evaluation.md §3c); the
+current canonical command is:
 
-**Window sensitivity, bounded instead of hidden.** The same spec was run
-across **7 pre-committed calendar anchors** spanning 3 weeks
-([docs/evaluation.md](docs/evaluation.md) §3d, all runs stored): detection
-precision ranged 0.333–0.714 and recall 0.667–0.833 with no code change;
-**unsafe actions were 0 on every anchor**; and every anchor's lift CI
-brackets zero. One number from one anchor would be cherry-picking; the range
-is the claim.
+```bash
+cd backend && .venv/Scripts/python scripts/run_evaluation.py \
+  --scenario standard --seed 42 --end-date 2026-08-28 --name canonical-v3-measured-outcomes
+```
+
+Under the prior model, three consecutive spec executions stored **pairwise
+bit-identical metrics**; the deterministic-id guard and seeded draws that
+guarantee this are unchanged by the outcome-model fix (the fitted rates are
+a pure function of the seeded dataset), and the tiny-scale determinism
+tests in `tests/evaluation/` assert it on every suite run. Refreshing the
+spec's expected values to the measured-model numbers is a recorded
+follow-up.
+
+**Window sensitivity, bounded instead of hidden.** The spec was run across
+**7 pre-committed calendar anchors** spanning 3 weeks under the prior
+outcome model ([docs/evaluation.md](docs/evaluation.md) §3d, all runs
+stored): detection precision ranged 0.333–0.714 and recall 0.667–0.833 with
+no code change, and **unsafe actions were 0 on every anchor** — findings
+that do not depend on the outcome model and still stand. The recovery-side
+numbers in that section were prior-decided and are kept as provenance; a
+measured-model replay of the 7 anchors is a recorded follow-up. One number
+from one anchor would be cherry-picking; the range is the claim.
 
 ## What is real, and what is simulated
 
@@ -526,8 +551,9 @@ Stated plainly, with the doc where each is documented:
   `DIAGNOSIS_WINDOW_RESCOPE`, default OFF; unit-tested but not yet
   re-anchored — docs/ml.md §8).
 - **Simulator fidelity bounds every number.** Evaluation/ML metrics are
-  measured on synthetic data with a documented prior conversion table; real
-  Razorpay traffic will be noisier.
+  measured on synthetic data; customer outcomes are fitted from the
+  simulator's own observed behavior (DEF-03), which is itself a model —
+  real Razorpay traffic will be noisier and differently structured.
 - **Heuristic reasoner is the default.** The AI investigator's narratives are
   deterministic and shallow unless an LLM is configured; even then the LLM is
   advisory-only. The diagnosis heuristic fallback (no trained artifact)
@@ -552,9 +578,12 @@ Stated plainly, with the doc where each is documented:
 
 Planned follow-ups: re-anchoring the published evaluation numbers with the
 new opt-in modes enabled (night-regime floors, same-time-yesterday baseline,
-window re-scoping triage — all shipped dark, default OFF); multi-merchant
-tenancy; retraining on real test-mode traffic with measured (not prior)
-conversion tables; richer LLM narratives where keys exist — still behind the
+window re-scoping triage — all shipped dark, default OFF); refreshing the
+canonical spec's expected values and the 7-anchor replay to the measured
+outcome model (docs/evaluation.md §3c/§3d); multi-merchant
+tenancy; retraining on real test-mode traffic (the simulator-side outcome
+model is measured as of DEF-03; real-traffic conversion remains the open
+one); richer LLM narratives where keys exist — still behind the
 same deterministic gate. Landed since this section was first written: the
 worker tier (delayed retries, notification outbox, scheduled reconciliation),
 subscription-aware recovery around `pending`/`halted` (arrears payment
@@ -596,9 +625,9 @@ Or from the repo root: `make setup` / `make backend` / `make test`.
 
 ```bash
 cd backend
-# cross-day reproducible: the pinned canonical spec (ml/experiments/canonical_spec.json)
-.venv/Scripts/python scripts/run_evaluation.py --scenario standard --seed 42 --end-date 2026-08-28 --name canonical-v2
-# same-day reproduction of the historical canonical run (unpinned anchor)
+# the current canonical run (measured outcome model, DEF-03; ~3 min)
+.venv/Scripts/python scripts/run_evaluation.py --scenario standard --seed 42 --end-date 2026-08-28 --name canonical-v3-measured-outcomes
+# same-day reproduction with an unpinned anchor
 .venv/Scripts/python scripts/run_evaluation.py --scenario standard
 .venv/Scripts/python scripts/run_evaluation.py --scenario standard --holdout-fraction 0   # arms only, no holdout
 .venv/Scripts/python scripts/run_evaluation.py --scenario upi_outage_demo --days 5 --events 8000   # faster smoke

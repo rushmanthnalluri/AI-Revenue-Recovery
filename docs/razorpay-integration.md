@@ -233,7 +233,8 @@
 ### Event Processing
 - Raw body parsed **after** signature verification
 - Dispatched via `EVENT_HANDLERS` registry in `app/services/recovery/webhook_handlers.py`
-- Handlers: `payment.captured`, `payment.failed`, `order.paid`, `refund.processed`, `subscription.charged`, `subscription.charge_failed`
+- Handlers: `payment.captured`, `payment.failed`, `payment_link.paid` — **exactly these three** (`EVENT_HANDLERS`, `webhook_handlers.py:233`). Every other event type is stored and acked with "no handler registered" (inert).
+- **Dashboard subscription**: subscribe the webhook to exactly `payment.captured`, `payment.failed`, **`payment_link.paid`** — the third is the only event that verifies a link-based recovery (DEF-01, 2026-09-02: a subscription list missing it left recoveries parked in VERIFYING).
 - Out-of-order safe: payment state machine handles late/duplicate events
 - Ack target: <5 seconds
 

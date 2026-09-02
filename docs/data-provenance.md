@@ -41,7 +41,7 @@ Enforced by `source_types_for_environment()` in `app/models/base.py:62`.
 
 ### 1. Razorpay Test Mode API (Sync)
 - **Trigger**: `POST /api/v1/merchant/sync` (manual or scheduled)
-- **Flow**: Razorpay API → `RazorpayReadClient` → `normalize_*()` → upsert on `(source_type, external_id)`
+- **Flow**: Razorpay API → `RazorpayReadClient` → `normalize_*()` → upsert on `(source_type, external_id)` → **sync-derived `payment_events` on observed transitions** (`source=sync`, payload marked `derived_from: "sync"`; first-seen `created` at the gateway timestamp, first-seen terminal as ONE observation event at ingestion time, status flips as one transition event; an unchanged payment emits nothing, and a transition already recorded by webhook is never duplicated)
 - **Provenance**: `source_type=razorpay_test`, `source_system=razorpay`, `external_id=pay_*/order_*/sub_*`
 - **Idempotency**: Upsert key prevents duplicates; re-sync updates in place
 - **Quarantine**: Invalid entities skipped, recorded in `sync_runs.entity_counts.errors`
@@ -53,7 +53,7 @@ Enforced by `source_types_for_environment()` in `app/models/base.py:62`.
 - **Dedupe**: `X-Razorpay-Event-Id` → `WebhookEvent.gateway_event_id` UNIQUE
 - **Flow**: Verify → Persist raw → Dispatch handlers → Update payment state → Audit
 - **Provenance**: `WebhookEvent.source=razorpay`, `signature_valid=true`
-- **Handlers**: `payment.captured`, `payment.failed`, `order.paid`, `refund.processed`, `subscription.charged`, `subscription.charge_failed`
+- **Handlers**: `payment.captured`, `payment.failed`, `payment_link.paid` — exactly these three; every other type is stored and acked "no handler registered". The dashboard subscription must include all three (DEF-01).
 - **Out-of-order safe**: Payment state machine handles late/duplicate events
 
 ### 3. Recovery Actions (Real Execution)

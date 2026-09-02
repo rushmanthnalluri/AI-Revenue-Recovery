@@ -14,7 +14,7 @@ Tests: `backend/tests/worker/`.
 
 ## 1. What the worker does each tick
 
-`Worker.tick()` runs three failure-isolated units (one bad unit never skips
+`Worker.tick()` runs four failure-isolated units (one bad unit never skips
 the others; a failing unit retries next tick):
 
 | unit | source of truth | what it does |
@@ -22,6 +22,7 @@ the others; a failing unit retries next tick):
 | Delayed retries | `recovery_actions.status == SCHEDULED` | fires due actions through `RecoveryExecutor.execute` — same re-gate, same guards |
 | Notification outbox | `notification_outbox` rows `PENDING` and `due_at <= now` | delivers via the `NotificationSender` port; backoff retry, then `FAILED` |
 | Reconciliation | ADR 0011 sweep (`run_reconciliation`, unchanged) | runs on the first tick after startup, then every `WORKER_RECONCILE_SECONDS` (default 15 min) |
+| Detection | `run_detection` (the API's own entry point) | `real_test` environment only — first tick, then every `WORKER_DETECTION_SECONDS` (default 5 min); research stays on-demand via demo/eval |
 
 Each unit commits per repaired row (mirroring the sweep's documented
 per-unit commits), so one bad row never undoes earlier work in the tick.
@@ -37,6 +38,7 @@ re-decision: `system:worker`.
 | `WORKER_ENABLED` | `false` | master switch. OFF by default: the test suite, the evaluation harness, and one-shot scripts never spawn the loop. The app lifespan (`app/main.py`) starts/stops the supervisor only when true. |
 | `WORKER_TICK_SECONDS` | `30.0` | delay between ticks (shutdown is prompt — the loop sleeps on an event, not a bare sleep). |
 | `WORKER_RECONCILE_SECONDS` | `900.0` | reconciliation cadence. The first tick after startup always sweeps (drift accumulates while the process is down). |
+| `WORKER_DETECTION_SECONDS` | `300.0` | detection cadence for the `real_test` environment. The first tick after startup also runs a pass, so a restart re-anchors promptly. |
 | `WORKER_NOTIFICATION_SENDER` | `logging` | sender selection: `logging` (simulated default) or `razorpay_notes` (real-environment seam, §4). |
 
 ## 3. Delayed retries — SCHEDULED

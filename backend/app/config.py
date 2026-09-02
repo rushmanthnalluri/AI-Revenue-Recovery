@@ -57,6 +57,8 @@ class Settings(BaseSettings):
     WORKER_TICK_SECONDS: float = 30.0
     # Reconciliation sweep cadence (ADR 0011), run by the worker.
     WORKER_RECONCILE_SECONDS: float = 900.0
+    # Detection pass cadence (real_test environment only), run by the worker.
+    WORKER_DETECTION_SECONDS: float = 300.0
     # NotificationSender selection: "logging" (simulated default) |
     # "razorpay_notes" (real-environment seam — see app.services.worker.senders).
     WORKER_NOTIFICATION_SENDER: str = "logging"

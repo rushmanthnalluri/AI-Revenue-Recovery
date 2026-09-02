@@ -72,13 +72,15 @@ def session_factory(db_session: Session):
 
 @pytest.fixture()
 def make_worker(session_factory, sim_gateway, fake_clock):
-    """Worker factory: injected fake clock; reconcile stubbed out by default
-    (the cadence tests override reconcile_fn with a spy)."""
+    """Worker factory: injected fake clock; reconcile and detection stubbed
+    out by default (the cadence tests override them with spies, the
+    detection-cadence tests use the real default unit)."""
 
     def _make(**kw) -> Worker:
         kw.setdefault("clock", fake_clock)
         kw.setdefault("reconcile_seconds", 900.0)
         kw.setdefault("reconcile_fn", lambda db, gateway, *, actor: None)
+        kw.setdefault("detection_fn", lambda db, *, actor: None)
         return Worker(session_factory, sim_gateway, **kw)
 
     return _make

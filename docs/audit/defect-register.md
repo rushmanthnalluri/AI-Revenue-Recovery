@@ -10,6 +10,26 @@ Priorities: **P0 = submission blocker** (breaks the brief's bar or the demo's sp
 | DEF-02 | real_test closed loop never closes: detection is manual-only and its event stream is webhook-only | `run_detection` callers = API/demo/eval only (grep); worker never detects (`worker.py:103-138`); sole PaymentEvent writer `webhook_handlers.py:298-309`; live: 6 payments, `payments_observed: 0` | REST sync upserts entities but derives no events; no detection scheduler | The "live from Razorpay Test Mode" console is empty at the exact moment a judge opens it; detection/diagnosis/recovery never trigger on real data | M | (a) worker tick runs detection per environment on cadence; (b) sync derives payment_events from observed state transitions (created/updated captures); both keep Research Lab untouched |
 | DEF-03 | The only stored evaluation argues against the product: holdout lift **−2.55 pp** | live `/api/v1/evaluation/metrics`; `flows-recovery-evaluation.md` §I; conversion priors hand-set (`runner.py:130-173`) | Priors are circular (assumed per-action conversion), and the gate routes 94% to approval (no auto execution in-harness) | A judge who opens Evaluation Lab sees the product losing to naive retry by 59× | M | Re-anchor priors from measured fleet outcomes (or simulator ground-truth conversion), re-run, publish honest number; if lift stays negative, reframe the headline metric (recovered ₹ per intervention + zero-unsafe) and say why |
 
+**DEF-03 — FIXED 2026-09-02.** The hand-set `CONVERSION` table (30 values),
+`GATEWAY_SUCCESS_RATE = 0.35`, and the uniform 7-day self-resolution lag were
+deleted from the outcome path. Both arms are now scored by rates MEASURED
+from the simulator's own behavior, fitted per arm on its scratch DB
+(`app/services/evaluation/outcomes.py`): re-attempt success per failure class
+(pooled 0.582 over 739 observed re-attempts) and payment-level self-resolution
+(pooled 0.0095, the late-capture mechanism). Residual anchors are recorded as
+explicit assumptions on every run. Re-run on the pinned canonical dataset
+(`canonical-v3-measured-outcomes` / `run_333d3e45c19b4c2e94b8cc3547ee2fab`,
+`sim_42_2b55f523ad@2026-08-28`, seed 42, holdout 0.10): raw ITT lift **+0.6 pp
+[−0.9, +1.5]** (still brackets zero — underpowered at 2.3% coverage, now a
+measurement rather than an assumption); executed-action conversion 61.0%
+verified vs ~0.9% measured organic; baseline gross 58.0% (the simulator
+rewards retry-everything — measured); 0 unsafe; 0/0 isolation; 49× fewer
+interventions and 8 vs 421 false interventions; recovered ₹/intervention
+52,853 vs 43,202 paise. Proof: `tests/evaluation/test_measured_outcomes.py`
+(simulator-parameter change ⇒ fitted rates and run metrics move; no prior
+constants remain). Docs: docs/evaluation.md §1a/§3, README "How recovery is
+measured".
+
 ## P1 — high-value fixes
 
 | ID | Title | Evidence | Root cause | Impact | Fix complexity | Fix |

@@ -36,6 +36,7 @@ from app.services.worker.worker import (
     TickReport,
     Worker,
     WORKER_ACTOR,
+    run_real_test_detection,
 )
 
 __all__ = [
@@ -51,6 +52,7 @@ __all__ = [
     "build_worker",
     "current",
     "default_sender",
+    "run_real_test_detection",
     "set_current",
     "start_worker",
 ]

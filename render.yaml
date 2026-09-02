@@ -11,8 +11,8 @@
 # Razorpay webhook (Dashboard -> Settings -> Webhooks):
 #   URL:    https://pulserecover-api.onrender.com/webhooks/razorpay
 #   Secret: same value as RAZORPAY_WEBHOOK_SECRET here
-#   Events: payment.captured, payment.failed, order.paid, refund.processed,
-#           subscription.charged, subscription.charge_failed
+#   Events: payment.captured, payment.failed, payment_link.paid
+#           (exactly the handler registry — payment_link.paid verifies recoveries)
 
 services:
   - type: web

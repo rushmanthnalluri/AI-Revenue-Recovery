@@ -98,12 +98,13 @@ def build_worker(
     session_factory,
     gateway: PaymentGateway,
 ) -> Worker:
-    """Wire the deployment Worker from settings (sender, reconcile cadence)."""
+    """Wire the deployment Worker from settings (sender, cadences)."""
     return Worker(
         session_factory,
         gateway,
         sender=default_sender(settings),
         reconcile_seconds=settings.WORKER_RECONCILE_SECONDS,
+        detection_seconds=settings.WORKER_DETECTION_SECONDS,
     )
 
 

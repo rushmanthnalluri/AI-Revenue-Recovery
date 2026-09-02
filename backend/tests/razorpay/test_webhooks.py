@@ -509,3 +509,19 @@ def test_ingress_source_razorpay_when_real_keys_configured(
         )
     )
     assert row.source == "razorpay"
+
+
+def test_handler_registry_is_exactly_the_supported_events():
+    """DEF-01 regression guard (2026-09-02): docs/render.yaml told operators to
+    subscribe to six event types while the registry handled three — and the one
+    that verifies link recoveries (`payment_link.paid`) was not among the six,
+    so live recoveries could never reach RECOVERED via webhook. The dashboard
+    subscription, the docs, and this registry must stay exactly these three.
+    """
+    from app.services.recovery.webhook_handlers import EVENT_HANDLERS
+
+    assert set(EVENT_HANDLERS) == {
+        "payment.captured",
+        "payment.failed",
+        "payment_link.paid",
+    }

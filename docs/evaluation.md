@@ -37,8 +37,10 @@ afterwards). The main/demo database receives only the resulting
 recorded inside the metrics JSON (`arms.*.simulator_run_id`);
 `evaluation_runs.simulator_run_id` stays NULL rather than pointing at a row
 that does not exist in the main database. The `experiments` row carries the
-full pre-registered configuration (scenario, conversion model, holdout
-fraction, estimand, CI method) and the lift summary in its results.
+full pre-registered configuration (scenario, baseline/treatment definitions,
+the outcome-model contract and its residual assumptions, holdout fraction,
+estimand, CI method), the fitted outcome rates, and the lift summary in its
+results.
 
 ### Roles the harness plays (all deterministic, all disclosed)
 
@@ -47,15 +49,16 @@ fraction, estimand, CI method) and the lift summary in its results.
   human-in-the-loop the product is designed for; `approvals_required` counts
   how often it happened.
 - **The customer (under action)**: decides whether a recovery attempt
-  converts, via a documented (failure-class × action) conversion table
-  (`CONVERSION` in `runner.py`). One table governs both arms — the baseline
-  always lands in the `immediate_retry` column. Payment links are decided
-  *inside* the gateway twin (flat `GATEWAY_SUCCESS_RATE` — a disclosed twin
-  limitation: the twin's inline link decision is class-independent).
+  converts, via the **measured outcome model**
+  (`app/services/evaluation/outcomes.py`) — §1a. One generator governs both
+  arms — the baseline always lands in the `immediate_retry` rate. Payment
+  links are decided *inside* the gateway twin (flat rate, now the measured
+  pooled re-attempt success — a disclosed twin limitation: the twin's
+  inline link decision is class-independent).
 - **The customer (under no action)**: decides whether a failure the loop
-  never touched *self-resolves*, via the `no_action` column of the same
-  table (§2). This third role is what makes the holdout a real control
-  instead of a zero by construction.
+  never touched *self-resolves*, via the measured payment-level
+  self-resolution rate of the same model (§2). This third role is what
+  makes the holdout a real control instead of a zero by construction.
 - Detection passes are scheduled, not ground-truth-anchored: one pass every
   6h of simulated time, each looking back 12h
   (`DETECTION_STEP_MINUTES`/`DETECTION_WINDOW_MINUTES`). The 12h window is
@@ -63,6 +66,78 @@ fraction, estimand, CI method) and the lift summary in its results.
   1.5–3h injected incidents; the detector and thresholds are the production
   defaults. Detection therefore scores *honestly*: passes also cover quiet
   data, and false positives are counted.
+
+### 1a. The measured customer-outcome model (DEF-03, 2026-09-02)
+
+Until 2026-09-02 the customer's answers came from a hand-set
+(failure-class × action) `CONVERSION` table (30 values), a flat
+`GATEWAY_SUCCESS_RATE = 0.35` twin override, and a uniform (0, 7 days]
+self-resolution lag — documented priors, but priors: the causal
+comparison's outcome was *decided by assumption*. The one stored production
+run argued against the product (holdout lift **−2.55 pp**; gated loop
+0.46% of failed amount vs the naive baseline's 27.0%) with numbers fully
+determined by those tables (defect register, DEF-03).
+
+The replacement (`app/services/evaluation/outcomes.py`) removes every
+assumed outcome probability from the comparison. Immediately after each arm
+is simulated — before detection, recovery, or any webhook mutates the data —
+the harness fits an outcome model on THAT arm's scratch database from the
+simulator's own customer-behavior mechanism:
+
+- **Re-attempt success, per failure class** — the simulator's only
+  "customer pays after a failure" mechanism is a re-attempt on the same
+  order (organic checkout retries, `CHECKOUT_RETRY_RATE` of failures at
+  `CHECKOUT_RETRY_SUCCESS × reliability`; subscription dunning T+1/T+2/T+3
+  at `SUB_RETRY_SUCCESS × reliability`). Measured as
+  P(re-attempt captured | the attempt it follows failed with class C) over
+  all observed order-level attempt chains (per-class cells ≥ 30, else the
+  pooled rate). This anchors the `immediate_retry` and `delayed_retry`
+  columns — for BOTH arms.
+- **Payment-level self-resolution, pooled** — the simulator's late-capture
+  quirk (`LATE_CAPTURE_RATE`: a failed payment flips to captured on the
+  SAME payment id 30–900 s later). Measured as P(payment.captured after
+  payment.failed on the same id | the payment reached failed), with the
+  empirical lag distribution retained for the holdout's right-censoring
+  draw. Pooled because the simulator's late-capture draw is
+  class-independent by construction (disclosed measurement-design choice).
+  This anchors `no_action` — the holdout's organic baseline.
+
+What could not be measured is recorded as an explicit assumption with its
+value on every run (`metrics.outcome_model.assumptions`): delay-invariance
+of re-attempt success (delayed_retry shares the measured rate; in the
+batch harness delayed actions park in SCHEDULED and never fire — disclosed,
+pre-existing); the payment-link anchor (the simulator has no link
+mechanism — the twin's flat inline rate is now the MEASURED pooled
+re-attempt success instead of the hand-set 0.35); and the notify anchor
+(no notification channel exists in the simulator — a nudge converts at the
+measured organic return-and-pay rate). The old constants (`CONVERSION`,
+`GATEWAY_SUCCESS_RATE`, `SELF_RESOLUTION_MAX_LAG_MINUTES`) are deleted from
+the outcome path; `tests/evaluation/test_measured_outcomes.py` proves the
+rates are measured (a simulator behavior-parameter change moves the fitted
+rates AND a full run's recovery), that no prior constants remain, and that
+both arms are scored by the identical fitted generator.
+
+Fitted values on the §3 run (`sim_42_2b55f523ad@2026-08-28`, 739 observed
+re-attempts, 4,944 payments with a failed event):
+
+| measured quantity | value |
+|---|---:|
+| re-attempt success, pooled | **0.582** |
+| — soft_decline (273 attempts) | 0.564 |
+| — insufficient_funds (168) | 0.577 |
+| — timeout (155) | 0.594 |
+| — abandonment (84) | 0.583 |
+| — hard_decline (59) | 0.644 |
+| self-resolution (late capture), pooled | **0.0095** (47/4,944) |
+| organic return-and-pay, pooled | 0.0937 |
+
+Two honest consequences, visible in §3: the simulator's measured re-attempt
+success (~0.58) is HIGHER than the old action priors for the classes the
+gate favors (0.08–0.55) — so the naive baseline's gross recovery more than
+doubles; and the measured payment-level self-resolution (~1%) is far LOWER
+than the old `no_action` priors (0.06–0.30) — so the holdout's organic
+baseline drops. Both moves are the simulator's own behavior, measured; the
+lift estimate's CI still brackets zero (§3).
 
 ### Reproducibility (same seed + same day → identical metrics)
 
@@ -82,7 +157,10 @@ fraction, estimand, CI method) and the lift summary in its results.
   this document always state both anchors (§3/§3b). `run_evaluation.py
   --end-date` pins the anchor explicitly; the canonical spec (§3c) uses it
   to make the canonical evaluation reproducible on any day.
-- Verified at standard scale on 2026-08-28: two `--scenario standard
+- Verified at standard scale on 2026-08-28 (under the prior outcome
+  model; the determinism machinery is unchanged by DEF-03 and the
+  tiny-scale determinism tests in `tests/evaluation/` assert it on every
+  suite run): two `--scenario standard
   --seed 42` runs (`canonical-v2` / `canonical-v2-repro`,
   `run_b371e5b4…` / `run_5d22f898…`) produce **bit-identical metrics**
   over the full metrics JSON, with two disclosed exceptions: wall-clock
@@ -132,10 +210,11 @@ run executes all its actions "in the same hour". On the canonical run both
 brakes bind: the per-incident cap (`max_actions_per_incident: 10`) and —
 with the stuck-checkout source pushing proposal volume past it — the
 global cap (`max_actions_global_per_hour: 100`), which the 100 executed
-actions hit exactly; every later proposal, including all 356 stuck-checkout
-ones, is BLOCKED (§3). This is the deterministic gate working as configured,
-not a harness bug; it is visible in `policy_outcomes.BLOCKED`, and — as §3
-shows — it defines how much the fleet-level lift measurement can resolve.
+actions hit exactly; every later proposal, including the stuck-checkout
+volume, is BLOCKED (§3). This is the deterministic gate working as
+configured, not a harness bug; it is visible in `policy_outcomes.BLOCKED`,
+and — as §3 shows — it defines how much the fleet-level lift measurement
+can resolve.
 
 ## 2. The randomized holdout (pre-registered)
 
@@ -163,17 +242,23 @@ exactly as specified there.
   scenario-end anchor (latest terminal simulator event), fixed per run.
 - **The no-action counterfactual.** Both groups share the same organic
   baseline: a failure the loop never executed an action against self-
-  resolves with the documented `no_action` prior for its failure class
-  (timeout 0.30, soft_decline 0.20, insufficient_funds 0.08, abandonment
-  0.06, hard_decline 0.01, unknown 0.06 — priors in the same disclosed
-  family as the action columns, set far below e.g. Recurly's observed ~67%
-  soft-decline self-resolution). Self-resolution lag is uniform (0, 7 days],
-  right-censored at the window end (censored = counted not recovered).
-  Payments with an executed action resolve on the action's own draw only —
-  no double-counting. **Every self-resolution, in both groups, is captured
-  through the real signed-webhook path** — the strict gateway/webhook-
-  verified standard is identical on both sides; a payment without a gateway
-  id can never be counted.
+  resolves with the **measured payment-level late-capture rate** (§1a —
+  0.0095 on the §3 dataset, fitted from 4,944 failed payments, 47 observed
+  late captures), replacing the old hand-set `no_action` priors (timeout
+  0.30, soft_decline 0.20, insufficient_funds 0.08, abandonment 0.06,
+  hard_decline 0.01, unknown 0.06) which had no basis in the simulator and
+  inflated the control group to ~12–15% organic. Self-resolution lag is
+  bootstrapped from the empirical late-capture lag distribution (≤ ~15 min
+  observed), right-censored at the window end (censored = counted not
+  recovered). The simulator's ORDER-level organic recovery (a successful
+  customer retry on a NEW payment row, ~9.4% of first failures) is outside
+  this payment-level verified-capture estimand and is never counted on
+  either side — symmetric across groups. Payments with an executed action
+  resolve on the action's own measured-rate draw only — no double-counting.
+  **Every self-resolution, in both groups, is captured through the real
+  signed-webhook path** — the strict gateway/webhook-verified standard is
+  identical on both sides; a payment without a gateway id can never be
+  counted.
 - **Statistics.** Primary: two-proportion difference with a **Newcombe
   hybrid score (Wilson) 95% CI** (Newcombe 1998, method 10) — closed form,
   deterministic, tiny-count safe: small groups yield honestly wide bands,
@@ -192,165 +277,178 @@ exactly as specified there.
 
 <!-- RESULTS-START -->
 
-Run `canonical-v2` / `run_b371e5b40dc9450a88d052deb03809fe` — scenario
-`standard` (full preset: 30 days of traffic anchored to **2026-08-28
-00:00 UTC**, 68,410 simulator payment_events, 4,897 first-attempt failed
-payment rows totalling 364,686,600 paise, 6 injected incidents), seed 42,
-holdout fraction 0.10, diagnosis artifact
+Run `canonical-v3-measured-outcomes` /
+`run_333d3e45c19b4c2e94b8cc3547ee2fab` — scenario `standard` (full preset:
+30 days of traffic anchored to **2026-08-28 00:00 UTC** — the §3c pinned
+dataset `sim_42_2b55f523ad@2026-08-28`: 68,410 simulator payment_events,
+4,897 first-attempt failed payment rows totalling 364,686,600 paise, 6
+injected incidents), seed 42, holdout fraction 0.10, diagnosis artifact
 `random_forest v20260828T013109Z-77a4ef3b` (the exp07 SHIP decision,
-docs/ml.md §10). Wall-clock: ~1.5 min. Stored and browsable in the
-Evaluation Lab. A same-day repeat (`canonical-v2-repro` /
-`run_5d22f898ef7d45189ec5e990e0169ed5`) reproduces every metric
-bit-for-bit, with the two disclosed exceptions of §1 (wall-clock MTTR;
-a 17th-significant-digit float in one stored diagnosis confidence).
+docs/ml.md §10), policy `1.0+sha256.5a6afe61d6db` (content-hashed
+`policies/default.yaml`). Wall-clock: ~2.8 min. Stored and browsable in
+the Evaluation Lab.
 
-> **Reading cross-run comparisons:** the simulator anchors an unset
-> `end_date` to *today* 00:00 UTC (`app/simulator/engine.py`) — the same
-> seed generates the same dataset within a calendar day and a one-day-
-> shifted 30-day window across days (the config hash, and therefore
-> `simulator_run_id` `sim_42_50f24b57d0`, is unchanged). The §3b history
-> runs were generated on 2026-08-27, the canonical run on 2026-08-28:
-> same scenario, same seed, but the window slid by one day, so the
-> datasets differ at the margins (4,918 → 4,897 failed rows; baseline
-> gross 99,025,100 → 95,016,400 paise). Every cross-day delta below is
-> attributed either to the shifted window or to a shipped change called
-> out by name — never silently to "the code".
+**This is the first canonical run under the measured outcome model (§1a,
+DEF-03).** It re-uses the §3c pinned dataset, so detection and diagnosis
+numbers are identical to the spec's expected values; every recovery-side
+number moved, for two recorded reasons: (a) customer outcomes are now
+measured from the simulator's own behavior instead of the hand-set tables,
+and (b) the opportunity builder gained the subscription-arrears lane after
+the spec's runs (builder commit 2026-09-01), adding 60
+`subscription_halted` opportunities. No policy, detector, strategy, or
+outcome value was tuned to steer the result — the fix changes WHERE
+outcome probabilities come from, nothing else. The prior-model canonical
+(`canonical-v2` / `run_b371e5b4…`, same scenario/seed/anchor family) and
+its same-day bit-repro (`run_5d22f898…`) are kept in §3b as history.
 
 **Detection (scheduled 12h/6h passes, production defaults, detection v2):**
 precision **0.333**, recall **0.667** (4/6 injected incidents found),
 F1 0.444, MTTD **230 min** over 116 passes and 12 persisted incident rows
-(4 matched / 8 unmatched). Found: `gateway_degradation` (surfaced by the
-per-route latency scan — the injected degradation carries a latency
-signature), `method_outage`, `route_latency`,
+(4 matched / 8 unmatched) — identical to the §3c spec's expected values,
+as the pinned dataset guarantees. Found: `gateway_degradation` (surfaced
+by the per-route latency scan), `method_outage`, `route_latency`,
 `checkout_abandonment_spike`. Missed on this window:
-`subscription_failure_spike` and `customer_insufficient_funds_wave` (no
-`insufficient_fund_share` episode crossed the floors). Of the 8 unmatched
-rows, 4 are latency-scan episodes and 4 success-rate episodes firing on
-organic noise. This is the same engine that scored 6/6 at precision 0.778
-on the 2026-08-27 anchor (§3b): the recall/precision swing is **window
-sensitivity, not a code change** — no detection or simulator code changed
-between the runs. MTTD improved 585 → 230 min.
+`subscription_failure_spike` and `customer_insufficient_funds_wave`; the
+latter is a stable blind spot at the shipped floors (§3d measured 0/7
+across anchors, and the opt-in `night_regime_floors` mode stays
+default-OFF precisely so these published numbers stay valid).
 
 **Diagnosis (first-detection window per matched incident, vs ground
 truth):** top-1 **1.000**, top-3 **1.000** (4 scored) — the exp07
 random-forest artifact labels all four matched windows correctly
 (`gateway_degradation` 0.48, `method_outage` 0.98, `route_latency` 0.60,
-`abandonment_spike` 0.76). Denominator honesty: the two incidents the
-previous logistic-regression artifact misread as `no_fault` on 2026-08-27
-are exactly the two this run does not detect, so they drop out of the
-scored set — on the four windows both runs share, the old artifact was
-also 4/4. The case for the RF swap rests on the pre-registered campaign
-gate (exp06 clauses, applied in exp07: exact-span top-1 0.910 vs 0.878;
-prod-frame unsafe-side error 0.567 → 0.093), not
-on this table — docs/ml.md §10.
+`abandonment_spike` 0.76). The case for the artifact rests on the
+pre-registered campaign gate (exp06 clauses, applied in exp07), not on
+this table — docs/ml.md §10.
 
 **Recovery (arm comparison):**
 
 | metric | BASELINE (retry everything) | PULSECOVER |
 |---|---:|---:|
 | interventions | 4,897 | **100** (98.0% fewer) |
-| recovered revenue (verified, action-attributed) | 95,016,400 paise | 2,521,400 paise |
-| recovery rate (of failed amount) | 26.1% | 0.69% |
-| false interventions (never-approve resubmissions) | **421** | **6** |
+| recovered revenue (verified, action-attributed) | 211,560,400 paise | 5,285,300 paise |
+| recovery rate (of failed amount) | 58.0% | 1.45% |
+| recovered per intervention | 43,202 paise | **52,853 paise** |
+| false interventions (never-approve resubmissions) | **421** | **8** |
 | unsafe actions (no gate, no approval) | 4,897 ungated | **0** |
 | UNKNOWN / unverifiable outcomes | n/a (no verification) | 0 |
 | human approvals required | 0 | 94 |
 
-1,472 opportunities were built inside the 12 detected incident windows —
-1,116 `failed_payment_retry` plus **356 `stuck_checkout_payment`**, the
-source shipped after the §3b runs (payments stranded in `created` > 30
-min; ₹254,080 of abandoned checkouts surfaced). The gate blocked 1,372
-proposals and sent 94 of the 100 executed actions through the human-
-approval lane (6 ALLOWED outright). Executed: 94 `retry_payment` + 6
-`create_payment_link`; 28 verified RECOVERED — 28.0% of executed (25
-retries + 3 links). **All 356 stuck-checkout proposals were BLOCKED**:
-the per-incident cap (`max_actions_per_incident: 10`) appears in 203 of
-the 356 decisions and the global hourly brake
-(`max_actions_global_per_hour: 100`) in 181 — the 100 executed actions
-hit it exactly (§1's wall-clock note) — 9 also hit the
-`customer_opted_out` hard block and 2 the duplicate cooldown. The
-deterministic gate absorbing a volume spike exactly as configured; the
-stuck-checkout lane is proven end-to-end in
-`tests/recovery/test_stuck_checkout.py`, but at the demo policy envelope
-it surfaces recoverable value without yet executing against it.
+1,517 opportunities were built inside the 12 detected incident windows —
+1,098 `failed_payment_retry`, 359 `stuck_checkout_payment`, and 60
+`subscription_halted` (the arrears lane added after the §3c spec's runs).
+The gate blocked 1,417 proposals; 6 were ALLOWED outright and 94 executed
+through the human-approval lane (the wall-clock rate brakes bind exactly
+as in §1's note: the 100 executed actions hit the global hourly cap).
+Executed: 92 `retry_payment` + 8 `create_payment_link`; **61 verified
+RECOVERED — 61.0% of executed** — against a measured fleet-wide organic
+rate of ~0.9% (46/4,897). The prior-model reading on this dataset family
+was 25.7–38.0%: the increase is not a product improvement, it is the
+measurement fix — the simulator's own re-attempt mechanism succeeds ~0.58
+pooled (§1a), well above the old hand-set action columns (0.08–0.55) for
+the classes the gate favors. The same measured behavior is what more than
+doubles the naive baseline's gross (58.0% vs the prior-model 25.3%):
+retry-everything *works* in this simulator — and still pays with 49× the
+interventions, 421 never-approve resubmissions, zero verification, and
+zero auditability. The stuck-checkout lane is proven end-to-end in
+`tests/recovery/test_stuck_checkout.py`; at the demo policy envelope it
+surfaces recoverable value without executing past the rate brakes.
 
 **Incremental lift (randomized holdout, this run):**
 
 | group | failed payments | recovered | recovery rate | median TTR |
 |---|---:|---:|---:|---:|
-| treatment (full loop) | 4,424 | 610 (28 via actions + 582 organic) | 13.79% | 4,874 min |
-| holdout (no action) | 473 | 70 (all organic) | 14.80% | 5,157 min |
+| treatment (full loop) | 4,355 | 98 (61 via actions + 37 organic) | 2.25% | 19,172 min |
+| holdout (no action) | 542 | 9 (all organic) | 1.66% | 7.2 min |
 
-- **Raw ITT lift (pre-registered primary): −1.0 pp, 95% CI [−4.6, +2.1]**
-  (Newcombe/Wilson) — brackets zero.
-- **Class-standardized lift (secondary): +0.1 pp, 95% CI [−2.9, +3.2]** —
-  centered on zero once the chance class-mix imbalance is removed (the
-  randomized holdout again landed timeout-heavy: 23.5% of its failures vs
-  19.8% in treatment, and timeout carries the highest organic prior).
+- **Raw ITT lift (pre-registered primary): +0.6 pp, 95% CI [−0.9, +1.5]**
+  (Newcombe/Wilson; point 0.005898) — brackets zero.
+- **Class-standardized lift (secondary): +0.7 pp, 95% CI [−0.5, +1.8]**.
 - Isolation: **0** opportunities and **0** actions for held-out customers
-  (asserted — with the stuck-checkout source now in the builder, its
-  holdout exclusion is covered by the shipped fix and its regression
-  test). Unsafe actions: **0**. Assignment: 1,677 treatment / 170 holdout
-  customers (realized 9.2% at configured 10%). Attribution window: up to
-  698.1 h (~29 days).
+  (asserted). Unsafe actions: **0**. Assignment: 1,660 treatment / 187
+  holdout customers (realized 10.1% at configured 10%). Attribution
+  window: up to 698.1 h (~29 days). Treatment median TTR is the disclosed
+  batch artifact (all actions execute at the scenario end); the holdout's
+  7.2 min is the measured late-capture lag.
 
 Per failure class (treatment rec/n, holdout rec/n, lift [95% CI]):
 
 | class | treatment | holdout | lift [CI] |
 |---|---|---|---|
-| soft_decline | 287/1,647 (17.4%) | 31/189 (16.4%) | +1.0 pp [−5.2, +6.0] |
-| insufficient_funds | 76/984 (7.7%) | 3/79 (3.8%) | +3.9 pp [−3.0, +7.0] |
-| timeout | 214/874 (24.5%) | 32/111 (28.8%) | −4.3 pp [−13.8, +3.8] |
-| abandonment | 27/545 (5.0%) | 3/47 (6.4%) | −1.4 pp [−12.3, +3.3] |
-| hard_decline | 6/374 (1.6%) | 1/47 (2.1%) | −0.5 pp [−9.6, +2.0] |
+| soft_decline | 33/1,641 (2.0%) | 3/195 (1.5%) | +0.5 pp [−2.5, +1.8] |
+| insufficient_funds | 20/948 (2.1%) | 3/115 (2.6%) | −0.5 pp [−5.3, +1.6] |
+| timeout | 27/889 (3.0%) | 0/96 (0.0%) | +3.0 pp [−0.9, +4.4] |
+| abandonment | 12/509 (2.4%) | 2/83 (2.4%) | −0.1 pp [−6.1, +2.4] |
+| hard_decline | 6/368 (1.6%) | 1/53 (1.9%) | −0.3 pp [−8.4, +2.2] |
 
-Per method: upi −4.2 pp [−10.0, +0.7]; card +5.2 pp [−0.6, +8.9];
-netbanking −1.8 pp [−11.2, +4.9]; wallet −4.5 pp [−25.5, +4.3].
+Per method: upi +1.4 pp [−0.7, +2.5]; card +0.0 pp [−3.5, +1.5];
+netbanking +0.2 pp [−5.2, +2.3]; wallet −5.6 pp [−28.8, +0.5].
 
 **How to read this — the measurement is the product.** Three facts
-decompose the headline:
+decompose the headline, and all three are now measurements rather than
+priors:
 
-1. **The actions that execute do work.** Verified conversion on executed
-   actions is 28.0% (28/100) against a ≈13.3% fleet-wide organic baseline
-   (652/4,897) — consistent with the disclosed priors, in which every
-   action column sits above `no_action` for its class.
+1. **The actions that execute do work — measured.** Verified conversion on
+   executed actions is 61.0% (61/100) against a measured ~0.9% fleet-wide
+   organic baseline (46/4,897). The prior-model reading (28.0% vs ~13.3%)
+   made the same directional point; only the new one is anchored to
+   observed simulator behavior.
 2. **The fleet-level effect is structurally tiny at the current policy
-   envelope.** The gate executed 100 actions over 4,424 treatment
-   failures — 2.3% coverage. The expected ITT effect is ≈ +0.3 pp, while
-   the between-group sampling error of the organic baseline at these
-   sample sizes is ±1.7 pp (MDE ≈ 5 pp). The experiment is **underpowered
-   for the effect the current configuration can produce** — the exact
-   phenomenon Lewis & Rao 2015 describe for lift measurement (cited in
-   docs/competitive-analysis.md §5).
-3. **The point estimate is noise, in either direction.** On the
-   2026-08-27 anchor the holdout drew hot (18.2% organic) and the raw CI
-   excluded zero below; on this anchor both groups realized within ~1 pp
-   of each other and the class-adjusted estimate sits at +0.1 pp. Both
-   readings live inside the same ±5 pp measurement band — which is the
-   point: at this scale the ITT estimate cannot resolve the effect the
-   current configuration produces, and the CI is the honest statement of
-   that.
+   envelope.** The gate executed 100 actions over 4,355 treatment
+   failures — 2.3% coverage. The 61 action recoveries are ≈ +1.4 pp of
+   the treatment rate; the experiment cannot resolve much below that at
+   these sample sizes (the Lewis & Rao 2015 power problem, cited in
+   docs/competitive-analysis.md §5). The experiment remains
+   **underpowered for the effect the current configuration produces**.
+3. **The band narrowed because the control is no longer inflated.** Under
+   the hand-set `no_action` priors the holdout realized 12–15% organic,
+   the sampling band was ±5 pp, and the point estimate wandered negative
+   (DEF-03's stored −2.55 pp; −1.0 pp on the old canonical). With the
+   measured ~1% late-capture baseline in BOTH groups, the raw read is
+   +0.6 pp [−0.9, +1.5] — still bracketing zero, still not a victory
+   claim, but now decided by the simulator's behavior instead of by a
+   table we wrote.
 
-A vendor headline would have reported "28.0% verified conversion on
-executed actions" (or the baseline's 26.1% gross) and stopped there. The
-holdout exists to show what such numbers hide — and to make the uncertainty
-explicit rather than invisible. Tightening the ITT estimate is a policy-
-file decision (wider per-incident caps) or a longer-horizon run, not a code
-change; both are follow-ups, disclosed here rather than silently tuned.
+A vendor headline would have reported "61.0% verified conversion on
+executed actions" (or the baseline's 58.0% gross) and stopped there. The
+holdout exists to show what such numbers hide — and to make the
+uncertainty explicit rather than invisible. Tightening the ITT estimate
+is a policy-file decision (wider per-incident caps) or a longer-horizon
+run, not a code change; both are follow-ups, disclosed here rather than
+silently tuned.
 
 ### 3b. Version history (stored runs, same scenario/seed)
 
 All rows: scenario `standard`, seed 42, holdout 0.10, stored and browsable
-in the Evaluation Lab. Dates are the dataset anchors (§3's cross-run note).
+in the Evaluation Lab. Dates are the dataset anchors. **Only the
+canonical-v3 row uses the measured outcome model (§1a); every earlier row
+was scored by the hand-set CONVERSION priors, so their recovery-side
+numbers (recovered revenue, group rates, lift) were decided by assumption
+and are kept for provenance only — never quote them as current.**
+Detection/diagnosis numbers in those rows do not depend on the outcome
+model and still stand.
 
 | run | anchor | code state | detection P / R / F1 | MTTD | diagnosis top-1 (scored) | opportunities / interventions | recovered (verified) | raw ITT lift [95% CI] |
 |---|---|---|---|---|---|---|---|---|
+| `run_333d3e45c19b4c2e94b8cc3547ee2fab` ("canonical-v3-measured-outcomes", §3) | 2026-08-28 (pinned) | **measured outcome model (DEF-03)** + subscription-arrears lane | 0.333 / 0.667 / 0.444 | 230 min | 1.000 (4) | 1,517 / 100 | 5,285,300 paise | +0.6 pp [−0.9, +1.5] |
 | `run_caa1f1a90ef243d08860679b6631fe6d` ("final") | 2026-08-27 | detection v1 + first holdout arm | 0.667 / 0.500 / 0.571 | 895 min | 0.667 (3) | 655 / 60 | 1,380,700 paise | −3.8 pp [−7.7, −0.4] |
 | `run_0022000d8df942e6ac4b7299986f994a` ("detection-recall:after-new-signals") | 2026-08-27 | detection v2 (three recall signals) | 0.778 / 1.000 / 0.875 | 585 min | 0.667 (6) | 903 / 90 | 2,452,900 paise | −3.7 pp [−7.6, −0.4] |
-| `run_b371e5b40dc9450a88d052deb03809fe` ("canonical-v2", §3) | 2026-08-28 | + stuck-checkout loop, exp07 RF artifact, link-paid cross-check, stuck-source holdout fix | 0.333 / 0.667 / 0.444 | 230 min | 1.000 (4) | 1,472 / 100 | 2,521,400 paise | −1.0 pp [−4.6, +2.1] |
+| `run_b371e5b40dc9450a88d052deb03809fe` ("canonical-v2") | 2026-08-28 | + stuck-checkout loop, exp07 RF artifact, link-paid cross-check, stuck-source holdout fix | 0.333 / 0.667 / 0.444 | 230 min | 1.000 (4) | 1,472 / 100 | 2,521,400 paise | −1.0 pp [−4.6, +2.1] |
 
 What changed between rows, and why:
 
+- **canonical-v2 → canonical-v3 (same pinned 2026-08-28 dataset as §3c;
+  one outcome-model change + one builder lane):** the hand-set conversion
+  table was replaced by the measured outcome model (§1a). Baseline gross
+  92,398,100 → 211,560,400 paise (25.3% → 58.0%: the simulator's measured
+  re-attempt success ~0.58 exceeds the old immediate-retry priors);
+  holdout organic 12.2% → 1.66% (measured late-capture 0.0095 replaces
+  the 0.06–0.30 `no_action` priors); verified conversion on executed
+  actions 25.7–38.0% (prior-model anchors) → 61.0%; recovered revenue
+  3,670,700 → 5,285,300 paise; raw ITT lift +2.2 → +0.6 pp — both CIs
+  bracket zero; the conclusion is unchanged, the estimate is now measured.
+  Opportunities 1,457 → 1,517 from the subscription-arrears lane (builder
+  commit 2026-09-01). No parameter was tuned to steer the result.
 - **v1 → v2 (same 2026-08-27 dataset, same day):** the detection redesign
   shipped three evidence-gated signals (per-route latency scan,
   `checkout_abandonment_rate`, `insufficient_fund_share`), closing all
@@ -386,6 +484,23 @@ numbers in this document are always read alongside the holdout.)
 <!-- RESULTS-END -->
 
 ### 3c. Canonical evaluation specification (pinned, cross-day reproducible)
+
+> **Superseded by DEF-03 (2026-09-02).** The spec below pins the canonical
+> evaluation as recorded under the PRIOR outcome model; its expected
+> values (and the multi-anchor cross-check tooling that asserts them)
+> describe the hand-set-prior harness and are kept for provenance. The
+> current canonical run is §3's `canonical-v3-measured-outcomes`
+> (`run_333d3e45c19b4c2e94b8cc3547ee2fab`), produced by:
+>
+> ```bash
+> cd backend && .venv/Scripts/python scripts/run_evaluation.py \
+>   --scenario standard --seed 42 --end-date 2026-08-28 --name canonical-v3-measured-outcomes
+> ```
+>
+> Refreshing the spec's expected values to the measured-model numbers is a
+> recorded follow-up: it requires re-running the spec's three-execution
+> bit-identity verification (three full-preset runs), deliberately not
+> bundled into the DEF-03 change.
 
 The canonical evaluation is now an explicit, machine-checkable contract:
 `ml/experiments/canonical_spec.json`. It pins every input the metrics
@@ -444,6 +559,17 @@ pinned evaluation on any day, not retroactive bit-identity with the
 historical unpinned run.
 
 ### 3d. Multi-anchor robustness: the canonical spec across 7 calendar anchors
+
+> **Prior-model history (DEF-03).** Every run in this section pre-dates
+> the measured outcome model: the conversion draws and the organic
+> baseline came from the hand-set tables, so the recovery-side numbers
+> (recovered revenue, group rates, lift points, baseline gross) were
+> decided by assumption and are kept for provenance only. The
+> detection/diagnosis findings — per-kind recall stability, the
+> insufficient-funds-wave blind spot, MTTD composition, precision swings —
+> do not depend on the outcome model and still stand. Re-running the
+> 7-anchor replay under the measured model is a recorded follow-up
+> (7 full-preset runs, deliberately not bundled into DEF-03).
 
 The §3c spec makes any single anchor reproducible; it says nothing about
 whether one anchor's numbers are representative. This section runs the
@@ -637,15 +763,24 @@ canonical-spec expected values).
 
 ## 4. Honest limitations
 
-- The customer conversion table — including `no_action` — is a documented
-  prior model, not a measured fact. Both arms and both holdout groups share
-  it, so every *comparison* is fair even where absolute numbers are
-  prior-driven. The holdout's organic baseline is the same kind of prior
-  as the action columns, layered on top of the simulator's intrinsic
-  customer retries (separate payment rows, symmetric across groups).
+- **The outcome model is measured, but bounded by the simulator's
+  fidelity.** Customer outcomes now come from the simulator's own observed
+  behavior (§1a), not from hand-set tables — and that moves the bound, not
+  removes it: the simulator's re-attempt mechanism is reliability-driven
+  and largely class-independent (real-world conversion by failure class
+  WILL differ; the measured hard_decline re-attempt success of 0.64 is a
+  simulator property, not a field claim); its payment-level self-resolution
+  is a ~1% late-capture quirk, while real-world organic recovery is richer
+  (e.g. order-level customer returns, which this estimand excludes
+  symmetrically); and four residual anchoring assumptions remain —
+  delay-invariance, the payment-link twin anchor, the notify anchor, and
+  the payment-level estimand — recorded with their values on every run
+  (`metrics.outcome_model.assumptions`). Comparisons are measured-and-fair
+  within this research environment; absolute numbers are simulator
+  behavior, not production data.
 - At the demo policy envelope the fleet ITT lift is underpowered (§3): the
   holdout methodology is demonstrated end-to-end, but the point estimate at
-  this scale is dominated by organic-baseline sampling variation. Do not
+  this scale is dominated by the tiny action coverage (2.3%). Do not
   quote the point without its CI.
 - Sim-time treatment time-to-recovery is a batch artifact: the harness
   executes all actions at the scenario end. The operational latency measure
@@ -672,12 +807,10 @@ canonical-spec expected values).
 
 ```bash
 cd backend
-# full-preset run with the default 10% holdout (minutes; persists the run row)
+# the §3 canonical run (measured outcome model; ~3 min; persists the run row)
+.venv/Scripts/python scripts/run_evaluation.py --scenario standard --seed 42 --end-date 2026-08-28 --name canonical-v3-measured-outcomes
+# full-preset run with the default 10% holdout, anchored to today
 .venv/Scripts/python scripts/run_evaluation.py --scenario standard --seed 42
-# same, with a readable run name (how §3's canonical-v2 was produced)
-.venv/Scripts/python scripts/run_evaluation.py --scenario standard --seed 42 --name canonical-v2
-# cross-day reproducible: pin the window anchor (the canonical spec, §3c)
-.venv/Scripts/python scripts/run_evaluation.py --scenario standard --seed 42 --end-date 2026-08-28 --name canonical-v2
 # explicit holdout fraction / disabled holdout
 .venv/Scripts/python scripts/run_evaluation.py --scenario standard --seed 42 --holdout-fraction 0.10
 .venv/Scripts/python scripts/run_evaluation.py --scenario standard --seed 42 --holdout-fraction 0
@@ -697,4 +830,8 @@ Safety invariants enforced by the test suite
 unsafe actions; zero opportunities and zero actions for held-out customers;
 bit-identical metrics across identical-seed runs (wall-clock MTTR
 excepted); realized holdout membership within tolerance of the configured
-fraction; CI always brackets the point estimate, including at tiny counts.
+fraction; CI always brackets the point estimate, including at tiny counts;
+outcome rates measured from simulator behavior (a simulator
+behavior-parameter change moves the fitted rates and a full run's
+recovery), with no hand-set conversion priors in the outcome path
+(`tests/evaluation/test_measured_outcomes.py`).

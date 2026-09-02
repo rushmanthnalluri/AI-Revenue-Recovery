@@ -16,22 +16,28 @@ Methodology (full write-up in docs/evaluation.md):
 - The harness plays two clearly-simulated roles, both deterministic:
   * the human operator — approves every action the gate sends to
     PENDING_APPROVAL (actor ``human:eval_operator``);
-  * the customer — answers retries/links/notifications via a documented
-    (failure-class x action) conversion table. Draws are seeded on stable
-    simulator identities (payment/order id), and app-id allocation inside
-    each arm runs under a deterministic-id guard, so two runs with the same
-    seed reproduce identical metrics (wall-clock MTTR excepted — it is an
-    operational measurement, not a simulator output); payment links are
-    decided by the gateway twin itself.
+  * the customer — answers retries/links/notifications via the MEASURED
+    outcome model (``app.services.evaluation.outcomes``): per-class rates
+    fit on each arm's own scratch DB from the simulator's observed
+    re-attempt and late-capture behavior, so BOTH arms are scored by the
+    same outcome generator — the simulator itself — not by harness priors
+    (DEF-03; the hand-set CONVERSION table is gone from the outcome path).
+    Draws are seeded on stable simulator identities (payment/order id), and
+    app-id allocation inside each arm runs under a deterministic-id guard,
+    so two runs with the same seed reproduce identical metrics (wall-clock
+    MTTR excepted — it is an operational measurement, not a simulator
+    output); payment links are decided by the gateway twin itself (at the
+    measured pooled re-attempt rate).
 - HOLDOUT (pre-registered, docs/product-strategy.md §4.1): within the
   PulseCover arm a deterministic customer-level holdout
   (``app.services.evaluation.holdout``) receives NO recovery actions —
   opportunities are never built for held-out customers; detection/diagnosis
   still run fleet-wide. Both groups share the organic baseline: failures the
-  loop never executed an action against self-resolve with the ``no_action``
-  column of the same conversion prior, captured through the real webhook
-  path. The run reports incremental lift = rate(treatment) − rate(holdout)
-  with a Newcombe/Wilson 95% CI (metrics["holdout"]).
+  loop never executed an action against self-resolve with the MEASURED
+  payment-level self-resolution rate (the simulator's late-capture
+  mechanism), captured through the real webhook path. The run reports
+  incremental lift = rate(treatment) − rate(holdout) with a Newcombe/Wilson
+  95% CI (metrics["holdout"]).
 - Safety invariant: a PulseCover-arm action may reach EXECUTING or beyond ONLY
   with an ALLOWED policy decision or a recorded human approval. The harness
   counts violations and the test suite asserts the count is 0.
@@ -96,6 +102,7 @@ from app.services.evaluation.holdout import (
     median,
     newcombe_ci,
 )
+from app.services.evaluation.outcomes import ASSUMPTIONS, OutcomeModel, measure_outcomes
 from app.services.policy.config import PolicyConfigError, load_policy_config
 from app.services.razorpay.simulated import SimulatedPaymentGateway
 from app.services.recovery import OpportunityBuilder, RecoveryExecutor, StrategyGenerator
@@ -106,76 +113,14 @@ from app.simulator.engine import run_simulation
 
 logger = get_logger("app.services.evaluation")
 
-# Gateway twin success rate for its inline decisions (payment links). Links
-# are decided INSIDE the twin (a flat, class-independent rate — a documented
-# twin limitation); all other customer outcomes use the CONVERSION table.
-GATEWAY_SUCCESS_RATE = 0.35
-
-# Customer conversion model: P(the customer pays | failure class x the action
-# taken). ONE table governs both arms — the baseline always lands in the
-# immediate_retry column; PulseCover lands wherever its strategy chose.
-# Priors follow docs/revenue-methodology.md: a single immediate retry rarely
-# fixes insufficient funds (the money is still not there) but often fixes a
-# transient timeout; a payday-aware delayed retry and a fresh payment link do
-# better on funds/abandonment; never-approve (hard) declines stay near zero.
-#
-# The no_action column is the holdout's counterfactual prior: P(the payment
-# self-resolves within the attribution window with ZERO intervention) — the
-# organic recovery that gross attribution wrongly credits to tools (see
-# docs/competitive-analysis.md §5: Recurly observes material self-resolution
-# on soft declines). Every action column sits above no_action for the same
-# class except hard declines, where both stay near zero. Like the rest of
-# the table it is a documented prior, not a measurement; one table governs
-# treatment and holdout alike, so the comparison stays fair.
-CONVERSION: dict[FailureClass, dict[str, float]] = {
-    FailureClass.TIMEOUT: {
-        "immediate_retry": 0.55,
-        "delayed_retry": 0.50,
-        "payment_link": 0.50,
-        "notify": 0.30,
-        "no_action": 0.30,
-    },
-    FailureClass.SOFT_DECLINE: {
-        "immediate_retry": 0.30,
-        "delayed_retry": 0.35,
-        "payment_link": 0.35,
-        "notify": 0.20,
-        "no_action": 0.20,
-    },
-    FailureClass.INSUFFICIENT_FUNDS: {
-        "immediate_retry": 0.08,
-        "delayed_retry": 0.35,
-        "payment_link": 0.20,
-        "notify": 0.15,
-        "no_action": 0.08,
-    },
-    FailureClass.ABANDONMENT: {
-        "immediate_retry": 0.15,
-        "delayed_retry": 0.12,
-        "payment_link": 0.30,
-        "notify": 0.20,
-        "no_action": 0.06,
-    },
-    FailureClass.HARD_DECLINE: {
-        "immediate_retry": 0.02,
-        "delayed_retry": 0.02,
-        "payment_link": 0.03,
-        "notify": 0.02,
-        "no_action": 0.01,
-    },
-    FailureClass.UNKNOWN: {
-        "immediate_retry": 0.15,
-        "delayed_retry": 0.15,
-        "payment_link": 0.18,
-        "notify": 0.10,
-        "no_action": 0.06,
-    },
-}
-
-# Holdout self-resolution lag model: a self-resolving payment pays within a
-# uniform (0, 7 days] lag; resolutions sampled past the scenario-end anchor
-# are right-censored and counted as NOT recovered within the window.
-SELF_RESOLUTION_MAX_LAG_MINUTES = 7 * 24 * 60
+# Customer outcomes come from the MEASURED outcome model
+# (app.services.evaluation.outcomes): per-class rates fit on each arm's own
+# scratch DB from the simulator's observed re-attempt and late-capture
+# behavior. The hand-set CONVERSION table, the 0.35 GATEWAY_SUCCESS_RATE
+# override, and the uniform 7-day self-resolution lag were removed from the
+# outcome path (DEF-03): the causal comparison is now anchored to observed
+# simulator behavior, with the residual anchoring assumptions recorded on
+# every run (outcomes.ASSUMPTIONS).
 
 # Detection schedule: passes half-tile the simulated window (pass every STEP,
 # each looking back WINDOW). 12h windows give the zscore detector enough
@@ -483,9 +428,30 @@ class EvaluationRunner:
                     "window_minutes": DETECTION_WINDOW_MINUTES,
                     "detector": "production defaults",
                 },
-                "gateway_success_rate": GATEWAY_SUCCESS_RATE,
-                "conversion_model": {
-                    k.value: v for k, v in CONVERSION.items()
+                "baseline_definition": (
+                    "one immediate retry per failed payment (a fresh order via "
+                    "the gateway twin); conversion drawn from the measured "
+                    "re-attempt success model; no detection, no diagnosis, no "
+                    "policy gate, no verification"
+                ),
+                "treatment_definition": (
+                    "the real loop: scheduled detection -> ML diagnosis -> "
+                    "opportunity + strategy generation -> deterministic policy "
+                    "gate -> execution via the PaymentGateway port -> webhook "
+                    "verification; customer outcomes drawn from the SAME "
+                    "measured outcome model as the baseline; payment links "
+                    "decided inline by the gateway twin at the measured pooled "
+                    "re-attempt rate"
+                ),
+                # Static part; the fitted rates are added at completion
+                # under "outcome_model_measured" (fit on the arms' DBs).
+                "outcome_model": {
+                    "provenance": "measured_from_simulator_behavior",
+                    "description": "per-class customer-outcome rates fit on "
+                    "each arm's own scratch DB from the simulator's observed "
+                    "re-attempt and late-capture behavior; both arms are "
+                    "scored by the same outcome generator (DEF-03)",
+                    "assumptions": list(ASSUMPTIONS),
                 },
                 "holdout": {
                     "fraction": fraction,
@@ -495,10 +461,12 @@ class EvaluationRunner:
                     "recovery_rate(holdout) over the run's fixed attribution "
                     "window; denominators are ALL first-attempt failed "
                     "payments per group; recovery = verified captures only; "
-                    "both groups share the organic no_action baseline",
+                    "both groups share the measured organic (late-capture) "
+                    "baseline",
                     "ci_method": "newcombe_hybrid_score_wilson_95",
-                    "self_resolution_lag": "uniform(0, 7 days], right-censored "
-                    "at the scenario-end anchor",
+                    "self_resolution_lag": "empirical late-capture lag "
+                    "distribution (bootstrap), right-censored at the "
+                    "scenario-end anchor",
                 },
             },
             status="running",
@@ -526,10 +494,21 @@ class EvaluationRunner:
                 "MTTR is wall-clock pipeline latency. The PulseCover arm "
                 "withholds all recovery actions from a deterministic "
                 "customer-level holdout (metrics.holdout); incremental lift "
-                "is reported with a Newcombe/Wilson 95% CI."
+                "is reported with a Newcombe/Wilson 95% CI. Customer outcomes "
+                "(action conversion AND the organic baseline) are measured "
+                "from the simulator's own behavior on each arm's data "
+                "(metrics.outcome_model) — no hand-set conversion priors "
+                "remain in the outcome path (DEF-03)."
             )
             experiment.status = "completed"
             experiment.ended_at = run.finished_at
+            # The pre-registered config carried the outcome model's static
+            # contract; record the fitted rates alongside it (reassignment,
+            # not in-place mutation, so the JSON change is tracked).
+            experiment.config = {
+                **experiment.config,
+                "outcome_model_measured": metrics["outcome_model"],
+            }
             experiment.results = {
                 "comparison": metrics.get("comparison", {}),
                 "holdout_lift": (metrics.get("holdout") or {}).get("lift"),
@@ -573,6 +552,14 @@ class EvaluationRunner:
         assembled = {
             "arms": {"baseline": b, "pulsecover": p},
             "comparison": comparison,
+            # The measured outcome generator both arms were scored by
+            # (per-arm copies in arms.*.outcome_model; identical config ->
+            # identical data -> identical fit). DEF-03: outcomes are
+            # measured, not prior — and the honest headline may be neutral
+            # or negative. The defensible framing is recovery per
+            # intervention, zero-unsafe executions, and gate coverage, NOT
+            # metric selection: those are reported as-is alongside lift.
+            "outcome_model": p["outcome_model"],
             # Top-level keys feed GET /api/v1/evaluation/metrics aggregation.
             "detection_precision": p["detection"]["precision"],
             "detection_recall": p["detection"]["recall"],
@@ -613,8 +600,12 @@ class EvaluationRunner:
         with _ScratchDb() as scratch:
             db = scratch.session
             sim = run_simulation(config, db)
+            # Fit the outcome model BEFORE anything mutates the simulated
+            # data; the baseline's retry conversion is the simulator's own
+            # measured re-attempt success, not a harness prior.
+            outcomes = measure_outcomes(db)
             gateway = SimulatedPaymentGateway(
-                seed=config.seed, success_rate=GATEWAY_SUCCESS_RATE
+                seed=config.seed, success_rate=outcomes.pooled_retry_success
             )
             failed = list(
                 db.scalars(sa.select(Payment).where(Payment.status == "failed"))
@@ -634,11 +625,12 @@ class EvaluationRunner:
                     false_interventions += 1
                     false_amount += payment.amount_paise
                 rng = random.Random(f"eval:{config.seed}:baseline:{payment.id}")
-                if rng.random() < CONVERSION[cls]["immediate_retry"]:
+                if rng.random() < outcomes.rate_for("immediate_retry", cls):
                     recovered += payment.amount_paise
             failed_amount = sum(p.amount_paise for p in failed)
             metrics = {
                 "simulator_run_id": sim.run_id,
+                "outcome_model": outcomes.to_dict(),
                 "failed_payments_count": len(failed),
                 "failed_amount_paise": failed_amount,
                 "interventions_count": len(failed),  # retries everything
@@ -660,8 +652,12 @@ class EvaluationRunner:
         with _ScratchDb() as scratch:
             db = scratch.session
             sim = run_simulation(config, db)
+            # Fit the outcome model BEFORE detection/recovery mutate anything:
+            # the loop's action conversions and the holdout's organic baseline
+            # are both drawn from the simulator's own measured behavior.
+            outcomes = measure_outcomes(db)
             gateway = SimulatedPaymentGateway(
-                seed=config.seed, success_rate=GATEWAY_SUCCESS_RATE
+                seed=config.seed, success_rate=outcomes.pooled_retry_success
             )
             gt = load_ground_truth(db, sim.run_id)
 
@@ -681,11 +677,11 @@ class EvaluationRunner:
                 detection = self._detect(db, gt)
                 diagnosis = self._diagnose(db, gt)
                 recovery = self._recover(
-                    db, config, gateway, holdout_fraction=holdout_fraction
+                    db, config, gateway, outcomes, holdout_fraction=holdout_fraction
                 )
                 holdout = (
                     self._evaluate_holdout(
-                        db, config, gateway, scope, anchor, holdout_fraction
+                        db, config, gateway, outcomes, scope, anchor, holdout_fraction
                     )
                     if holdout_fraction > 0.0
                     else None
@@ -694,6 +690,7 @@ class EvaluationRunner:
             failed_amount = sum(f.amount_paise for f in scope)
             metrics: dict[str, Any] = {
                 "simulator_run_id": sim.run_id,
+                "outcome_model": outcomes.to_dict(),
                 "ground_truth_incidents": len(gt),
                 "detection": detection,
                 "diagnosis": diagnosis,
@@ -874,6 +871,7 @@ class EvaluationRunner:
         db: Session,
         config: SimulatorConfig,
         gateway: SimulatedPaymentGateway,
+        outcomes: OutcomeModel,
         *,
         holdout_fraction: float = 0.0,
     ) -> dict[str, Any]:
@@ -916,7 +914,7 @@ class EvaluationRunner:
                     executor.approve(opp.id, actor=OPERATOR, note="evaluation operator")
                     action = executor.execute(opp.id, actor="agent:evaluation")
                 if action.status is RecoveryStatus.VERIFYING:
-                    self._customer_resolves(db, config, gateway, action)
+                    self._customer_resolves(db, config, gateway, action, outcomes)
                 db.commit()
 
         actions = list(db.scalars(sa.select(RecoveryAction)))
@@ -1021,6 +1019,7 @@ class EvaluationRunner:
         db: Session,
         config: SimulatorConfig,
         gateway: SimulatedPaymentGateway,
+        outcomes: OutcomeModel,
         scope: list[ScopedFailure],
         anchor: datetime | None,
         holdout_fraction: float,
@@ -1028,15 +1027,17 @@ class EvaluationRunner:
         """Score treatment vs holdout over the run's fixed attribution window.
 
         BOTH groups share the same organic baseline: a failure the loop never
-        touched self-resolves with the documented ``no_action`` prior, and
-        the capture is delivered through the REAL signed-webhook path — the
-        strict verification standard is identical in both groups (a payment
-        without a gateway id can never be verified and is never counted).
-        The treatment group additionally gets the loop's executed actions;
-        for those payments the action's own conversion draw governs (no
-        second organic draw — that would double-count). The lift is therefore
-        exactly the causal effect of the actions taken, fleet-wide (ITT):
-        every first-attempt failed payment stays in its group's denominator.
+        touched self-resolves with the MEASURED payment-level self-resolution
+        rate (the simulator's late-capture mechanism, fit on this arm's data),
+        and the capture is delivered through the REAL signed-webhook path —
+        the strict verification standard is identical in both groups (a
+        payment without a gateway id can never be verified and is never
+        counted). The treatment group additionally gets the loop's executed
+        actions; for those payments the action's own measured-rate draw
+        governs (no second organic draw — that would double-count). The lift
+        is therefore exactly the causal effect of the actions taken,
+        fleet-wide (ITT): every first-attempt failed payment stays in its
+        group's denominator.
         """
         if anchor is not None and anchor.tzinfo is None:
             anchor = anchor.replace(tzinfo=timezone.utc)
@@ -1076,12 +1077,12 @@ class EvaluationRunner:
         # Organic (no-action) baseline for every failure the loop did NOT
         # execute an action against — in both groups.
         organic_treat = self._organic_resolutions(
-            db, config, gateway, anchor,
+            db, config, gateway, outcomes, anchor,
             [f for f in treatment if f.payment_id not in executed_payment_ids],
             namespace="organic",
         )
         organic_hold = self._organic_resolutions(
-            db, config, gateway, anchor, held, namespace="holdout",
+            db, config, gateway, outcomes, anchor, held, namespace="holdout",
         )
         db.commit()
 
@@ -1180,7 +1181,8 @@ class EvaluationRunner:
             "estimand": "incremental lift = recovery_rate(treatment) - "
             "recovery_rate(holdout); denominators are ALL first-attempt "
             "failed payments per group; recovery = gateway/webhook-verified "
-            "captures only; both groups share the organic no_action baseline",
+            "captures only; both groups share the measured organic "
+            "(late-capture) baseline",
             "attribution_window": {
                 "start": "each payment's failure timestamp (created_at)",
                 "end": "scenario-end anchor (latest terminal simulator event)",
@@ -1217,15 +1219,18 @@ class EvaluationRunner:
                 "Held-out customers still get detection + diagnosis; only the "
                 "recovery loop (opportunities, actions, gateway calls) is "
                 "withheld — a no-action control, not a blind spot.",
-                "Both groups share the organic no_action baseline (the same "
-                "documented prior family as the action conversion table): "
-                "failures the loop never executed an action against "
-                "self-resolve with the no_action probability, captured "
-                "through the real signed-webhook path in both groups.",
+                "Both groups share the measured organic baseline: failures "
+                "the loop never executed an action against self-resolve with "
+                "the measured payment-level late-capture rate (the "
+                "simulator's own self-resolution mechanism, fit on this "
+                "arm's data), captured through the real signed-webhook path "
+                "in both groups.",
                 "Payments with an executed action resolve on the action's own "
-                "conversion draw only — no second organic draw.",
-                "Self-resolution lags sampled past the scenario-end anchor "
-                "are right-censored (counted as not recovered).",
+                "measured-rate draw only — no second organic draw.",
+                "Self-resolution lags are bootstrapped from the empirical "
+                "late-capture lag distribution; lags landing past the "
+                "scenario-end anchor are right-censored (counted as not "
+                "recovered).",
                 "Sim-time action time-to-recovery is a batch artifact: the "
                 "harness executes all actions at the scenario end. The "
                 "operational latency measure is wall-clock MTTR.",
@@ -1277,22 +1282,27 @@ class EvaluationRunner:
         db: Session,
         config: SimulatorConfig,
         gateway: SimulatedPaymentGateway,
+        outcomes: OutcomeModel,
         anchor: datetime | None,
         failures: list[ScopedFailure],
         *,
         namespace: str,
     ) -> list[tuple[ScopedFailure, float]]:
         """The no-action counterfactual for a set of failed payments: each
-        self-resolves with the documented prior and a uniform (0, 7d] lag,
+        self-resolves with the MEASURED payment-level late-capture rate and a
+        lag bootstrapped from the empirical late-capture lag distribution,
         right-censored at the window end; captures are delivered through the
         real signed-webhook path (verified, dedup-safe). Deterministic per
         (seed, payment id)."""
         recovered: list[tuple[ScopedFailure, float]] = []
+        lags = outcomes.self_resolution_lags_minutes
         for f in failures:
             rng = random.Random(f"eval:{config.seed}:{namespace}:{f.payment_id}")
-            if rng.random() >= CONVERSION[f.failure_class]["no_action"]:
+            if rng.random() >= outcomes.self_resolution:
                 continue  # the customer never comes back on their own
-            lag_minutes = rng.random() * SELF_RESOLUTION_MAX_LAG_MINUTES
+            if not lags:
+                continue  # rate > 0 implies observed lags; never crash on empty
+            lag_minutes = rng.choice(lags)
             if anchor is not None and f.failed_at + timedelta(minutes=lag_minutes) > anchor:
                 continue  # right-censored at the window end
             if not f.gateway_payment_id:
@@ -1383,9 +1393,12 @@ class EvaluationRunner:
         config: SimulatorConfig,
         gateway: SimulatedPaymentGateway,
         action: RecoveryAction,
+        outcomes: OutcomeModel,
     ) -> None:
         """The simulated customer answers a VERIFYING action, deterministically
-        per gateway_request_id; verification itself runs the real code paths."""
+        per gateway_request_id; the conversion rate is the MEASURED simulator
+        behavior (re-attempt success for retries, organic return for nudges),
+        and verification itself runs the real code paths."""
         opp = db.get(RecoveryOpportunity, action.opportunity_id)
         payment = db.get(Payment, opp.payment_id) if opp and opp.payment_id else None
         cls = classify_failure(payment) if payment is not None else FailureClass.UNKNOWN
@@ -1398,11 +1411,13 @@ class EvaluationRunner:
                     delay = int((strategy.constraints or {}).get("delay_seconds", 0)) if strategy else 0
                 except (TypeError, ValueError):
                     delay = 0
+            # Both retry columns map to the measured re-attempt success —
+            # the simulator's mechanism is delay-invariant (outcomes.ASSUMPTIONS).
             column = "delayed_retry" if delay > 0 else "immediate_retry"
         rng = random.Random(
             f"eval:{config.seed}:pulsecover:{_stable_subject(opp, payment, action)}"
         )
-        pays = rng.random() < CONVERSION[cls][column]
+        pays = rng.random() < outcomes.rate_for(column, cls)
 
         if action.action_type in (ActionType.RETRY_PAYMENT, ActionType.NOTIFY_CUSTOMER):
             if not pays or payment is None or not payment.gateway_payment_id:
@@ -1456,16 +1471,15 @@ class EvaluationRunner:
 
 
 __all__ = [
-    "CONVERSION",
     "DETECTION_STEP_MINUTES",
     "DETECTION_WINDOW_MINUTES",
     "EvaluationRunner",
-    "GATEWAY_SUCCESS_RATE",
     "KIND_TO_CAUSE",
     "OPERATOR",
-    "SELF_RESOLUTION_MAX_LAG_MINUTES",
+    "OutcomeModel",
     "ScopedFailure",
     "dataset_version",
+    "measure_outcomes",
     "resolve_anchor",
     "truth_cause",
 ]

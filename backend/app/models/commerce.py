@@ -128,7 +128,7 @@ class PaymentEvent(ProvenanceMixin, TimestampMixin, Base):
     event_type: Mapped[str] = mapped_column(sa.String(64), nullable=False, index=True)
     from_status: Mapped[str | None] = mapped_column(sa.String(32))
     to_status: Mapped[str | None] = mapped_column(sa.String(32))
-    # source: poller | webhook | simulator | seed
+    # source: poller | webhook | simulator | seed | sync
     source: Mapped[str] = mapped_column(sa.String(32), default="poller", nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(sa.JSON, default=dict, nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(TZDateTime(), nullable=False, index=True)

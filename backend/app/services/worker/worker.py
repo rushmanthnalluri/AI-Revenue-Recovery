@@ -1,6 +1,6 @@
 """In-process worker: the monolith's scheduler tier (docs/worker.md).
 
-One `Worker` drives three due-driven units of work per tick:
+One `Worker` drives four due-driven units of work per tick:
 
 1. **Delayed retries** — recovery_actions parked in SCHEDULED by the
    executor (strategy `constraints.delay_seconds`) are fired through the
@@ -16,6 +16,12 @@ One `Worker` drives three due-driven units of work per tick:
    (`run_reconciliation`, reused as-is) runs on the configured cadence
    (WORKER_RECONCILE_SECONDS, default 15 min), and always once on the first
    tick after startup.
+4. **Scheduled detection** — one detection pass over the REAL_TEST
+   environment (the real merchant's payment_events stream, fed by sync and
+   webhooks) through the same `run_detection` entry point the API uses,
+   on the configured cadence (WORKER_DETECTION_SECONDS, default 5 min) and
+   always once on the first tick after startup. The research environment
+   stays on-demand (demo/eval surfaces) — the worker never scores it.
 
 This class is deliberately synchronous and asyncio-free; `WorkerSupervisor`
 (app.services.worker.supervisor) paces `tick()` inside the app's event loop.
@@ -38,7 +44,10 @@ from sqlalchemy.orm import Session
 from app.db import utcnow
 from app.logging import get_logger
 from app.models import NotificationOutbox, RecoveryAction
+from app.models.base import ENVIRONMENT_REAL_TEST
 from app.ports import NotificationSender, NotificationStatus, PaymentGateway, RecoveryStatus
+from app.schemas.detection import DetectionRunRequest
+from app.services.detection import DetectionRunResult, run_detection
 from app.services.policy import audit
 from app.services.recovery.executor import RecoveryExecutor
 from app.services.recovery.reconcile import ReconcileReport, run_reconciliation
@@ -49,6 +58,37 @@ logger = get_logger(__name__)
 WORKER_ACTOR = "system:worker"
 NOTIFICATION_MAX_ATTEMPTS = 3
 NOTIFICATION_RETRY_BASE_SECONDS = 60.0
+
+
+def run_real_test_detection(db: Session, *, actor: str) -> DetectionRunResult:
+    """Default detection unit: one pass over the REAL_TEST environment only.
+
+    Reuses the API's exact entry point (`run_detection`, the same function
+    `app.api.v1.detection` calls) and mirrors its post-run audit row, with
+    `trigger: "worker"` marking the scheduled origin. Research stays
+    on-demand (demo/eval surfaces) — this unit never scores it.
+    `run_detection` commits the incidents it persists (non-dry runs); the
+    commit here covers the audit row.
+    """
+    result = run_detection(db, DetectionRunRequest(environment=ENVIRONMENT_REAL_TEST))
+    entry = audit.record(
+        db,
+        actor=actor,
+        action="detection.run",
+        entity_type="detection_run",
+        entity_id=result.run_id,
+        details={
+            "environment": ENVIRONMENT_REAL_TEST,
+            "trigger": "worker",
+            "anomalies_detected": result.anomalies_detected,
+            "anomalies_filtered": result.anomalies_filtered,
+            "incidents_created": result.incidents_created,
+            "incidents_updated": result.incidents_updated,
+        },
+    )
+    entry.environment = ENVIRONMENT_REAL_TEST
+    db.commit()
+    return result
 
 
 @dataclass
@@ -63,6 +103,8 @@ class TickReport:
     notifications_failed: int = 0
     reconciled: bool = False
     reconcile_report: ReconcileReport | None = None
+    detected: bool = False
+    detection_result: DetectionRunResult | None = None
     errors: list[str] = field(default_factory=list)
 
 
@@ -74,6 +116,8 @@ class Worker:
     it; real_test actions route through the executor's real-gateway seam).
     `clock` is injectable so due/cadence logic is deterministic under test.
     `reconcile_fn` defaults to the real ADR 0011 sweep; tests inject a spy.
+    `detection_fn` defaults to `run_real_test_detection` (one real_test pass
+    through the API's `run_detection`); tests inject a spy.
     """
 
     def __init__(
@@ -83,25 +127,30 @@ class Worker:
         *,
         sender: NotificationSender | None = None,
         reconcile_seconds: float = 900.0,
+        detection_seconds: float = 300.0,
         clock: Callable[[], datetime] | None = None,
         actor: str = WORKER_ACTOR,
         reconcile_fn: Callable[..., ReconcileReport] | None = None,
+        detection_fn: Callable[..., DetectionRunResult] | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._gateway = gateway
         self._sender = sender or LoggingNotificationSender()
         self._reconcile_seconds = float(reconcile_seconds)
+        self._detection_seconds = float(detection_seconds)
         self._clock = clock or utcnow
         self._actor = actor
         self._reconcile_fn = reconcile_fn or run_reconciliation
+        self._detection_fn = detection_fn or run_real_test_detection
         self._last_reconcile_at: datetime | None = None
+        self._last_detection_at: datetime | None = None
 
     # ------------------------------------------------------------------
     # one tick
     # ------------------------------------------------------------------
 
     def tick(self) -> TickReport:
-        """Run one pass over the three units. Units are failure-isolated: an
+        """Run one pass over the four units. Units are failure-isolated: an
         exception in one is recorded in the report and never skips the others
         (a failing unit retries on the next tick)."""
         now = self._clock()
@@ -125,6 +174,15 @@ class Worker:
             except Exception as exc:
                 logger.exception("worker: reconcile unit failed")
                 report.errors.append(f"reconcile: {type(exc).__name__}: {exc}")
+        if self._detection_due(now):
+            try:
+                report.detection_result = self._run_detection()
+                report.detected = True
+                # Advance only on success: a failing pass retries next tick.
+                self._last_detection_at = now
+            except Exception as exc:
+                logger.exception("worker: detection unit failed")
+                report.errors.append(f"detection: {type(exc).__name__}: {exc}")
         logger.info(
             "worker tick",
             extra={
@@ -132,6 +190,7 @@ class Worker:
                 "actions_fired": report.actions_fired,
                 "notifications_sent": report.notifications_sent,
                 "reconciled": report.reconciled,
+                "detected": report.detected,
                 "errors": report.errors,
             },
         )
@@ -287,6 +346,27 @@ class Worker:
         finally:
             db.close()
 
+    # ------------------------------------------------------------------
+    # unit 4: scheduled detection (real_test only; research stays on-demand)
+    # ------------------------------------------------------------------
+
+    def _detection_due(self, now: datetime) -> bool:
+        # Always detect on the first tick after startup — the real
+        # environment's event stream accrues while the process is down —
+        # then on the configured cadence.
+        if self._last_detection_at is None:
+            return True
+        return (now - self._last_detection_at).total_seconds() >= self._detection_seconds
+
+    def _run_detection(self) -> DetectionRunResult:
+        db = self._session_factory()
+        try:
+            # run_detection owns its transaction boundary (it commits the
+            # incidents it persists on non-dry runs), like the sweep above.
+            return self._detection_fn(db, actor=self._actor)
+        finally:
+            db.close()
+
 
 __all__ = [
     "NOTIFICATION_MAX_ATTEMPTS",
@@ -294,4 +374,5 @@ __all__ = [
     "TickReport",
     "Worker",
     "WORKER_ACTOR",
+    "run_real_test_detection",
 ]

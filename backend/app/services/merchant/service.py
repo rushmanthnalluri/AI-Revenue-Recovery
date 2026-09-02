@@ -19,6 +19,24 @@ Durability contract:
   (API layer) owns the commit;
 - `sync_enabled=false` (Disconnect) refuses the run before any network I/O.
 
+Sync-derived payment events (the real environment's detection signal):
+detection, the dashboard, and diagnosis all consume the `payment_events`
+stream, and webhooks are only half the feed — so each pass appends ONE event
+per payment whose OBSERVED state is new:
+- first seen in state `created` -> a `payment.created` event stamped at the
+  GATEWAY timestamp (source semantics: the gateway really created it then);
+- first seen already in a later state (authorized/captured/failed/refunded)
+  -> ONE observation event stamped at OBSERVATION time (`ingested_at`),
+  payload marked `derived_from: "sync"` + the observed state. Terminal
+  states are NEVER backdated to the gateway `created_at`: sync only knows
+  what it saw when it saw it — that is observation, not fabrication;
+- a known payment whose status CHANGED since the last sync -> one
+  transition event (from_status -> to_status) at observation time.
+A re-sync with no status change emits ZERO rows (idempotent). Events copy
+the payment's provenance (`source_type`/`source_system`/`external_id`) and
+stamp `source='sync'`, so environment isolation holds exactly as for the
+payment rows themselves.
+
 Secret hygiene: the key secret is used only for HTTP Basic auth and is never
 logged or returned; only the masked key id is exposed.
 """
@@ -41,6 +59,7 @@ from app.models import (
     Merchant,
     Order,
     Payment,
+    PaymentEvent,
     RecoveryAction,
     Subscription,
     SyncRun,
@@ -402,8 +421,77 @@ class SyncService:
         gateway_order_id = fields.pop("_gateway_order_id", None)
         if gateway_order_id:
             fields["order_id"] = self._local_order_id(db, source_type, gateway_order_id)
-        _, created = self._upsert(db, Payment, source_type, gateway_id, fields)
+        # Capture the pre-upsert status: the event derivation below keys ONLY
+        # on an observed status change, never on field refreshes.
+        prior_status = db.scalar(
+            sa.select(Payment.status).where(
+                Payment.source_type == source_type,
+                Payment.external_id == gateway_id,
+            )
+        )
+        payment, created = self._upsert(db, Payment, source_type, gateway_id, fields)
+        self._record_payment_event(db, payment, prior_status=prior_status, raw=raw)
         counts["payments"]["created" if created else "updated"] += 1
+
+    @staticmethod
+    def _record_payment_event(
+        db: Session,
+        payment: Payment,
+        *,
+        prior_status: str | None,
+        raw: dict[str, Any],
+    ) -> None:
+        """Append ONE payment_events row when this pass OBSERVED something new
+        about the payment (see the module docstring for the full contract):
+
+        - first seen in `created`: `payment.created` at the GATEWAY timestamp
+          (source semantics — the gateway really created it then);
+        - first seen in any later state: ONE observation event at OBSERVATION
+          time (`ingested_at`), payload marked `derived_from: "sync"` — never
+          backdated (observation, not fabrication);
+        - known payment whose status changed: one transition event at
+          observation time.
+
+        An unchanged payment emits NOTHING — a no-op re-sync adds zero rows.
+        """
+        status = payment.status
+        if prior_status == status:
+            return  # unchanged re-sync (an existing row whose status held)
+        # Cross-source dedupe: if this transition is already recorded (e.g. the
+        # authoritative webhook event landed first), sync observed nothing new.
+        already_recorded = db.scalar(
+            sa.select(PaymentEvent.id)
+            .where(
+                PaymentEvent.payment_id == payment.id,
+                PaymentEvent.to_status == status,
+            )
+            .limit(1)
+        )
+        if already_recorded is not None:
+            return
+        if prior_status is None and status == "created":
+            occurred_at = payment.gateway_created_at or payment.created_at
+            payload = dict(raw)
+        elif prior_status is None:
+            occurred_at = payment.ingested_at
+            payload = {**raw, "derived_from": "sync", "observed_status": status}
+        else:
+            occurred_at = utcnow()
+            payload = {**raw, "derived_from": "sync", "observed_status": status}
+        db.add(
+            PaymentEvent(
+                payment_id=payment.id,
+                event_type=f"payment.{status}",
+                from_status=prior_status,
+                to_status=status,
+                source="sync",
+                payload=payload,
+                occurred_at=occurred_at,
+                source_type=payment.source_type,
+                source_system=payment.source_system,
+                external_id=payment.external_id,
+            )
+        )
 
     def _sync_payment_links(
         self, db: Session, merchant: Merchant, source_type: str, counts: dict[str, Any]
