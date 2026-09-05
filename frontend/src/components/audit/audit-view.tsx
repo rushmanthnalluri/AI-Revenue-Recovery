@@ -31,6 +31,9 @@ const ENTITY_TYPES = [
   "agent_report",
   "diagnosis",
   "demo_environment",
+  "detection_run",
+  "notification_outbox",
+  "connection_state",
 ] as const;
 
 function TimelineSkeleton() {
@@ -53,6 +56,7 @@ export function AuditView() {
   const { environment } = useEnvironment();
   const searchParams = useSearchParams();
   const [entityType, setEntityType] = React.useState("");
+  const [actor, setActor] = React.useState("");
   // Deep links (`/audit?entity_id=act_…`, e.g. from the Approval Center)
   // pre-fill the entity-id filter — an exact server-side match.
   const [entityId, setEntityId] = React.useState(searchParams.get("entity_id") ?? "");
@@ -66,11 +70,12 @@ export function AuditView() {
   }, [environment]);
 
   const query = useQuery({
-    queryKey: ["audit", "list", envFilter, entityType, entityId, page],
+    queryKey: ["audit", "list", envFilter, entityType, entityId, actor, page],
     queryFn: () =>
       api.audit.list({
         entity_type: entityType || null,
         entity_id: entityId || null,
+        actor: actor || null,
         environment: envFilter,
         page,
         page_size: PAGE_SIZE,
@@ -83,7 +88,7 @@ export function AuditView() {
   const totalPages = query.data
     ? Math.max(1, Math.ceil(query.data.total / query.data.page_size))
     : 1;
-  const filtered = entityType !== "" || entityId !== "";
+  const filtered = entityType !== "" || entityId !== "" || actor !== "";
 
   return (
     <div className="space-y-6">
@@ -134,6 +139,16 @@ export function AuditView() {
               placeholder="entity id — inc_…, act_…, pol_…"
               aria-label="Filter by entity id"
               className="h-7 w-52 px-2 text-xs"
+            />
+            <Input
+              value={actor}
+              onChange={(e) => {
+                setActor(e.target.value);
+                setPage(1);
+              }}
+              placeholder="actor — system:worker"
+              aria-label="Filter by actor"
+              className="h-7 w-40 px-2 text-xs"
             />
             <AuditVerifyAction />
           </div>

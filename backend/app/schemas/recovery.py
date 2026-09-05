@@ -110,6 +110,55 @@ class RecoveryActionView(BaseModel):
     last_error: str | None = None
 
 
+class ActionOutcomeCellView(BaseModel):
+    action_type: str
+    failure_class: str
+    failure_class_source: str
+    n_executed: int
+    n_recovered: int
+    n_failed: int
+    n_unknown: int
+    rate_recovered: float | None = None
+    wilson_low: float
+    wilson_high: float
+    low_confidence: bool
+    sample_confidence: float
+
+
+class OrganicOutcomeCellView(BaseModel):
+    failure_class: str
+    n_failed_payments: int
+    n_self_captured: int
+    rate_organic: float | None = None
+    wilson_low: float
+    wilson_high: float
+    low_confidence: bool
+    sample_confidence: float
+
+
+class IncrementalOutcomeCellView(BaseModel):
+    action_type: str
+    failure_class: str
+    action_rate: float | None = None
+    organic_rate: float | None = None
+    incremental: float | None = None
+    clamped: float
+    ci_low: float
+    ci_high: float
+    inconclusive: bool
+
+
+class RecoveryOutcomeRatesResponse(BaseModel):
+    environment: str
+    window_start: datetime
+    window_end: datetime
+    provenance: str
+    min_cell: int
+    cells: list[ActionOutcomeCellView] = Field(default_factory=list)
+    organic: list[OrganicOutcomeCellView] = Field(default_factory=list)
+    incremental: list[IncrementalOutcomeCellView] = Field(default_factory=list)
+
+
 # --- mutating requests ------------------------------------------------------
 
 class ApproveRequest(BaseModel):

@@ -163,8 +163,10 @@ Confidence handling (measured in the agent eval — see below):
 
 ## LlmReasoner (optional, advisory)
 
-Enabled only when `LLM_PROVIDER=openai` **and** `OPENAI_API_KEY` are set
-(`OPENAI_BASE_URL`, `OPENAI_MODEL` optional). It runs a bounded tool-calling
+Enabled only when `LLM_PROVIDER=openai` and `OPENAI_API_KEY` are set, or when
+`LLM_PROVIDER=pollinations` and `POLLINATIONS_API_KEY` are set. Pollinations
+uses the OpenAI-compatible base URL `https://gen.pollinations.ai/v1` by default;
+`POLLINATIONS_BASE_URL` and `POLLINATIONS_MODEL` are optional. It runs a bounded tool-calling
 loop (max 6 iterations, max 2 attempts) against an OpenAI-compatible
 `/chat/completions` endpoint via httpx, then strictly validates the output:
 

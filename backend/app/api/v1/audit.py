@@ -28,6 +28,7 @@ def list_audit(
     db: Session = Depends(get_db),
     entity_type: str | None = Query(default=None),
     entity_id: str | None = Query(default=None),
+    actor: str | None = Query(default=None),
     environment: Literal["real_test", "research", "all"] = Query(default="real_test"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
@@ -37,6 +38,8 @@ def list_audit(
         filters.append(AuditLog.entity_type == entity_type)
     if entity_id:
         filters.append(AuditLog.entity_id == entity_id)
+    if actor:
+        filters.append(AuditLog.actor == actor)
 
     total = int(
         db.scalar(sa.select(sa.func.count()).select_from(AuditLog).where(*filters)) or 0

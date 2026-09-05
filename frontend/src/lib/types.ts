@@ -866,6 +866,7 @@ export interface OpportunityListParams extends PageParams {
 export interface AuditListParams extends PageParams {
   entity_type?: string | null;
   entity_id?: string | null;
+  actor?: string | null;
   environment?: Environment;
 }
 

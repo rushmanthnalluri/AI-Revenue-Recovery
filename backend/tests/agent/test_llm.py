@@ -7,7 +7,7 @@ import json
 import pytest
 
 from app.ports import EvidenceBundle
-from app.services.agent.reasoners import HeuristicReasoner, LlmReasoner
+from app.services.agent.reasoners import HeuristicReasoner, LlmReasoner, choose_reasoner
 from app.services.agent.report import InvestigationOutput
 from app.services.agent.tools import AgentTools
 from app.services.agent.validation import extract_json, validate_llm_payload
@@ -137,6 +137,18 @@ def ctx(db_session, agent_seed):
 
 def _reasoner(tools, fake):
     return LlmReasoner(tools, api_key="test-key", model="test-model", chat_fn=fake)
+
+
+def test_pollinations_provider_selects_guarded_openai_compatible_reasoner(ctx):
+    reasoner = choose_reasoner(
+        ctx["tools"],
+        llm_provider="pollinations",
+        pollinations_api_key="test-key",
+    )
+
+    assert isinstance(reasoner, LlmReasoner)
+    assert reasoner._base_url == "https://gen.pollinations.ai/v1"
+    assert reasoner._model == "openai"
 
 
 def _structured(report) -> InvestigationOutput:

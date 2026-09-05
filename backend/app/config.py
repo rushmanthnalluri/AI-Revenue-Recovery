@@ -36,10 +36,15 @@ class Settings(BaseSettings):
     RAZORPAY_BASE_URL: str = "https://api.razorpay.com/v1"
 
     # LLM is optional. "none" (default) selects the offline heuristic reasoner.
+    # Supported remote providers: "openai" and "pollinations" (both use the
+    # same OpenAI-compatible chat contract and remain advisory only).
     LLM_PROVIDER: str = "none"
     OPENAI_API_KEY: str = ""
     OPENAI_BASE_URL: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"
+    POLLINATIONS_API_KEY: str = ""
+    POLLINATIONS_BASE_URL: str = "https://gen.pollinations.ai/v1"
+    POLLINATIONS_MODEL: str = "openai"
 
     # Shared-secret for mutating /api/v1 routes (X-API-Key header).
     API_KEY: str = "dev-key"

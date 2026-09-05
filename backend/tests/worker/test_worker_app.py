@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.api.v1.health as health
+import app.models as models
 from app.config import settings
 from app.db import utcnow
 from app.main import create_app
@@ -108,6 +109,31 @@ class TestWorkerHealthCheck:
         check = health._worker_check()
         assert check.status == "ok"  # loop alive; the error is reported, not hidden
         assert "boom" in (check.detail or "")
+
+
+class TestWebhookHealthCheck:
+    def test_no_real_deliveries_is_healthy(self, db_session):
+        check = health._webhook_check(db_session)
+        assert check.status == "ok"
+        assert "no verified deliveries" in (check.detail or "")
+
+    def test_pending_real_delivery_is_degraded(self, db_session):
+        db_session.add(
+            models.WebhookEvent(
+                gateway_event_id="evt_health_1",
+                event_type="payment.captured",
+                payload={},
+                signature_valid=True,
+                processed=False,
+                source="razorpay",
+                received_at=utcnow(),
+            )
+        )
+        db_session.commit()
+
+        check = health._webhook_check(db_session)
+        assert check.status == "degraded"
+        assert "1 pending" in (check.detail or "")
 
 
 class TestSupervisorLoop:

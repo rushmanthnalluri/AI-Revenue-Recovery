@@ -5,9 +5,9 @@ Two implementations of ``ports.ReasonerProto``:
 - ``HeuristicReasoner`` — DEFAULT. Offline, deterministic, no network. Builds
   the structured InvestigationOutput directly from tool results; same DB state
   always yields the same report.
-- ``LlmReasoner`` — OPTIONAL. Enabled only when ``LLM_PROVIDER=openai`` and
-  ``OPENAI_API_KEY`` are set. Runs a bounded tool-calling loop against an
-  OpenAI-compatible chat endpoint, then strictly validates the output
+- ``LlmReasoner`` — OPTIONAL. Enabled only when ``LLM_PROVIDER=openai`` or
+    ``LLM_PROVIDER=pollinations`` and the matching API key is set. Runs a bounded
+    tool-calling loop against an OpenAI-compatible chat endpoint, then strictly validates the output
   (JSON schema + hallucination guard). Any validation failure after a retry
   falls back to the heuristic reasoner and marks the report degraded.
 
@@ -1121,6 +1121,9 @@ def choose_reasoner(
     openai_api_key: str,
     openai_base_url: str = "",
     openai_model: str = "gpt-4o-mini",
+    pollinations_api_key: str = "",
+    pollinations_base_url: str = "https://gen.pollinations.ai/v1",
+    pollinations_model: str = "openai",
 ):
     """Default reasoner selection: LLM only when explicitly configured."""
     if llm_provider == "openai" and openai_api_key:
@@ -1129,6 +1132,13 @@ def choose_reasoner(
             api_key=openai_api_key,
             model=openai_model,
             base_url=openai_base_url or None,
+        )
+    if llm_provider == "pollinations" and pollinations_api_key:
+        return LlmReasoner(
+            tools,
+            api_key=pollinations_api_key,
+            model=pollinations_model,
+            base_url=pollinations_base_url or "https://gen.pollinations.ai/v1",
         )
     return HeuristicReasoner(tools)
 

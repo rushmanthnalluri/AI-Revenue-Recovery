@@ -94,6 +94,18 @@ def test_audit_filter_by_entity_id(client, db_session):
     ]
 
 
+def test_audit_filter_by_actor(client, db_session):
+    _seed(db_session)
+    r = client.get(
+        "/api/v1/audit",
+        params={"actor": "system:builder", "environment": "research"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 1
+    assert body["items"][0]["actor"] == "system:builder"
+
+
 def test_audit_filter_no_match(client, db_session):
     _seed(db_session)
     r = client.get("/api/v1/audit", params={"entity_id": "nope", "environment": "research"})

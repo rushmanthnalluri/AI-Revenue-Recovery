@@ -273,7 +273,7 @@ function AuditTrail({ detail }: { detail: OpportunityDetailView }) {
 // ---------------------------------------------------------------------------
 
 function DrawerBody({ opportunityId }: { opportunityId: string }) {
-  const detail = useOpportunityDetail(opportunityId);
+  const detail = useOpportunityDetail(opportunityId, 5_000);
 
   if (detail.isPending) {
     return (

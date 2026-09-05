@@ -225,6 +225,9 @@ class AgentService:
             openai_api_key=settings.OPENAI_API_KEY,
             openai_base_url=settings.OPENAI_BASE_URL,
             openai_model=settings.OPENAI_MODEL,
+            pollinations_api_key=settings.POLLINATIONS_API_KEY,
+            pollinations_base_url=settings.POLLINATIONS_BASE_URL,
+            pollinations_model=settings.POLLINATIONS_MODEL,
         )
 
     @staticmethod

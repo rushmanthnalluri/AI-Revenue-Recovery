@@ -27,6 +27,8 @@ warning on a persisted policy decision. Demo-grade identity, not SSO —
 docs/security-testing.md.
 """
 
+import dataclasses
+
 import sqlalchemy as sa
 from typing import Literal
 
@@ -56,6 +58,10 @@ from app.schemas.recovery import (
     ReconcileRequest,
     ReconcileResponse,
     RecoveryPlan,
+    RecoveryOutcomeRatesResponse,
+    ActionOutcomeCellView,
+    OrganicOutcomeCellView,
+    IncrementalOutcomeCellView,
     RecoveryActionView,
     RejectRequest,
     StrategyOption,
@@ -75,6 +81,11 @@ from app.services.recovery import (
     RecoveryNotFoundError,
     StrategyGenerator,
     run_reconciliation,
+)
+from app.services.recovery.outcomes import (
+    combine_incremental,
+    compute_organic_rates,
+    rate_action_outcomes,
 )
 
 router = APIRouter(prefix="/api/v1/recovery", tags=["recovery"])
@@ -383,6 +394,76 @@ class ApprovalsSummaryResponse(BaseModel):
     status: str
     pending_count: int
     pending_amount_paise: int
+
+
+@router.get("/outcome-rates", response_model=RecoveryOutcomeRatesResponse)
+def outcome_rates(
+    db: Session = Depends(get_db),
+    environment: Literal["real_test", "research"] = Query(default="real_test"),
+    days: int = Query(default=30, ge=1, le=180),
+) -> RecoveryOutcomeRatesResponse:
+    """Return measured recovery outcomes without changing future decisions.
+
+    Action outcomes are webhook/resolve-verified executor results. UNKNOWN is
+    surfaced but excluded from conversion denominators. Organic and
+    incremental cells are evidence only; strategy ranking still uses its
+    documented prior tables until a later, separately gated decisioning slice.
+    """
+    action_rates = rate_action_outcomes(db, environment=environment, days=days)
+    organic_rates = compute_organic_rates(db, environment=environment, days=days)
+    combined = dataclasses.replace(action_rates, organic=organic_rates.organic)
+    report = combine_incremental(combined)
+    return RecoveryOutcomeRatesResponse(
+        environment=report.environment,
+        window_start=report.window_start,
+        window_end=report.window_end,
+        provenance=report.provenance,
+        min_cell=report.min_cell,
+        cells=[
+            ActionOutcomeCellView(
+                action_type=cell.action_type.value,
+                failure_class=cell.failure_class.value,
+                failure_class_source=cell.failure_class_source,
+                n_executed=cell.n_executed,
+                n_recovered=cell.n_recovered,
+                n_failed=cell.n_failed,
+                n_unknown=cell.n_unknown,
+                rate_recovered=cell.rate_recovered,
+                wilson_low=cell.wilson_low,
+                wilson_high=cell.wilson_high,
+                low_confidence=cell.low_confidence,
+                sample_confidence=cell.sample_confidence,
+            )
+            for cell in report.cells
+        ],
+        organic=[
+            OrganicOutcomeCellView(
+                failure_class=cell.failure_class.value,
+                n_failed_payments=cell.n_failed_payments,
+                n_self_captured=cell.n_self_captured,
+                rate_organic=cell.rate_organic,
+                wilson_low=cell.wilson_low,
+                wilson_high=cell.wilson_high,
+                low_confidence=cell.low_confidence,
+                sample_confidence=cell.sample_confidence,
+            )
+            for cell in report.organic
+        ],
+        incremental=[
+            IncrementalOutcomeCellView(
+                action_type=cell.action_type.value,
+                failure_class=cell.failure_class.value,
+                action_rate=cell.action_rate,
+                organic_rate=cell.organic_rate,
+                incremental=cell.incremental,
+                clamped=cell.clamped,
+                ci_low=cell.ci_low,
+                ci_high=cell.ci_high,
+                inconclusive=cell.inconclusive,
+            )
+            for cell in report.incremental
+        ],
+    )
 
 
 @router.get("/opportunities/approvals-summary", response_model=ApprovalsSummaryResponse)
