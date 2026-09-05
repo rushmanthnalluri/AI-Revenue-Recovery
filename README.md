@@ -9,6 +9,8 @@
 
 Probabilistic AI proposes. Deterministic policy decides. Every quantitative claim is independently falsifiable.
 
+**[🚀 Live demo → https://pulserecover-web.onrender.com/](https://pulserecover-web.onrender.com/)**
+
 ## What it does
 
 PulseRecover monitors a merchant's payment stream, detects success-rate degradations, diagnoses root cause with an ML model, quantifies revenue at risk, and executes **bounded, policy-gated recovery actions** (retries, payment links) through Razorpay — then verifies every recovery with signature-verified webhooks and measures recovered revenue against ground truth.
