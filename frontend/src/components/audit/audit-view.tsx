@@ -109,7 +109,7 @@ export function AuditView() {
                 setPage(1);
               }}
               aria-label="Filter by environment"
-              className="h-7 w-auto px-2 text-xs"
+              className="h-8 w-auto px-2 text-xs"
             >
               <option value="real_test">Real Test (Razorpay)</option>
               <option value="research">Research (synthetic)</option>
@@ -121,7 +121,7 @@ export function AuditView() {
                 setPage(1);
               }}
               aria-label="Filter by entity type"
-              className="h-7 w-auto px-2 text-xs"
+              className="h-8 w-auto px-2 text-xs"
             >
               <option value="">All entity types</option>
               {ENTITY_TYPES.map((t) => (

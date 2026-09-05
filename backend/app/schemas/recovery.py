@@ -217,7 +217,9 @@ class ReconcileRequest(BaseModel):
 
 class ReconcileResponse(BaseModel):
     """One sweep's report. `webhooks_reprocessed` counts events now
-    processed=true; `webhooks_still_failing` remain unprocessed."""
+    processed=true; `webhooks_still_failing` remain unprocessed;
+    `webhooks_dead_lettered` counts events older than 24h that were
+    permanently marked processed to stop retry loops."""
 
     sweep_id: str
     unknown_scanned: int = 0
@@ -225,3 +227,4 @@ class ReconcileResponse(BaseModel):
     still_unknown: int = 0
     webhooks_reprocessed: int = 0
     webhooks_still_failing: int = 0
+    webhooks_dead_lettered: int = 0

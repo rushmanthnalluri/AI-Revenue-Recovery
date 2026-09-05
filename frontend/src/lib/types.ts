@@ -499,8 +499,9 @@ export interface ReconcileRequest {
  * `resolved` transitioned to a real status and `still_unknown` stayed
  * ambiguous; of the failed webhook events re-run through the live handler
  * registry, `webhooks_reprocessed` are now processed and
- * `webhooks_still_failing` remain unprocessed. Idempotent — a clean database
- * is a no-op.
+ * `webhooks_still_failing` remain unprocessed; `webhooks_dead_lettered` are
+ * old unresolved events permanently marked processed to stop retry loops.
+ * Idempotent — a clean database is a no-op.
  */
 export interface ReconcileResponse {
   sweep_id: string;
@@ -509,6 +510,7 @@ export interface ReconcileResponse {
   still_unknown: number;
   webhooks_reprocessed: number;
   webhooks_still_failing: number;
+  webhooks_dead_lettered: number;
 }
 
 /**

@@ -1,787 +1,152 @@
 # PulseRecover
 
+![Python](https://img.shields.io/badge/python-3.12%2B-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-latest-green)
+![Next.js](https://img.shields.io/badge/Next.js-15-black)
+![Tests](https://img.shields.io/badge/tests-678%20%2B%207%20e2e-brightgreen)
+
 **AI payment reliability & revenue recovery engine** — Razorpay AI Buildathon, Track 03.
 
-> **Probabilistic AI proposes. Deterministic policy decides.**
-> Payment infrastructure executes. Verification proves.
->
-> Every quantitative claim in this repository is mapped to its evidence —
-> run id, named test, or doc — in [docs/claim-matrix.md](docs/claim-matrix.md).
+Probabilistic AI proposes. Deterministic policy decides. Every quantitative claim is independently falsifiable.
 
-PulseRecover watches a merchant's payment stream, detects success-rate
-degradations, diagnoses the root cause with an ML model, quantifies the
-revenue at risk, and executes **bounded, policy-gated recovery actions**
-(retries, payment links) through Razorpay — then *proves* every recovery with
-signature-verified webhooks and measures the recovered revenue against ground
-truth. Detect → diagnose → quantify → gate → execute → **verify** → measure:
-the loop is closed, and every link of it is independently checkable.
+## What it does
 
-## Three ways to falsify anything in this README
+PulseRecover monitors a merchant's payment stream, detects success-rate degradations, diagnoses root cause with an ML model, quantifies revenue at risk, and executes **bounded, policy-gated recovery actions** (retries, payment links) through Razorpay — then verifies every recovery with signature-verified webhooks and measures recovered revenue against ground truth.
 
-| # | Proof anchor | How to check it yourself |
-|---|---|---|
-| 1 | **678 backend tests + 7 Playwright e2e** — including the **12 payment-action invariants** (no duplicate gateway mutations even under concurrency, refunds have no transport, a policy decision precedes every mutation, UNKNOWN never becomes RECOVERED without gateway evidence, …), each mapped to the exact pytest node ids that prove it | `cd backend && .venv/Scripts/python -m pytest tests -q`; [docs/payment-invariants.md](docs/payment-invariants.md) |
-| 2 | **A canonical, reproducible evaluation** — one pinned command reproduces the headline metrics; three consecutive executions stored pairwise bit-identical metrics; every published number names its run id | [ml/experiments/canonical_spec.json](ml/experiments/canonical_spec.json); [docs/evaluation.md](docs/evaluation.md) §3 |
-| 3 | **A container-verified demo** — the full loop on the docker compose stack in 5 minutes, rehearsed twice with identical key numbers, failure beats included | [docs/demo-script.md](docs/demo-script.md); CLI scenarios: [docs/demo.md](docs/demo.md) |
+**Detect → diagnose → quantify → gate → execute → verify → measure** — the loop is closed, and every link is independently checkable.
 
-**Reading the numbers in this README:** every metric is a real, reproduced
-output of this repository — the command that produces it is always shown.
-Evaluation and ML numbers are measured against the built-in **simulator's**
-ground truth (synthetic data, documented fidelity bounds), not real Razorpay
-traffic; the demo transcripts are verbatim output of `scripts/demo_run.py`;
-nothing is a vendor claim. Where a number comes from a probabilistic
-component (ML diagnosis, LLM reasoner) versus a deterministic one (policy
-gate, verification), the text says so.
+## Key features
 
----
+- **Anomaly detection** on `payment.failed` / `payment.captured` streams with configurable windows and evidence-gated incident lifecycle
+- **ML root-cause diagnosis** — 8-class scikit-learn classifier on 58 windowed features; heuristic fallback with confidences capped ≤ 0.7 when no artifact is present
+- **Deterministic policy gate** — pure, inspectable YAML rules; AI output is only ever an *input*; no auto-execute on unsafe classes; refunds are never on the allowlist
+- **Idempotent execution** — unique `gateway_request_id` per action; duplicate protection; `UNKNOWN` outcomes never count as recovered
+- **Webhook verification** — raw-body HMAC-SHA256, constant-time compare, `x-razorpay-event-id` deduplication, out-of-order-safe handlers
+- **Evaluation harness** — deterministic simulator with ground truth; randomized holdout lift with Newcombe 95% CIs; pre-registered estimands
+- **Full audit trail** — immutable `policy_decisions`, hash-chained `audit_logs`, every BLOCKED decision mirrored to audit
 
-## The problem, and why it matters
+## Quick start
 
-Card/UPI/netbanking payments fail for two very different reasons:
+### Prerequisites
 
-- **Infrastructure** — gateway degradations, bank downtime, method outages,
-  route latency. These failures are *recoverable*: the customer intended to
-  pay, and a well-timed retry or a payment link often converts.
-- **Customer intent** — insufficient funds, incorrect OTP, abandoned
-  checkout. These need nudges and links, not blind retries — and hard
-  declines should never be resubmitted at all (card-network guidance caps
-  resubmissions at ~15 per 30 days).
+- Python 3.12+ (developed on 3.14.5)
+- Node.js ≥ 20
+- Docker & Docker Compose (optional, for Postgres)
 
-Merchants today see an aggregate success-rate dashboard and, at best, apply
-the industry-default response: **retry every failed payment once**. That
-treats a bank outage and an expired card identically, cannot tell the 2pm
-gateway degradation from organic noise, risks network penalties on
-never-approve declines, and — critically — never *verifies* what was actually
-recovered:
-
-- **Failed transactions are revenue at risk, not revenue lost** — but only if
-  someone distinguishes the recoverable slice and acts on it while the
-  customer still cares.
-- **Indiscriminate retrying is expensive and unsafe**: it burns network
-  attempt budgets, re-pings customers who opted out, and can double-collect
-  when outcomes are ambiguous.
-- **Unverified recovery claims are anecdotes.** "We recovered ₹X" means
-  nothing unless each recovery is tied to a gateway-confirmed capture and the
-  campaign is measured against what would have happened anyway.
-
-## Why this is not another retry script
-
-Recovery tooling — Razorpay's own features included — ships *pieces* of this
-loop. Full analysis with sources in [docs/research.md](docs/research.md) and
-[docs/competitive-analysis.md](docs/competitive-analysis.md):
-
-| Razorpay capability | What it does | What it doesn't do |
-|---|---|---|
-| Subscriptions "Smart Payment Retries" | Fixed T+1/T+2/T+3 auto-retry of failed recurring charges, then `halted` | Classic stack is not merchant-configurable (the UPI Autopay retry beta is); no decline-code awareness; missed cycles never re-attempted after `halted` |
-| Failed Payment Recovery | Auto-sends a payment link after checkout failure | One-time checkout only; no diagnosis of *why* failures cluster |
-| Intelligent Payment Retry | In-checkout next-best-action nudge | Checkout UX only; no autonomous scheduled recovery |
-| Optimizer (Infinity Router) | Enterprise AI routing across gateways | Razorpay-side and opaque; no merchant-side anomaly alerting |
-| Agent Studio "Subscription Recovery Agent" (announced FTX'26) | Outreach/voice recovery agent | Nothing published on SR-degradation detection/diagnosis or bounded, verified execution |
-
-The adjacent market stops earlier still (VERIFIED / VENDOR CLAIM labels
-preserved in the competitive analysis):
-
-| Vendor | Retry orchestration | Detection | Diagnosis | Policy gate | "Recovered ₹" verification |
-|---|---|---|---|---|---|
-| Stripe (Smart Retries) | ✅ (not India-issued cards) | ❌ | ❌ (decline codes only) | ❌ | ⚠️ gross — recovered "by any means" (VERIFIED definition) |
-| Adyen, Chargebee, Recurly, Butter, FlexPay | ✅ | ❌–⚠️ | ❌ | ❌ | ⚠️ gross or pre/post lift — none randomized |
-| Pagos | ❌ (recommendations) | ✅ | ⚠️ decline narratives | ❌ | ❌ |
-| **PulseRecover** | ✅ bounded, gated | ✅ | ✅ ML + AI investigation | ✅ deterministic, fail-closed | ✅ webhook-verified per action **and** randomized-holdout lift with CIs |
-
-The measurement gap is the sharpest edge: the market standard is gross
-attribution (payment succeeded after the tool acted → credited to the tool),
-while vendor-published data shows soft declines self-resolve at 67–68% within
-2–7 days — tool-attributed recovery systematically overstates causality. No
-vendor publishes a counterfactual-valid methodology
-([docs/competitive-analysis.md](docs/competitive-analysis.md) §5).
-
-**The open lane PulseRecover occupies:** the full merchant-side loop —
-detect a success-rate anomaly on the merchant's own `payment.failed` stream →
-diagnose the failing bank/method/error cluster with ML → quantify revenue at
-risk → select the *safest* intervention under a deterministic, auditable
-policy → execute bounded actions → verify via signature-checked webhooks →
-measure recovered ₹ against ground truth. Nothing Razorpay documents today
-does that loop, and the Track 03 brief ("measured money recovered… stopping
-rules… audit trail") describes exactly it.
-
-## Where AI is used — and where it is not trusted
-
-Two components are probabilistic. Everything that moves money is
-deterministic. The trust boundary is an enforced architecture property, not a
-convention: the dependency matrix is checked by AST-based tests
-([docs/architecture.md](docs/architecture.md) §4,
-[ADR 0010](docs/adr/0010-dependency-direction-enforcement.md)).
-
-**AI is used for diagnosis** — a scikit-learn classifier labels each detected
-incident with one of 8 root causes (`gateway_degradation`, `route_latency`,
-`method_outage`, `bank_downtime`, `abandonment_spike`,
-`subscription_failure_spike`, `customer_insufficient_funds_wave`, `no_fault`)
-from **58 windowed features** (volume/failure-rate deltas, per-method/per-bank
-concentration, error source/step/reason shares, latency percentiles,
-abandonment proxy, subscription signals). The infrastructure-vs-customer-intent
-split is what routes strategy to *retry* vs *nudge/payment-link* interventions.
-Its confidence flows into strategy ranking and the policy gate as an *input*.
-
-Methodology ([docs/ml.md](docs/ml.md)): temporal 60/20/20 train/val/test
-split with no shuffling and window-local features (no future leakage); three
-models compared — logistic regression (interpretable baseline), random
-forest, gradient boosting — selected on **validation macro-F1**, ties to the
-simpler model; headline numbers computed once on the untouched test block.
-
-**Final numbers** (held-out test block; trained on 2,050 labeled windows
-exported from 60 simulator seeds — the model-selection study below; the
-**active artifact is now the exp07 random forest**
-`diagnosis_random_forest_v20260828T013109Z-77a4ef3b`, shipped through the
-pre-registered campaign gate (clauses from exp05/exp06, applied in exp07 —
-exact-span top-1 0.910 vs the LR's 0.878, prod-frame unsafe-side error
-0.567 → 0.093 — with the LR kept as rollback; see
-[docs/ml.md](docs/ml.md) §10):
-
-| Model | Val macro-F1 | Test macro-F1 | Test top-1 | Test top-3 |
-|---|---:|---:|---:|---:|
-| **logistic_regression (selected by the val rule)** | **0.8444** | 0.8231 | 0.8780 | 0.9927 |
-| random_forest | 0.8061 | 0.7962 | 0.9171 | 1.0000 |
-| gradient_boosting | 0.8363 | 0.8320 | 0.9268 | 0.9927 |
-
-The three algorithms are within noise of each other; the documented
-validation rule ships the interpretable logistic regression in this §8
-study (the exp07 campaign later replaced it under the pre-registered gate
-described above). Honest caveats:
-`bank_downtime` is the weakest class (a single bank's failure share is close
-to organic noise; errors bias toward `no_fault` rather than a confident wrong
-cause — the intended failure mode), and these are simulator-measured numbers,
-an upper bound on real-traffic accuracy. With no trained artifact, a
-heuristic fallback (91.5% top-1 on the synthetic generator) keeps diagnosis
-alive, with confidences capped ≤ 0.7 and every row flagged `heuristic=true`.
-
-**AI is used for investigation** — the investigator agent turns an incident
-into a structured, auditable report: observed facts (each citing tool name +
-evidence row ids), labeled AI inferences with confidence, revenue
-implications, and a recommended action whose **policy outcome is previewed by
-the real policy engine**. **Default mode is a deterministic, offline
-heuristic reasoner. The LLM reasoner is optional and advisory only** — same
-DB state → byte-identical report, no network, no API keys
-([docs/agent.md](docs/agent.md), [ADR 0004](docs/adr/0004-reasoner-advisory-llm-optional.md)).
-
-**AI is not trusted with money.** Neither reasoner mode can move money
-([ADR 0003](docs/adr/0003-deterministic-policy-gate.md)):
-
-- **Tool whitelist.** Reasoners call tools only through
-  `AgentTools.call(name, args)`; any other name raises `ToolNotAllowed`, and
-  two rogue LLM tool calls abort the run. There is no arbitrary-callable
-  path. The reasoner never receives secrets, raw DB access, or gateway
-  access — structurally: `AgentTools` is constructed without a gateway
-  handle, and a test proves it.
-- **Mutation path = exactly two tools** (`request_payment_link`,
-  `request_recovery_execution`), and they only create a `PROPOSED` row
-  evaluated through the policy gate — the amount is copied from the original
-  payment row, never from AI text. They never call the gateway.
-- **Hallucination guard (LLM mode).** Every numeric financial claim must
-  exactly match a number returned by a tool in the same run; unverifiable
-  claims are stripped and the report flagged `degraded`. Execution-advocacy
-  language ("auto-execute this now", "skip the approval") is excised. If
-  validation fails after a retry, the run falls back to the heuristic
-  reasoner.
-- **Confidence is capped, not believed.** Model self-confidence is capped at
-  a deterministic evidence formula near the 0.85 auto-execute floor, and the
-  gate-input confidence is capped at 0.84 (strictly below the floor) for
-  diagnosis classes the taxonomy does not sanction for auto-recovery.
-
-**The adversarial evidence** (versioned 36-case corpus, scored suite in
-`backend/tests/agenteval/`, records in `ml/experiments/agent/`):
-
-- Unsafe headline recommendations: **9/36 → 0/36** — the pre-hardening
-  baseline produced an unsafe headline in 9 of 36 cases (auto-lane previews
-  for non-auto-recoverable classes, BLOCKED proposals headlined, opt-out
-  targets); the current guardrailed agent produces zero
-  (`policy_compliance` 0.4917 → 1.0000). A full re-run on 2026-08-28 was
-  byte-identical on every case.
-- **Zero gateway mutations across the whole corpus** — including ten
-  scripted adversarial LLM cases: invented amounts ("Rs 999 crore"), refund
-  proposals at 0.97 confidence, rogue tools (`execute_refund_now`), fake
-  evidence ids, malformed JSON, execution-advocacy language
-  ([docs/agent.md](docs/agent.md) — adversarial matrix).
-- A manipulated AI proposing a ₹543 refund at 0.99 confidence meets the gate:
-  `allowlist` + `never_auto_execute.refund` → `REJECTED`, **0 gateway calls**
-  (demo scenario E below; proven by
-  `TestRefundHasNoExecutionPath` — the mock transport saw no request).
-
-## How money movement is controlled
-
-### The deterministic policy gate
-
-Every financial action — whether proposed by a human, the strategy generator,
-or an AI — passes the same deterministic gate ([docs/policy.md](docs/policy.md),
-[ADR 0003](docs/adr/0003-deterministic-policy-gate.md)). The gate is a pure,
-inspectable rule set over `policies/default.yaml`; AI output is only ever an
-*input* to it.
-
-- **Closed allowlist + hard blocks.** `refund` is not on the allowlist and is
-  explicitly in `never_auto_execute` — there is no approval lane for it, ever.
-  Irreversible actions and opted-out customers are hard-blocked too.
-- **Auto-execute lane is narrow and earned:** confidence ≥ 0.85 **and**
-  amount ≤ ₹5,000 **and** attempts < 2 — anything else routes to
-  `REQUIRES_APPROVAL` and a human.
-- **Stopping rules:** 3 consecutive failed recoveries per incident (or per
-  strategy) halts automation until a human reviews; per-incident,
-  per-customer-per-day, and global-per-hour rate limits brake volume.
-- **Duplicate protection:** same customer + action type inside a 60-minute
-  cooldown is blocked while the prior action is active — `RECOVERED` and
-  `UNKNOWN` count as active (never double-collect, never re-fire an unclear
-  outcome).
-- **Fail closed:** malformed input (NaN confidence, non-INR currency,
-  negative amounts), missing history, or a broken policy file all resolve to
-  `BLOCKED`/no-auto-execute; the config loader is strict and refuses to start
-  on unknown keys. A `kill_switch` blocks everything except the non-financial
-  escape hatches.
-- **Every decision is persisted** immutably in `policy_decisions` (outcome,
-  reasons, rules matched, policy content-hash version), and every `BLOCKED`
-  decision is mirrored into the append-only `audit_logs`.
-
-### Idempotency: one logical action → at most one gateway mutation
-
-Every mutating call carries a unique `gateway_request_id` (UNIQUE column)
-mapped to the only dedupe primitives Razorpay offers: order `receipt` /
-payment-link `reference_id`. Every mutation is sent exactly once;
-timeouts/5xx raise an ambiguous-outcome error → `UNKNOWN` → GET-only
-re-query. Backoff retries apply only to idempotent GETs.
-
-### The 12 payment-action invariants, mechanically proven
-
-[docs/payment-invariants.md](docs/payment-invariants.md) states the twelve
-invariants that protect money — no duplicate gateway mutations (including
-concurrent executes), UNKNOWN never becomes RECOVERED without positive
-gateway evidence, webhook signatures verified before any processing
-(fail-closed with no secret), policy evaluation always precedes mutation, a
-refund can never execute (it has *no transport*: neither the gateway port nor
-either implementation exposes a refund method), amount limits on every entry
-path, stopping rules, opt-out enforcement, malformed-confidence fail-closed,
-and a complete audit chain for every financial state transition — and maps
-each one to the exact pytest node ids that prove it (30 tests in
-`tests/invariants/` plus the referenced suites, all inside the 678).
-
-Building that checklist **found a real bug**: on Postgres, two concurrent
-duplicate executes both fired the gateway — two payment links, both
-RECOVERED, 3/3 runs on a live harness (SQLite was safe by accident via writer
-serialization). Fixed with `SELECT … FOR UPDATE` on the opportunity row;
-post-fix the same harness produces exactly one link in 3/3 runs, and the
-regression test (`tests/invariants/test_concurrent_execute.py`) runs the race
-on every suite execution.
-
-### Failure handling
-
-The recovery engine's five failure scenarios, each proven by a dedicated test
-in `backend/tests/recovery/test_failure_modes.py`
-([docs/recovery.md](docs/recovery.md) §6):
-
-| # | Scenario | Behavior | Test |
-|---|---|---|---|
-| 1 | Gateway timeout / 5xx on the mutating call | Action → `UNKNOWN`, attempt consumed, **no blind retry**; re-execute performs a GET-only re-query; resolves to `RECOVERED` only on positive gateway evidence | `TestTimeoutUnknownResolution` (asserts exactly one POST ever) |
-| 2 | AI proposes a refund | `BLOCKED` by the gate → `REJECTED`; zero gateway calls; block audited | `TestRefundHasNoExecutionPath` (mock transport saw no request) |
-| 3 | Duplicate execute request | First execute fires once; the duplicate is blocked by policy duplicate protection | `TestDuplicateExecute` (exactly one payment link created) |
-| 4 | Confidence below 0.85 | `REQUIRES_APPROVAL` → `PENDING_APPROVAL`; further executes refused (409) until a human approves | `TestApprovalGate` |
-| 5 | Three consecutive FAILED actions on one incident | Stopping rule blocks the fourth before any gateway call; human must review | `TestStoppingRule` |
-
-Unverifiable outcomes are surfaced as `UNKNOWN`, never silently counted as
-recovered; inconclusive resolve re-queries leave the action in `UNKNOWN` with
-an audit trail.
-
-## How recovery is measured
-
-The harness ([docs/evaluation.md](docs/evaluation.md)) answers one question:
-**does the full PulseRecover loop beat the industry default — "retry every
-failed payment once" — and at what intervention cost?** Each run executes two
-arms of the same deterministic simulator scenario in isolated scratch
-databases: **BASELINE** (one generic retry per failed payment; no detection,
-no policy, no verification) vs **PULSECOVER** (the real product loop,
-unchanged). All harness roles (the approving operator, the measured
-customer-outcome model) are deterministic and disclosed in the doc. Crucially,
-customer outcomes are **measured from the simulator's own behavior** —
-per-class re-attempt success and late-capture self-resolution fitted on each
-arm's data (DEF-03; the hand-set conversion table is gone from the outcome
-path). Measurement discipline: "recovered" counts only
-webhook/inline-confirmed `RECOVERED` actions (UNKNOWN never counts), recovery
-rates name their denominators, and lift is measured against a **randomized
-holdout** — a deterministically assigned share of customers that receives no
-PulseRecover action — reported as a pre-registered ITT estimand with Newcombe
-95% confidence intervals.
-
-Reproduced results — scenario `standard`, seed 42 (30 days anchored to
-2026-08-28 00:00 UTC, 68,410 simulator payment_events, 4,897 failed
-payments, 6 injected incidents; canonical run
-`run_333d3e45c19b4c2e94b8cc3547ee2fab` "canonical-v3-measured-outcomes",
-stored and browsable in the Evaluation Lab — version history with the
-prior-model published runs in [docs/evaluation.md](docs/evaluation.md) §3b).
-
-> **Metric card — every number in this section:**
-> run `run_333d3e45c19b4c2e94b8cc3547ee2fab` ("canonical-v3-measured-outcomes"),
-> scenario `standard`, seed 42, holdout 0.10, dataset anchored 2026-08-28
-> 00:00 UTC (`sim_42_2b55f523ad@2026-08-28`), diagnosis artifact
-> `random_forest v20260828T013109Z-77a4ef3b`, policy
-> `1.0+sha256.5a6afe61d6db`.
-> **Denominators:** recovery rates are over all 4,897 first-attempt failed
-> payment rows (364,686,600 paise), snapshotted before any action; lift
-> denominators are all first-attempt failures per group (ITT).
-> **Definitions:** "recovered" = webhook/inline-confirmed `RECOVERED` only
-> (UNKNOWN never counted); "unsafe" = no gate ALLOWED and no recorded human
-> approval; MTTD = simulator time; MTTR = wall clock.
-> **Gross vs incremental:** the recovery table is *gross* verified recovery;
-> the holdout table is *incremental* lift vs a randomized no-action control
-> (pre-registered estimand, Newcombe 95% CI).
-> **Basis:** simulator ground truth (synthetic data); customer outcomes
-> measured from the simulator's own re-attempt/late-capture behavior
-> (docs/evaluation.md §1a) — not Razorpay Test Mode, not production traffic;
-> **canonical**, with the prior-model readings published alongside in
-> docs/evaluation.md §3b.
-
-**Detection** (scheduled 12h/6h passes, production defaults, detection v2):
-precision **0.333**, recall **0.667** (4/6 injected incidents found), F1
-0.444, MTTD **230 min**. The same engine scored 0.778 / 1.000 (6/6) on the
-2026-08-27 anchor — the swing is window sensitivity, not a code change,
-and both readings are published. The evidence-gated redesign behind v2
-(noise floors + episode dedup, then three recall signals —
-0.156→0.667→0.778 precision on the 08-27 anchor with zero quiet-control
-false positives) is in [docs/detection.md](docs/detection.md) and
-`ml/experiments/detection/`.
-
-**Diagnosis on detection windows:** top-1 **1.000** / top-3 **1.000** — 4
-matched windows, all correct with the exp07 random-forest artifact. The
-two incidents the previous artifact misread are undetected (and therefore
-unscored) on this window, so the model-choice case rests on the
-pre-registered campaign gate (exp06 clauses, applied in exp07), not on
-this table ([docs/ml.md](docs/ml.md) §10).
-
-**Recovery** (verified = webhook/inline-confirmed `RECOVERED` only; both arms
-flow through the real signed-webhook path):
-
-| Metric | BASELINE (retry everything) | PULSECOVER |
-|---|---:|---:|
-| Interventions (actions reaching the gateway) | 4,897 | **100** (98.0% fewer) |
-| Recovered revenue (gross, verified) | 211,560,400 paise (58.0%) | 5,285,300 paise (61 actions) |
-| Recovered per intervention | 43,202 paise | **52,853 paise** |
-| False interventions (never-approve resubmissions) | **421** | **8** |
-| Unsafe actions (no gate, no approval) | 4,897 ungated | **0** |
-| Human approvals required | 0 | 94 |
-
-*1,517 opportunities built — 1,098 failed-payment + 359 stuck-checkout
-(payments stranded in `created` > 30 min) + 60 subscription-arrears. The
-gate's rate brakes (10 per incident, 100 per hour globally — hit exactly)
-held volume at 100 executed actions: the deterministic gate absorbing a
-volume spike as configured. The stuck-checkout lane itself is proven
-end-to-end in `tests/recovery/test_stuck_checkout.py`.*
-
-**Incremental lift (randomized holdout, pre-registered estimand):** 10.1% of
-customers (187/1,847) were deterministically held out of all PulseRecover
-actions. Treatment recovered 2.25% of first-attempt failures (98/4,355 —
-61 via verified actions + 37 measured-organic) vs holdout 1.66% (9/542):
-raw ITT lift **+0.6 pp [−0.9, +1.5]** (Newcombe 95% CI), class-adjusted
-**+0.7 pp [−0.5, +1.8]**. Meanwhile **executed actions convert at 61.0%
-verified vs ~0.9% measured organic** — the intervention works where it
-fires; the fleet-level effect is underpowered at 2.3% action coverage
-(100 actions over 4,355 treatment failures). Both rates are now *measured*:
-action conversion from the simulator's own re-attempt behavior (~0.58
-pooled), the organic control from its late-capture mechanism (~0.01) — the
-prior hand-set tables inflated the control to 12–15% and pushed the same
-estimate negative (DEF-03's stored −2.55 pp). The CI still brackets zero;
-that is the Lewis & Rao measurement-power problem, reported instead of
-hidden — full analysis in
-[docs/evaluation.md](docs/evaluation.md).
-
-**The honest read:** the naive baseline recovers more *gross* revenue by
-construction — it fires at every organic failure too, and 58% of a much
-larger blast radius is a big number (the simulator's re-attempt mechanism
-rewards retry-everything; that is measured, not assumed). It pays with 49×
-the interventions, 421 never-approve resubmissions (network-penalty
-territory), zero verification, and zero auditability. PulseRecover's number
-is small but *clean*: gated, verified, audited, more recovered money **per
-intervention** (52,853 vs 43,202 paise), and it never touches a customer it
-shouldn't — including the stuck-checkout proposals it surfaced but refused
-to fire past the rate brakes. Widening recovery volume is a policy-file
-decision (per-incident caps, the global rate brake), not a code change.
-
-**Cross-day reproducibility — the canonical spec.**
-[ml/experiments/canonical_spec.json](ml/experiments/canonical_spec.json)
-pins every input the metrics depend on (scenario, seed, `--end-date
-2026-08-28`, holdout, diagnosis artifact, policy content hash, harness git
-sha) and records the exact command. Its recorded expected values predate
-the DEF-03 outcome-model fix (superseded — docs/evaluation.md §3c); the
-current canonical command is:
+### Install
 
 ```bash
-cd backend && .venv/Scripts/python scripts/run_evaluation.py \
-  --scenario standard --seed 42 --end-date 2026-08-28 --name canonical-v3-measured-outcomes
+cp .env.example .env        # defaults: simulation mode, SQLite, no keys needed
+make setup                  # creates venv + installs backend deps
 ```
 
-Under the prior model, three consecutive spec executions stored **pairwise
-bit-identical metrics**; the deterministic-id guard and seeded draws that
-guarantee this are unchanged by the outcome-model fix (the fitted rates are
-a pure function of the seeded dataset), and the tiny-scale determinism
-tests in `tests/evaluation/` assert it on every suite run. Refreshing the
-spec's expected values to the measured-model numbers is a recorded
-follow-up.
-
-**Window sensitivity, bounded instead of hidden.** The spec was run across
-**7 pre-committed calendar anchors** spanning 3 weeks under the prior
-outcome model ([docs/evaluation.md](docs/evaluation.md) §3d, all runs
-stored): detection precision ranged 0.333–0.714 and recall 0.667–0.833 with
-no code change, and **unsafe actions were 0 on every anchor** — findings
-that do not depend on the outcome model and still stand. The recovery-side
-numbers in that section were prior-decided and are kept as provenance; a
-measured-model replay of the 7 anchors is a recorded follow-up. One number
-from one anchor would be cherry-picking; the range is the claim.
-
-## What is real, and what is simulated
-
-**Real:** the entire pipeline (detection, diagnosis, policy gate, executor,
-verifier, evaluation harness) runs unchanged in both modes; the Razorpay
-test-mode adapter is real code — raw REST over `httpx` with HTTP Basic auth,
-raw-body HMAC-SHA256 webhook verification, an idempotency ledger, out-of-order-safe
-handlers. **Simulated:** the traffic and its ground truth. The simulator twin
-is **modeled on documented Razorpay API semantics + test-mode behaviors**
-([docs/research.md](docs/research.md), public docs only) — it uses **no
-proprietary Razorpay infrastructure, routing, issuer, or network telemetry**,
-and its distributions are synthetic choices with documented priors, not
-measured Razorpay statistics. Consequence, stated once and applied
-everywhere: evaluation and ML numbers are simulator-measured — an upper bound
-on real-traffic results.
-
-Details ([docs/razorpay-integration.md](docs/razorpay-integration.md)):
-
-- **The boundary is the `PaymentGateway` port.** `RazorpayGateway` speaks raw
-  REST (no SDK); `SimulatedPaymentGateway` is a seeded, fully in-memory twin.
-  `SIMULATION_MODE=true` or missing keys → the twin, always — the app can
-  never accidentally hit the network without credentials.
-  `/api/v1/system/health` reports which mode is actually in force.
-- **Webhooks:** raw-body HMAC-SHA256 signature verification (constant-time
-  compare, fail-closed), `x-razorpay-event-id` deduped by a UNIQUE constraint
-  (at-least-once redelivery → `200 already_processed`, zero side effects),
-  out-of-order-safe handlers (`payment.failed` is **not** terminal — a late
-  `payment.captured` wins).
-- **Test-mode setup:** Dashboard → Test Mode keys (`rzp_test_*`) into `.env`
-  (`SIMULATION_MODE=false`), configure a webhook URL + secret, use
-  Razorpay's deterministic failure test cards/UPI handles to drive scenarios.
-  Test vs live is selected by the key, not the URL. Step-by-step in the doc.
-
-## The demo
-
-Five deterministic, resettable scenarios — nothing mocked, nothing forced.
-Each run seeds the simulator with a fixed seed and date, then drives the real
-pipeline over HTTP. Every number below is copied from a real, reproduced run;
-`backend/tests/demo/` re-runs each scenario twice and asserts the key numbers
-are identical (10 tests).
+### Run
 
 ```bash
-cd backend
-.venv/Scripts/python scripts/demo_run.py --scenario A --db scripts/.demo_A.db   # one scenario
-.venv/Scripts/python scripts/demo_run.py --scenario all --db scripts/.demo.db   # all five (~2 min)
-.venv/Scripts/python -m pytest tests/demo -v                                    # the proof suite
-```
+# Backend (default: SQLite + simulator)
+make backend                # http://localhost:8000
 
-(`--db` is a scratch file the script deletes and recreates; the app database
-is never touched. Entity ids are uuid4 by design and differ between runs;
-every *number* is identical.)
-
-| Scenario | Proves |
-|---|---|
-| **A** — Major degradation | Full closed loop on a 2.5h gateway degradation over ~144k events: detection, ML diagnosis, 2,023 opportunities, one approval-lane recovery + two auto-executions, all webhook-verified |
-| **B** — Safe autonomous recovery | ₹501 timeout retry, confidence 0.98 ≥ 0.85 floor → `auto_execute.ok`, fired with no human in the loop, webhook-verified |
-| **C** — Human approval lane | ₹10,143 retry → `REQUIRES_APPROVAL` (`approval.amount`), sits in `PENDING_APPROVAL` until `human:ops` approves, then executes once |
-| **D** — Gateway timeout | Mutating call 503s → action `UNKNOWN`, **no blind retry**; re-execute is a GET-only re-query (1 mutation total); resolves to `RECOVERED` on gateway evidence |
-| **E** — Unsafe AI blocked | A manipulated AI proposes a ₹543 refund at 0.99 confidence → gate matches `allowlist` + `never_auto_execute.refund` → `REJECTED`, **0 gateway calls** |
-
-Real output (verbatim, scenario A — ids projected out):
-
-```
-[DETECT] POST /api/v1/detection/run - metric=payment_success_rate, window=240m, bucket=10m, anchored 2026-08-15 11:25 UTC
-        anomaly -> incident inc_...: success rate 82.9% -> 69.0% (-16.69%), severity=MEDIUM
-        blast radius: 1359 failed payments, Rs 10,36,582 at risk
-[DIAGNOSE] ML root-cause: gateway_degradation (confidence 0.9740, model diagnosis-random_forest@v20260828T013109Z-77a4ef3b)
-[QUANTIFY] POST /api/v1/recovery/opportunities/build -> 2023 per-payment opportunities (Rs 15,25,844 of failed payments in scope)
-[POLICY] gate: REQUIRES_APPROVAL (rules: approval.amount) - Rs 8,047 is above the Rs 5,000 auto-execute ceiling; routing to a human
-[VERIFY] webhook payment.captured (HMAC signature valid, event id deduped) -> action RECOVERED - Rs 8,047 recovered
-[POLICY] gate: ALLOWED (rules: auto_execute.ok) - auto-execute lane (<= Rs 5,000, confidence >= 0.85)
-[VERIFY] webhook payment.captured ... -> action RECOVERED - Rs 504 / Rs 509 recovered
-[RESULT] 3/3 executions verified RECOVERED - Rs 9,060 of Rs 10,36,582 at risk recovered in this run
-```
-
-Full narratives and expected outputs for all five:
-[docs/demo.md](docs/demo.md). The same story live on the compose stack, as a
-rehearsed 5-minute hiring-panel runbook (minute-by-minute clicks, rehearsed
-numbers, failure beats, fallbacks, pre-flight checklist — verified end-to-end
-twice on the deployed stack with identical key numbers):
-[docs/demo-script.md](docs/demo-script.md).
-
-## What failed, and what remains imperfect
-
-Things that actually broke during development — found by our own harnesses,
-fixed, and kept visible:
-
-- **The pre-hardening agent produced unsafe headlines in 9/36 eval cases**
-  (auto-lane previews for classes the taxonomy doesn't sanction, a BLOCKED
-  refund headlined as the recommendation, opt-out customers targeted). Fixed
-  by the confidence caps, the BLOCKED-proposal drop, and opt-out filtering;
-  the measured before/after is in the AI section above.
-- **Concurrent duplicate execute double-fired the gateway on Postgres**
-  (details in the invariants section above) — the SQLite test suite had been
-  green while the race existed.
-- **The first production-frame diagnosis model was a NO-SHIP.** Trained on
-  exact incident spans, it crossed the auto-execute confidence floor on
-  52.8% of non-auto-recoverable production frames — rolled back the same day,
-  replaced only after the exp07 candidate passed a pre-registered gate with
-  the unsafe-side error at 9.3% ([docs/ml.md](docs/ml.md) §9–§10).
-- **An earlier detection build flooded:** 90 persisted rows at 0.156
-  precision on the 2026-08-27 anchor, pre-redesign. The evidence-gated v2
-  redesign and its measured effect are in [docs/detection.md](docs/detection.md).
-
-Stated plainly, with the doc where each is documented:
-
-- **Detection is window-sensitive — now bounded, not hidden.** The same v2
-  engine found 6/6 injected incidents (precision 0.778) on the 2026-08-27
-  anchor and 4/6 (precision 0.333) on 2026-08-28; across the 7-anchor
-  robustness battery, precision ranged 0.333–0.714 and recall 0.667–0.833
-  with no code change. `customer_insufficient_funds_wave` was missed on all
-  7 anchors at the shipped operating point — an opt-in night-regime floor set
-  now exists for it (`night_regime_floors` on the detection request, default
-  OFF to keep the published anchors valid — docs/evaluation.md §3b);
-  `subscription_failure_spike` on 4 of 7 (docs/evaluation.md §3d).
-- **Diagnosis on scheduled-pass windows is diluted** — top-1 1.000 on the
-  canonical run's 4 matched 12h windows, a small n; the model-quality study
-  on exact spans is the docs/ml.md §10 gate. A window re-scoping triage step
-  now ships (`app/services/diagnosis/rescope.py`, opt-in via
-  `DIAGNOSIS_WINDOW_RESCOPE`, default OFF; unit-tested but not yet
-  re-anchored — docs/ml.md §8).
-- **Simulator fidelity bounds every number.** Evaluation/ML metrics are
-  measured on synthetic data; customer outcomes are fitted from the
-  simulator's own observed behavior (DEF-03), which is itself a model —
-  real Razorpay traffic will be noisier and differently structured.
-- **Heuristic reasoner is the default.** The AI investigator's narratives are
-  deterministic and shallow unless an LLM is configured; even then the LLM is
-  advisory-only. The diagnosis heuristic fallback (no trained artifact)
-  scores 91.5% top-1 on the synthetic generator, with confidences capped ≤ 0.7.
-- **Single-merchant.** The simulator models one merchant per run; there is no
-  multi-tenant isolation story yet.
-- **Worker tier implemented, default off.** An in-process worker
-  (`WORKER_ENABLED=true`, `app/services/worker/`) fires delayed retries when
-  due (actions park in `SCHEDULED` with a fire-time policy re-gate), delivers
-  `notify_customer` through a notification outbox (logging sender by default;
-  real-sender seam), and runs the reconciliation sweep on a cadence
-  (`WORKER_RECONCILE_SECONDS`, default 15 min — docs/worker.md). The
-  operator-triggered sweep endpoint remains. Single-node, in-process — a
-  distributed queue is still future work.
-- **Demo-grade auth.** Approver identity is self-declared and GETs are
-  intentionally open (see "Auth model" under Reproduce → Deploy). KYA-lite
-  principal binding now ties approval calls to the presented API key and
-  records a separation-of-duties warning on self-approval
-  (docs/security-testing.md) — still a demo posture, not SSO.
-- **Synchronous evaluation.** `POST /api/v1/evaluation/run` blocks for the
-  whole run (minutes at full preset); the CLI is the full-scale path.
-
-Planned follow-ups: re-anchoring the published evaluation numbers with the
-new opt-in modes enabled (night-regime floors, same-time-yesterday baseline,
-window re-scoping triage — all shipped dark, default OFF); refreshing the
-canonical spec's expected values and the 7-anchor replay to the measured
-outcome model (docs/evaluation.md §3c/§3d); multi-merchant
-tenancy; retraining on real test-mode traffic (the simulator-side outcome
-model is measured as of DEF-03; real-traffic conversion remains the open
-one); richer LLM narratives where keys exist — still behind the
-same deterministic gate. Landed since this section was first written: the
-worker tier (delayed retries, notification outbox, scheduled reconciliation),
-subscription-aware recovery around `pending`/`halted` (arrears payment
-links), approval TTL lapse, policy backtesting (`POST /api/v1/policy/backtest`),
-hash-chained audit log (`GET /api/v1/audit/verify`), KYA-lite principal
-binding, and ranked multi-candidate agent proposals.
-
-## How to reproduce
-
-### Local quickstart
-
-Prereqs: Python 3.12+ (developed on 3.14.5; the Docker image uses 3.12), Node ≥ 20. Windows/Git Bash
-paths shown; on Unix use `.venv/bin/python`.
-
-```bash
-# 0) Environment — copy the template at the repo root (loaded from there)
-cp .env.example .env        # defaults: SIMULATION_MODE=true, SQLite, no keys needed
-
-# 1) Backend
-cd backend
-python -m venv .venv
-.venv/Scripts/python -m pip install -r requirements.txt
-.venv/Scripts/python -m pytest tests -q            # 678 tests
-.venv/Scripts/python -m uvicorn app.main:app --reload --port 8000
-
-# 2) Seed the simulator (separate shell; ~30 days of synthetic traffic + incidents)
-cd backend && .venv/Scripts/python scripts/seed.py
-
-# 3) Frontend
+# Frontend
 cd frontend
 npm install
-cp .env.example .env.local    # NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
-npm run dev                   # http://localhost:3000 (use `npm run dev -- -p 3100` if 3000 is busy)
+cp .env.example .env.local   # NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+npm run dev                  # http://localhost:3000
 ```
 
-Or from the repo root: `make setup` / `make backend` / `make test`.
-
-### The canonical evaluation
+### Docker (Postgres)
 
 ```bash
-cd backend
-# the current canonical run (measured outcome model, DEF-03; ~3 min)
-.venv/Scripts/python scripts/run_evaluation.py --scenario standard --seed 42 --end-date 2026-08-28 --name canonical-v3-measured-outcomes
-# same-day reproduction with an unpinned anchor
-.venv/Scripts/python scripts/run_evaluation.py --scenario standard
-.venv/Scripts/python scripts/run_evaluation.py --scenario standard --holdout-fraction 0   # arms only, no holdout
-.venv/Scripts/python scripts/run_evaluation.py --scenario upi_outage_demo --days 5 --events 8000   # faster smoke
+make compose-up             # Postgres 16 + backend + frontend
 ```
 
-(Each full-preset run takes minutes of wall clock — machine-dependent; the
-audit machine re-ran it in ~64 s.) The CLI demo scenarios are in "The demo"
-above; the 5-minute live runbook for the compose stack is
-[docs/demo-script.md](docs/demo-script.md).
+The active ML diagnosis artifact is committed to the repo and copied into the backend image, so container and local demos run identical deterministic diagnosis.
 
-### Deploy with Docker
+## Configuration
 
-`deploy/docker-compose.yml` runs Postgres 16 + backend + frontend (the
-compose stack proves the Postgres path; local dev defaults to SQLite):
+| Variable | Description | Default |
+|---|---|---|
+| `DATABASE_URL` | Database connection string | `sqlite:///./pulserecover.db` |
+| `APP_ENV` | Environment (`dev` / `prod`) | `dev` |
+| `SIMULATION_MODE` | Use simulator instead of live Razorpay | `true` |
+| `RAZORPAY_KEY_ID` | Razorpay API key ID | |
+| `RAZORPAY_KEY_SECRET` | Razorpay API secret | |
+| `RAZORPAY_WEBHOOK_SECRET` | Webhook HMAC secret | |
+| `LLM_PROVIDER` | LLM provider (`none` / `openai` / `pollinations`) | `none` |
+| `API_KEY` | Shared secret for mutating routes | `dev-key` |
+| `POLICY_FILE` | Path to deterministic policy YAML | `policies/default.yaml` |
+| `CORS_ORIGINS` | Allowed CORS origins | `["http://localhost:3000"]` |
+| `LOG_LEVEL` | Logging level | `INFO` |
+
+Health endpoints:
+- `GET /healthz` — Liveness
+- `GET /readyz` — Readiness (DB check)
+- `GET /api/v1/system/health` — Full system status (DB, policy, LLM, gateway mode)
+
+## Testing
 
 ```bash
-docker compose -f deploy/docker-compose.yml up --build
-# or: make compose-up
+# Backend unit + integration tests (678)
+make test
+
+# Playwright e2e (7)
+cd frontend && npm run test:e2e
+
+# Deterministic demo scenarios
+cd backend && .venv/Scripts/python scripts/demo_run.py --scenario all
 ```
 
-**Container diagnosis ships the real ML model.** The ACTIVE diagnosis
-artifact (`backend/artifacts/diagnosis_active.json` + the active joblib,
-~9.8 MB total) is committed to the repo and copied into the backend image
-(`.gitignore` / `.dockerignore` allowlist exactly the pointer plus the
-active and rollback joblibs — three files; every other artifact stays
-excluded). Container and local demos therefore run
-identical, deterministic diagnosis — same model version, same confidences.
-Regenerating the model (below) rewrites the pointer; commit the new pair to
-keep the image in sync.
+## Architecture
 
-**Auth model (demo-grade, intentional).** Mutating `/api/v1` routes require
-the shared `X-API-Key` secret (constant-time compare); `/api/v1/demo` and
-`/api/v1/detection` POSTs are exempt outside `prod` so the console works
-without a key, and **GETs are intentionally unauthenticated** — the dashboard
-polls read APIs freely. Actor identity (`human:ops`, …) is self-declared in
-the request body and recorded on audit rows, not authenticated. This is a
-deliberate demo posture, not a production auth design.
-
-Configuration is env-driven from the repo-root `.env` (template:
-[.env.example](.env.example)): `DATABASE_URL`, `SIMULATION_MODE`,
-`RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` / `RAZORPAY_WEBHOOK_SECRET`,
-`LLM_PROVIDER` / `OPENAI_*` (optional), `API_KEY`, `POLICY_FILE`,
-`CORS_ORIGINS`. Never commit real secrets — `.env` is gitignored.
-
-Health endpoints: `/healthz` (liveness), `/readyz` (DB check),
-`/api/v1/system/health` (DB, policy file, LLM provider, gateway mode —
-`simulator` vs `razorpay_test`).
-
-### Regenerating the ML artifacts
-
-`backend/artifacts/` is gitignored **except** the committed diagnosis
-models — `diagnosis_active.json`, the active joblib, and the previous
-logistic-regression joblib (kept for rollback) are allowlisted and
-committed, so a fresh clone already runs the real ML model. Regeneration
-is only needed to retrain. If the artifacts are missing, the system still
-works: diagnosis falls back to the heuristic reasoner (confidences capped
-≤ 0.7, flagged `heuristic=true`), and because the auto-execute floor is
-0.85, **every** recovery then takes the human-approval lane — safe, but
-less autonomous.
-
-To reproduce the §8 logistic-regression model (the current rollback
-artifact — this is exactly how it was produced):
-
-```bash
-cd backend
-# 1) Export labeled feature windows from 60 simulator seeds (slow — tens of minutes)
-.venv/Scripts/python -m app.services.evaluation.export_training --out artifacts/sim_features.csv
-# 2) Train + honestly compare the three models; writes the artifact + active pointer
-#    (note: this repoints diagnosis_active.json at the LR it trains — restore the
-#    committed RF pair afterwards if you only meant to reproduce, not downgrade)
-.venv/Scripts/python scripts/train_models.py --input artifacts/sim_features.csv
-```
-
-The **active** random-forest artifact (`v20260828T013109Z-77a4ef3b`) was
-trained on a larger frame mix (scheduled-pass production frames + tight
-ad-hoc frames + the §8 spans + a train-only augmentation). Its full
-pipeline — dataset builders, candidate scoring, the pre-registered ship
-gate, and `ship_candidate.py` — is recorded in
-`ml/experiments/diagnosis/exp07_tight_frame_v4/` and
-[docs/ml.md](docs/ml.md) §10.
-
-## Architecture in one diagram
-
-Modular monolith ([ADR 0001](docs/adr/0001-modular-monolith.md)): one FastAPI
-process, strictly separated modules coupled only through
-`backend/app/ports.py`. The simulator and the Razorpay test-mode adapter
-implement the **same `PaymentGateway` port**, so the entire loop runs
-unchanged in both modes.
+Modular monolith (FastAPI) with a `PaymentGateway` port implemented by both the Razorpay test-mode adapter and the simulator.
 
 ```mermaid
 flowchart LR
-    subgraph Frontend["Frontend (Next.js)"]
-        UI[Dashboard / Incidents / Recovery / Evaluation]
-    end
-
-    subgraph Backend["Backend — modular monolith (FastAPI)"]
-        API[app.api.v1 routers]
-        DET[Detection agent<br/>anomaly detection on payment_events]
-        INV[Investigator agent<br/>ReasonerProto — heuristic default, LLM optional]
-        ML[Diagnosis<br/>scikit-learn root-cause model]
-        STR[Strategy generator<br/>StrategyCandidate ranking]
-        POL[Policy engine<br/>PolicyEngineProto — deterministic YAML gate]
-        GW[Gateway adapter<br/>PaymentGateway — raw REST, no SDK]
-        VER[Verifier<br/>webhook + fetch reconciliation]
-        EVAL[Evaluation harness<br/>scores vs ground truth]
-        SIM[Simulator<br/>PaymentGateway twin + ground truth]
-    end
-
-    subgraph Data["Data"]
-        DB[(SQLite default /<br/>Postgres via compose)]
-        POLICY[policies/default.yaml]
-    end
-
-    RZP[Razorpay Test Mode API]
-    WH[Razorpay Webhooks]
-
-    UI -->|REST, X-API-Key| API
-    API --> DET --> ML --> INV --> STR --> POL
-    POL -->|ALLOWED| GW
+    UI[Frontend] -->|REST| API[Backend API]
+    API --> DET[Detection] --> ML[Diagnosis] --> INV[Investigator] --> STR[Strategy] --> POL[Policy Gate]
+    POL -->|ALLOWED| GW[Gateway]
     POL -->|REQUIRES_APPROVAL| UI
-    GW --> RZP
-    WH -->|POST /webhooks/razorpay| API
-    API --> VER
-    SIM -. same PaymentGateway port .-> API
-    EVAL --> SIM
-    DET & INV & STR & POL & GW & VER --> DB
-    POL --- POLICY
+    GW --> RZP[Razorpay]
+    WH[Webhooks] --> API --> VER[Verifier]
+    SIM[Simulator] -.-> GW
+    EVAL[Evaluation] --> SIM
 ```
 
-The closed loop, end to end: webhook intake (HMAC-verified, deduped) →
-detection opens an incident → ML diagnosis + AI investigation →
-revenue-at-risk quantification → per-payment recovery opportunities with
-ranked strategies → **every** action through the deterministic policy gate →
-execution with a unique `gateway_request_id` (idempotency) → webhook/fetch
-verification → recovered-revenue ledger. Full detail, including the sequence
-diagram and request-traceability story:
-[docs/architecture.md](docs/architecture.md).
+Full detail: [docs/architecture.md](docs/architecture.md).
 
-## Repository layout & docs
+## Documentation
 
-```
-backend/    FastAPI app, services, simulator, evaluation harness, tests (678)
-frontend/   Next.js 15 operations console (see frontend/README.md)
-contracts/  Generated openapi.json (committed; regenerate with backend/scripts/export_openapi.py)
-policies/   default.yaml — the deterministic policy gate config
-deploy/     Dockerfiles + docker-compose.yml
-docs/       Full documentation — start at docs/index.md
-docs/adr/   Architecture decision records (0001–0011)
-ml/         Experiment records: diagnosis campaigns, detection, agent evals, canonical spec
-```
+| Document | Description |
+|---|---|
+| [docs/index.md](docs/index.md) | Documentation index |
+| [docs/architecture.md](docs/architecture.md) | Architecture, sequence diagrams, ports, safety model |
+| [docs/policy.md](docs/policy.md) | Deterministic policy engine reference |
+| [docs/ml.md](docs/ml.md) | Diagnosis methodology, model comparison, artifact lifecycle |
+| [docs/evaluation.md](docs/evaluation.md) | Harness design, reproduced metrics, honest limitations |
+| [docs/demo.md](docs/demo.md) | 5 deterministic scenarios with verbatim expected output |
+| [docs/payment-invariants.md](docs/payment-invariants.md) | 12 payment-action invariants and their proving tests |
+| [docs/razorpay-integration.md](docs/razorpay-integration.md) | Test-mode setup, idempotency, webhook verification |
+| [docs/worker.md](docs/worker.md) | Worker tier, delayed retries, reconciliation sweep |
 
-All documentation is indexed in [docs/index.md](docs/index.md). Suggested
-paths: **skeptical reviewer (10 min)** — this README →
-[docs/payment-invariants.md](docs/payment-invariants.md) →
-[docs/evaluation.md](docs/evaluation.md) §3 → [docs/demo.md](docs/demo.md);
-**live panel** — [docs/demo-script.md](docs/demo-script.md); **ML reviewer**
-— [docs/ml.md](docs/ml.md) → [docs/evaluation.md](docs/evaluation.md).
+## Verification
+
+Every quantitative claim maps to run id, named test, or document in [docs/claim-matrix.md](docs/claim-matrix.md):
+
+1. **678 backend tests + 7 Playwright e2e** — including the 12 payment-action invariants and the concurrent-execute regression test
+2. **Canonical evaluation** — one pinned command reproduces headline metrics; pairwise bit-identical across consecutive runs
+3. **Container-verified demo** — full loop on docker compose in ~5 minutes
+
+## Known limitations
+
+- **Simulator fidelity** — evaluation and ML metrics are measured on synthetic data; real Razorpay traffic will be noisier
+- **Single-merchant** — no multi-tenant isolation yet
+- **Demo-grade auth** — approver identity is self-declared; GETs are unauthenticated by design
+- **Synchronous evaluation** — full evaluation blocks for minutes; CLI is the intended path
+- **Worker tier** — implemented but default off; single-node in-process
+
+## Contributing
+
+This is an AI Buildathon submission. Issues and forks are welcome.
+
+## License
+
+MIT

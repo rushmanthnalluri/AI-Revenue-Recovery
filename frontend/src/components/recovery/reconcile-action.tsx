@@ -97,6 +97,13 @@ export function ReconcileAction() {
                 still failing
               </>
             ) : null}
+            {report.webhooks_dead_lettered > 0 ? (
+              <>
+                {" · "}
+                <span className="tnum">{formatNumber(report.webhooks_dead_lettered)}</span>{" "}
+                dead-lettered
+              </>
+            ) : null}
             .
           </p>
         </div>

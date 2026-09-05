@@ -13,6 +13,11 @@ Two drifts are repaired here, deterministically and idempotently:
    (`webhook_handlers.dispatch_event`) that live intake uses, so a
    reprocessed event behaves bit-for-bit like a live one.
 
+Dead-letter policy: events that remain unprocessed after 24h are permanently
+unresolvable (malformed payload, forged probe, or permanently missing
+upstream entity). They are marked processed with a dead-letter error so the
+health check and worker stop retrying them indefinitely.
+
 Transaction boundary — documented exception to "services never commit":
 this sweep COMMITS per repaired unit. `dispatch_event` rolls the whole
 session back when a handler fails, so batching the sweep into one commit
@@ -24,6 +29,8 @@ database is a no-op apart from that audit row.
 The sweep is operator-triggered (POST /api/v1/recovery/reconcile) — there is
 no background scheduler in v1; the worker tier is P2 (ADR 0009/0011).
 """
+
+from datetime import timedelta
 
 from dataclasses import asdict, dataclass
 
@@ -41,12 +48,19 @@ from app.services.recovery.webhook_handlers import dispatch_event
 
 logger = get_logger(__name__)
 
+#: Events unprocessed for longer than this are dead-lettered on the next
+#: reconcile sweep. 24h is generous enough for delayed sync/late-arriving
+#: payments, but stops permanently broken events from retrying forever.
+_WEBHOOK_DEADLETTER_AGE = timedelta(hours=24)
+
 
 @dataclass(frozen=True)
 class ReconcileReport:
     """What one sweep did. `webhooks_reprocessed` counts events that are now
     processed=true; `webhooks_still_failing` counts events the sweep re-ran
-    that remain unprocessed (handler error or still-unresolvable note)."""
+    that remain unprocessed (handler error or still-unresolvable note);
+    `webhooks_dead_lettered` counts events older than the dead-letter window
+    that were permanently marked processed."""
 
     sweep_id: str
     unknown_scanned: int = 0
@@ -54,6 +68,7 @@ class ReconcileReport:
     still_unknown: int = 0
     webhooks_reprocessed: int = 0
     webhooks_still_failing: int = 0
+    webhooks_dead_lettered: int = 0
 
 
 def run_reconciliation(
@@ -94,6 +109,9 @@ def run_reconciliation(
             resolved += 1
 
     # (ii) failed webhook events -> re-run through the same handler registry.
+    #      Events older than the dead-letter window are permanently marked
+    #      processed so the health check and worker stop retrying them.
+    deadletter_cutoff = utcnow() - _WEBHOOK_DEADLETTER_AGE
     failed_events = list(
         db.scalars(
             sa.select(WebhookEvent)
@@ -103,7 +121,15 @@ def run_reconciliation(
     )
     webhooks_reprocessed = 0
     webhooks_still_failing = 0
+    webhooks_dead_lettered = 0
     for event in failed_events:
+        if event.received_at < deadletter_cutoff:
+            event.processed = True
+            event.processed_at = utcnow()
+            event.error = "dead-lettered: unresolved after retry window"
+            db.commit()
+            webhooks_dead_lettered += 1
+            continue
         processed, detail = dispatch_event(db, event.event_type, event.payload)
         event.processed = processed
         event.processed_at = utcnow()
@@ -121,6 +147,7 @@ def run_reconciliation(
         still_unknown=still_unknown,
         webhooks_reprocessed=webhooks_reprocessed,
         webhooks_still_failing=webhooks_still_failing,
+        webhooks_dead_lettered=webhooks_dead_lettered,
     )
     audit.record(
         db,

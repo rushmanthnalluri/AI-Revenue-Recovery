@@ -36,6 +36,22 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Providers>
           <AppShell>{children}</AppShell>
         </Providers>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              // Suppress known devtools/extension performance observer errors that
+              // do not originate from application code (e.g. React DevTools
+              // reportAllChanges accessing undefined PerformanceEntry.startTime).
+              window.addEventListener('error', function(event) {
+                var msg = (event.message || '').trim();
+                if (msg.indexOf('startTime') !== -1 && event.filename === '') {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }
+              });
+            `,
+          }}
+        />
       </body>
     </html>
   );
