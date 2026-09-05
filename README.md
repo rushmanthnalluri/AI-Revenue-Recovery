@@ -5,7 +5,7 @@
 ![Next.js](https://img.shields.io/badge/Next.js-15-black)
 ![Tests](https://img.shields.io/badge/tests-678%20%2B%207%20e2e-brightgreen)
 
-**AI payment reliability & revenue recovery engine** — Razorpay AI Buildathon, Track 03.
+**AI payment reliability & revenue recovery engine**
 
 Probabilistic AI proposes. Deterministic policy decides. Every quantitative claim is independently falsifiable.
 
