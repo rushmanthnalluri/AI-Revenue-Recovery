@@ -77,6 +77,7 @@ from app.models.base import (
 from app.ports import ActionType, RecoveryStatus
 from app.services.policy import audit
 from app.services.razorpay.factory import use_simulator
+from app.services.recovery.outcomes import record_outcome_observation
 
 logger = get_logger(__name__)
 
@@ -390,6 +391,14 @@ def _mark_action(
             request_id=request_id_ctx.get(),
             environment=action.environment or ENVIRONMENT_RESEARCH,
         )
+    )
+    record_outcome_observation(
+        db,
+        action,
+        status,
+        source="webhook",
+        observed_at=now,
+        evidence={"trigger": trigger, "from_status": from_status.value},
     )
     logger.info(
         "recovery action verification update",

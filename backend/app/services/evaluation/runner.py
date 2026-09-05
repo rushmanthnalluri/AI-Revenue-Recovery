@@ -81,6 +81,7 @@ from app.models import (
     PaymentEvent,
     PolicyDecisionRecord,
     RecoveryAction,
+    RecoveryOutcomeObservation,
     RecoveryOpportunity,
     RecoveryStrategy,
     SimulatorGroundTruth,
@@ -106,6 +107,13 @@ from app.services.evaluation.outcomes import ASSUMPTIONS, OutcomeModel, measure_
 from app.services.policy.config import PolicyConfigError, load_policy_config
 from app.services.razorpay.simulated import SimulatedPaymentGateway
 from app.services.recovery import OpportunityBuilder, RecoveryExecutor, StrategyGenerator
+from app.services.recovery.outcomes import (
+    FULL_CONFIDENCE_SAMPLE,
+    MIN_CELL,
+    _resolve_failure_class,
+)
+from app.services.revenue.config import DEFAULT_CONFIG
+from app.services.revenue.statistics import wilson_interval
 from app.services.revenue.classify import FailureClass, classify_failure
 from app.simulator.cli import make_session
 from app.simulator.config import SCENARIOS, SimulatorConfig
@@ -686,6 +694,7 @@ class EvaluationRunner:
                     if holdout_fraction > 0.0
                     else None
                 )
+                recovery["measured_action_outcomes"] = self._measure_action_outcomes(db)
 
             failed_amount = sum(f.amount_paise for f in scope)
             metrics: dict[str, Any] = {
@@ -740,6 +749,69 @@ class EvaluationRunner:
         return scope
 
     # -- pulsecover: scheduled detection passes --------------------------
+
+    @staticmethod
+    def _measure_action_outcomes(db: Session) -> dict[str, Any]:
+        """Persistable matrix of outcomes observed in this scratch arm.
+
+        This is explicitly harness evidence, not production learning data:
+        the simulator world and its measured outcome generator never feed
+        real_test decisioning. Counts come from durable observations so the
+        matrix uses the same action/outcome definitions as the live evidence
+        service.
+        """
+        observations = list(
+            db.scalars(
+                sa.select(RecoveryOutcomeObservation)
+                .where(RecoveryOutcomeObservation.environment == "research")
+                .order_by(RecoveryOutcomeObservation.observed_at, RecoveryOutcomeObservation.id)
+            )
+        )
+        opportunity_ids = {row.opportunity_id for row in observations}
+        opportunities = {
+            row.id: row
+            for row in db.scalars(
+                sa.select(RecoveryOpportunity).where(RecoveryOpportunity.id.in_(opportunity_ids))
+            )
+        } if opportunity_ids else {}
+        payment_ids = {row.payment_id for row in opportunities.values() if row.payment_id}
+        payments = {
+            row.id: row
+            for row in db.scalars(sa.select(Payment).where(Payment.id.in_(payment_ids)))
+        } if payment_ids else {}
+
+        counts: dict[tuple[ActionType, str], dict[str, int]] = {}
+        for row in observations:
+            opportunity = opportunities.get(row.opportunity_id)
+            payment = payments.get(opportunity.payment_id) if opportunity and opportunity.payment_id else None
+            failure_class, _ = _resolve_failure_class(payment, opportunity, DEFAULT_CONFIG)
+            key = (row.action_type, failure_class.value)
+            cell = counts.setdefault(key, {"executed": 0, "recovered": 0, "failed": 0, "unknown": 0})
+            cell["executed"] += 1
+            cell[row.observed_status.value.lower()] += 1
+
+        cells: list[dict[str, Any]] = []
+        for (action_type, failure_class), cell in sorted(counts.items(), key=lambda item: (item[0][0].value, item[0][1])):
+            denominator = cell["recovered"] + cell["failed"]
+            low, high = wilson_interval(cell["recovered"], denominator)
+            cells.append({
+                "action_type": action_type.value,
+                "failure_class": failure_class,
+                **cell,
+                "verified_denominator": denominator,
+                "rate_recovered": round(cell["recovered"] / denominator, 6) if denominator else None,
+                "wilson_low": round(low, 6),
+                "wilson_high": round(high, 6),
+                "low_confidence": denominator < MIN_CELL,
+                "sample_confidence": rate_confidence(denominator, FULL_CONFIDENCE_SAMPLE),
+            })
+        return {
+            "provenance": "measured_in_harness",
+            "environment": "research",
+            "definition": "durable action outcome observations; UNKNOWN excluded from verified denominator",
+            "min_cell": MIN_CELL,
+            "cells": cells,
+        }
 
     def _detect(self, db: Session, gt: list[GroundTruthIncident]) -> dict[str, Any]:
         anchor = latest_event_anchor(db)

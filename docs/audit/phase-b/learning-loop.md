@@ -20,6 +20,16 @@ Short answer: **Yes, and the evidence vertex is now implemented.** The outcome s
 4. **Holdout organic rates.** Pre-registered deterministic customer-level holdout (holdout.py:47-64, fraction 0.10 at holdout.py:35) with ITT lift and Newcombe CIs (holdout.py:89-103), plus class-adjusted lift and per-stratum rates (flows-recovery-evaluation.md:229). Organic `no_action` self-resolution is measured on both groups through the real webhook path (flows-recovery-evaluation.md:229). Current canonical result: **+0.59 pp ITT, CI crosses zero, labeled inconclusive** (phase-a-release-gate.md:45) — accepted truth, not re-litigated here.
 5. **Statistics utilities for honest small-n rates already exist.** `wilson_interval` with degenerate-input honesty (holdout.py:72-86), `rate_confidence` + `wilson_interval` in `app/services/revenue/statistics` (imported engine.py:39), and the `Estimate` honesty contract (`low_confidence`, `basis` string, `point=None` when no defensible point — types.py:14-64).
 
+6. **Durable observation record (B3).** `recovery_outcome_observations` is the
+	immutable evidence layer. It records `action_id`, `opportunity_id`, action
+	type, observed outcome, environment, `decision_at`, `observed_at`, policy
+	decision/version, gateway request id, source, and compact verification
+	evidence. The unique key `(action_id, observed_status)` makes repeated
+	webhook delivery, reconciliation, worker retries, and repeated reads
+	idempotent. A `FAILED -> RECOVERED` lifecycle intentionally produces two
+	observations with distinct outcome states and timestamps; the original
+	decision time is never rewritten.
+
 ### 1b. Where hand-set priors still decide live behavior
 
 1. **Recoverability table** — `RevenueConfig.recoverability` (config.py:68-89): TIMEOUT 0.70, SOFT_DECLINE 0.60, ABANDONMENT 0.35, INSUFFICIENT_FUNDS 0.20, HARD_DECLINE 0.05, UNKNOWN 0.10. Module docstring: "a documented, deliberately conservative prior — not a measured fact" (config.py:3-4). Consumed by `opportunity_estimate` (engine.py:273) and `revenue_at_risk` recoverable allocation (engine.py:487-490).
@@ -46,7 +56,7 @@ Short answer: **Yes, and the evidence vertex is now implemented.** The outcome s
 | # | Candidate | Classification | Recommendation |
 |---|---|---|---|
 | C1 | Measured action-outcome aggregation service (per env, action_type × failure_class, Wilson CI, MIN_CELL fallback) | HIGH-VALUE | **IMPLEMENTED — EVIDENCE ONLY** |
-| C2 | Persist per-run action-outcome matrix in evaluation run metrics (scratch DB evidence leak) | HIGH-VALUE | **BUILD NOW** |
+| C2 | Persist per-run action-outcome matrix in evaluation run metrics (scratch DB evidence leak) | HIGH-VALUE | **IMPLEMENTED — HARNESS EVIDENCE ONLY** |
 | C3 | Measured-rate override of the recoverability×effectiveness product in `opportunity_estimate`, env-scoped, prior fallback + honesty label | HIGH-VALUE | **BUILD NOW** (research env first) |
 | C4 | Organic-baseline subtraction (incremental, not raw, conversion as the feedback signal) | HIGH-VALUE | **BUILD NOW** (bundled with C3) |
 | C5 | Cross-run drift monitoring of measured rates | POSSIBLE | BUILD LATER |
@@ -178,6 +188,14 @@ Short answer: **Yes, and the evidence vertex is now implemented.** The outcome s
 
 ## 4. Verdict
 
-**CURRENT SLICE:** C1 + C4 are implemented as a read-only evidence API; no ranking or policy behavior changes yet. **BUILD NEXT:** C2 persistence of the harness action-outcome matrix, followed by a separately gated C3 decision-support override only when same-environment cells have sufficient sample size and a non-zero incremental CI. **BUILD LATER:** C5 drift monitoring, C6 in-harness closed-loop validation (the Phase-B capstone demo). **REJECT:** C7 (prior laundering), C8 (decorative ML at this n), C9 (unsafe exploration), C10 (no data).
+**CURRENT SLICE:** C1 + C4 are implemented as a read-only evidence API, B3
+adds durable, idempotent outcome observations, and C2 persists the evaluation
+harness matrix with explicit `measured_in_harness` / `research` provenance. No
+ranking or policy behavior changes yet. **BUILD NEXT:** a separately gated C3
+decision-support contract only when same-environment cells have sufficient
+sample size and a non-zero incremental CI. **BUILD LATER:** C5 drift monitoring,
+C6 in-harness closed-loop validation
+(the Phase-B capstone demo). **REJECT:** C7 (prior laundering), C8 (decorative
+ML at this n), C9 (unsafe exploration), C10 (no data).
 
 Strongest single candidate: **C3** — it is the assignment's own hypothesis, it is the only candidate that changes a live decision, and its risks are all bounded by construction: the policy gate still authorizes every action, confidence math is untouched, the fallback makes the zero-data state honest, and the prior path remains byte-identical under regression test until measured evidence earns the override.

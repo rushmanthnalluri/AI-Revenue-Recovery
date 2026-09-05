@@ -31,6 +31,7 @@ from app.models.evaluation import (
     SimulatorRun,
 )
 from app.models.incidents import Diagnosis, Incident, IncidentEvidence
+from app.models.learning import RecoveryOutcomeObservation
 from app.models.notification import NotificationOutbox
 from app.models.recovery import (
     PolicyDecisionRecord,
@@ -50,6 +51,7 @@ __all__ = [
     "Subscription",
     "Incident",
     "IncidentEvidence",
+    "RecoveryOutcomeObservation",
     "Diagnosis",
     "RecoveryOpportunity",
     "RecoveryStrategy",

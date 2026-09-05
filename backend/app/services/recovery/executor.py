@@ -78,6 +78,7 @@ from app.services.razorpay.errors import (
     GatewayTransientError,
 )
 from app.services.recovery.strategies import StrategyGenerator
+from app.services.recovery.outcomes import record_outcome_observation
 
 logger = get_logger(__name__)
 
@@ -1157,6 +1158,14 @@ class RecoveryExecutor:
             request_id=request_id,
         )
         entry.environment = action.environment or ENVIRONMENT_RESEARCH
+        record_outcome_observation(
+            self._db,
+            action,
+            to,
+            source="executor_transition",
+            observed_at=now,
+            evidence={"from_status": frm.value if frm else None, "trigger": "executor"},
+        )
         if action.opportunity is not None:
             self._sync_opportunity(action.opportunity, action)
         logger.info(

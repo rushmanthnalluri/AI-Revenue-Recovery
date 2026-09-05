@@ -40,3 +40,10 @@ def test_opportunity_types_breakdown_is_persisted(db_session):
     # The canonical split's lanes are present (claim-matrix 4.7).
     assert "failed_payment_retry" in types
     assert "stuck_checkout_payment" in types
+
+    matrix = pulsecover["measured_action_outcomes"]
+    assert matrix["provenance"] == "measured_in_harness"
+    assert matrix["environment"] == "research"
+    assert matrix["min_cell"] == 30
+    assert sum(cell["executed"] for cell in matrix["cells"]) == pulsecover["interventions_count"]
+    assert all(cell["low_confidence"] for cell in matrix["cells"])

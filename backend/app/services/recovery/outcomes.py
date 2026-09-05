@@ -29,8 +29,9 @@ confidence level matches the rest of the repo (Wilson z = 1.96, Newcombe z
 = 1.959963985 in ``app.services.evaluation.holdout``).
 
 This service is read-only — it never mutates ``recovery_actions`` or
-``payments``. Its outputs feed the C3 override in ``opportunity_estimate``;
-the engine-side branch is byte-identical on the prior fallback path.
+``payments``. Its outputs are evidence-only today; strategy ranking and the
+policy gate remain on their documented prior/configuration paths until a
+separately gated decision-support slice is proven.
 """
 
 from __future__ import annotations
@@ -45,9 +46,9 @@ from sqlalchemy.orm import Session
 from app.db import utcnow
 from app.models.base import source_types_for_environment
 from app.models.commerce import Payment
-from app.models.recovery import RecoveryAction, RecoveryOpportunity
+from app.models.learning import RecoveryOutcomeObservation
+from app.models.recovery import PolicyDecisionRecord, RecoveryAction, RecoveryOpportunity
 from app.ports import ActionType, RecoveryStatus
-from app.services.evaluation.holdout import newcombe_ci
 from app.services.revenue.classify import FailureClass, classify_failure
 from app.services.revenue.config import DEFAULT_CONFIG, RevenueConfig
 from app.services.revenue.statistics import rate_confidence, wilson_interval
@@ -68,6 +69,60 @@ PROVENANCE = "measured_from_action_outcomes"
 
 # Wilson z mirrored from app/services/revenue/config.py (two-sided 95%).
 WILSON_Z = 1.96
+
+OBSERVED_OUTCOME_STATUSES = frozenset(
+    {RecoveryStatus.RECOVERED, RecoveryStatus.FAILED, RecoveryStatus.UNKNOWN}
+)
+
+
+def record_outcome_observation(
+    db,
+    action: RecoveryAction,
+    status: RecoveryStatus,
+    *,
+    source: str,
+    observed_at: datetime | None = None,
+    evidence: dict | None = None,
+) -> RecoveryOutcomeObservation | None:
+    """Persist the first observation of one action outcome state.
+
+    Duplicate webhooks, reconciliation, and repeated verification are no-ops
+    because the database uniqueness key is ``(action_id, observed_status)``.
+    """
+    if status not in OBSERVED_OUTCOME_STATUSES:
+        return None
+    existing = db.scalar(
+        sa.select(RecoveryOutcomeObservation).where(
+            RecoveryOutcomeObservation.action_id == action.id,
+            RecoveryOutcomeObservation.observed_status == status,
+        )
+    )
+    if existing is not None:
+        return existing
+
+    decision = (
+        db.get(PolicyDecisionRecord, action.policy_decision_id)
+        if action.policy_decision_id
+        else None
+    )
+    decision_at = action.decided_at or action.proposed_at
+    observation = RecoveryOutcomeObservation(
+        action_id=action.id,
+        opportunity_id=action.opportunity_id,
+        action_type=action.action_type,
+        observed_status=status,
+        decision_at=decision_at,
+        observed_at=observed_at or utcnow(),
+        policy_decision_id=action.policy_decision_id,
+        policy_version=decision.policy_version if decision else None,
+        gateway_request_id=action.gateway_request_id,
+        source=source,
+        evidence=dict(evidence or {}),
+        environment=action.environment or "research",
+    )
+    db.add(observation)
+    db.flush()
+    return observation
 
 
 @dataclass(frozen=True)
@@ -285,22 +340,21 @@ def rate_action_outcomes(
     start = _window_start(end, days)
     cfg = config if config is not None else DEFAULT_CONFIG
 
-    ts = sa.func.coalesce(RecoveryAction.verified_at, RecoveryAction.completed_at)
     stmt = (
-        sa.select(RecoveryAction)
+        sa.select(RecoveryOutcomeObservation)
         .where(
-            RecoveryAction.environment == environment,
-            ts >= start,
-            ts < end,
-            RecoveryAction.status.in_(
+            RecoveryOutcomeObservation.environment == environment,
+            RecoveryOutcomeObservation.observed_at >= start,
+            RecoveryOutcomeObservation.observed_at < end,
+            RecoveryOutcomeObservation.observed_status.in_(
                 (RecoveryStatus.RECOVERED, RecoveryStatus.FAILED, RecoveryStatus.UNKNOWN)
             ),
         )
-        .order_by(ts)
+        .order_by(RecoveryOutcomeObservation.observed_at, RecoveryOutcomeObservation.id)
     )
-    actions = list(db.scalars(stmt))
+    observations = list(db.scalars(stmt))
 
-    opportunity_ids = {a.opportunity_id for a in actions}
+    opportunity_ids = {o.opportunity_id for o in observations}
     opportunities_by_id = {}
     if opportunity_ids:
         opportunities_by_id = {
@@ -323,21 +377,21 @@ def rate_action_outcomes(
     counts = defaultdict(lambda: {"executed": 0, "recovered": 0, "failed": 0, "unknown": 0})
     class_source = {}
 
-    for action in actions:
-        opportunity = opportunities_by_id.get(action.opportunity_id)
+    for observation in observations:
+        opportunity = opportunities_by_id.get(observation.opportunity_id)
         payment = (
             payments_by_id.get(opportunity.payment_id)
             if opportunity is not None and opportunity.payment_id
             else None
         )
         cls, source = _resolve_failure_class(payment, opportunity, cfg)
-        key = (action.action_type, cls)
+        key = (observation.action_type, cls)
         counts[key]["executed"] += 1
-        if action.status is RecoveryStatus.RECOVERED:
+        if observation.observed_status is RecoveryStatus.RECOVERED:
             counts[key]["recovered"] += 1
-        elif action.status is RecoveryStatus.FAILED:
+        elif observation.observed_status is RecoveryStatus.FAILED:
             counts[key]["failed"] += 1
-        elif action.status is RecoveryStatus.UNKNOWN:
+        elif observation.observed_status is RecoveryStatus.UNKNOWN:
             counts[key]["unknown"] += 1
         class_source.setdefault(key, source)
 
@@ -508,6 +562,10 @@ def combine_incremental(action):
     must keep the prior in that case rather than let the noise move the
     ranking.
     """
+    # Import lazily: evaluation.holdout imports the evaluation runner, whose
+    # webhook composition root imports this recovery module.
+    from app.services.evaluation.holdout import newcombe_ci
+
     organic_by_cls = {cell.failure_class: cell for cell in action.organic}
     incremental = []
     for cell in action.cells:
@@ -584,4 +642,5 @@ __all__ = [
     "combine_incremental",
     "compute_organic_rates",
     "rate_action_outcomes",
+    "record_outcome_observation",
 ]
