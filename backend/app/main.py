@@ -44,6 +44,20 @@ MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 API_KEY_EXEMPT_PREFIXES = ("/api/v1/demo", "/api/v1/detection")
 RATE_LIMITS = {"webhooks": (120, 60.0), "mutating": (60, 60.0)}  # (count, window_s)
 
+# Startup-ready flag: /healthz returns 200 only after the app is fully
+# initialized (routers registered, worker started, DB reachable). Render's
+# liveness probe must not route traffic to a half-started instance.
+_app_ready = False
+
+
+def mark_ready() -> None:
+    global _app_ready
+    _app_ready = True
+
+
+def is_ready() -> bool:
+    return _app_ready
+
 
 def _error(status: int, code: str, message: str, request_id: str | None = None) -> JSONResponse:
     return JSONResponse(
@@ -163,9 +177,13 @@ async def _lifespan(app: FastAPI):
     and one-shot scripts build apps that never spawn the tick loop."""
     supervisor = None
     if settings.WORKER_ENABLED:
-        supervisor = await start_worker(
-            settings, session_factory=SessionLocal, gateway=get_gateway(settings)
-        )
+        try:
+            supervisor = await start_worker(
+                settings, session_factory=SessionLocal, gateway=get_gateway(settings)
+            )
+        except Exception as exc:
+            logger.exception("worker startup failed")
+    mark_ready()
     try:
         yield
     finally:
@@ -227,6 +245,7 @@ def create_app() -> FastAPI:
         # No stack traces or internals leak to clients.
         return _error(500, "internal_error", "Internal server error.", request_id_ctx.get())
 
+    mark_ready()
     return app
 
 

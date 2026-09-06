@@ -89,6 +89,10 @@ engine = sa.create_engine(
     _normalize_url(settings.DATABASE_URL),
     connect_args=_connect_args(settings.DATABASE_URL),
     pool_pre_ping=True,
+    pool_recycle=300,
+    pool_size=5,
+    max_overflow=0,
+    pool_timeout=10,
 )
 enable_sqlite_fk(engine)
 

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app import __version__
 from app.config import settings
 from app.db import get_db, utcnow
+from app.main import is_ready
 from app.models import WebhookEvent
 from app.schemas.common import ComponentHealth, HealthResponse, SystemHealth
 from app.services.policy.config import load_policy_config
@@ -34,6 +35,8 @@ def _aggregate_status(checks: dict[str, ComponentHealth]) -> str:
 
 @router.get("/healthz", response_model=HealthResponse)
 def healthz() -> HealthResponse:
+    if not is_ready():
+        return HealthResponse(status="starting")
     return HealthResponse(status="ok")
 
 
